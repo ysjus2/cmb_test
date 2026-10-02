@@ -1,0 +1,8 @@
+이 폴더 내부의 파일과 폴더 전체를 GitHub 저장소 루트에 업로드하세요.
+
+반드시 포함:
+.github/
+app/
+build.gradle
+settings.gradle
+README.md
