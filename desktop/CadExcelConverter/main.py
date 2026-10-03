@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v2.1"
+APP_NAME = "CAD → Excel 레이어 변환기 v2.2"
 
 class App(tk.Tk):
     def __init__(self):
@@ -38,7 +38,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v2.1",
+            text="CAD → Excel 레이어 변환기 v2.2",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -278,10 +278,9 @@ class App(tk.Tk):
             return "break"
 
         # 3) 일반 행 클릭:
-        #    현재 파란 선택 그룹 밖의 항목을 클릭하면 기존 파란 선택은 모두 해제.
-        #    클릭한 항목은 다음 Shift 범위의 기준점(anchor)만 된다.
-        if iid not in self.highlighted_iids:
-            self._highlight_items([])
+        #    항상 클릭한 행 하나를 즉시 파란색으로 표시하고 새 Shift 기준점으로 지정.
+        #    다른 항목을 일반 클릭하면 기존 파란 선택은 해제되고 새 행만 파란색이 된다.
+        self._highlight_items([iid])
         self.last_checked_iid = iid
         return "break"
 
