@@ -42,12 +42,31 @@ jobs:
             --collect-all ezdxf `
             main.py
 
+      - name: Download bundled LibreDWG engine
+        shell: powershell
+        run: |
+          $url = "https://github.com/LibreDWG/libredwg/releases/download/0.14/libredwg-0.14-win64.zip"
+          Invoke-WebRequest -Uri $url -OutFile "libredwg-win64.zip"
+          New-Item -ItemType Directory -Force -Path "libredwg-engine" | Out-Null
+          Expand-Archive -Path "libredwg-win64.zip" -DestinationPath "libredwg-engine" -Force
+          $dwgread = Get-ChildItem -Path "libredwg-engine" -Recurse -Filter "dwgread.exe" | Select-Object -First 1
+          if (-not $dwgread) { throw "dwgread.exe not found in LibreDWG package" }
+          & $dwgread.FullName --version
+
       - name: Package
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path package | Out-Null
+          New-Item -ItemType Directory -Force -Path "package" | Out-Null
           Copy-Item "dist\CAD_Excel_Converter.exe" "package\CAD_Excel_Converter.exe"
           Copy-Item "README.md" "package\README.txt"
+          Copy-Item "libredwg-engine" "package\libredwg" -Recurse
+          @"
+          Bundled DWG engine: GNU LibreDWG 0.14
+          Project: https://www.gnu.org/software/libredwg/
+          Source: https://github.com/LibreDWG/libredwg/tree/0.14
+          License: GNU GPL v3 or later.
+          LibreDWG runs as a separate command-line converter process.
+          "@ | Set-Content -Encoding UTF8 "package\THIRD_PARTY_LICENSES.txt"
           Compress-Archive -Path "package\*" -DestinationPath "CAD_Excel_Converter_Windows_x64.zip" -Force
 
       - name: Upload
