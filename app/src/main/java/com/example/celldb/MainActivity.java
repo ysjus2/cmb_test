@@ -21,6 +21,9 @@ public class MainActivity extends Activity {
     private LinearLayout listBox;
     private TextView summary;
     private CadRecord editing;
+    private final java.util.concurrent.ExecutorService worker=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private boolean destroyed;
+    private Button importBtn;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -49,6 +52,10 @@ public class MainActivity extends Activity {
     private void buildUi(){
         LinearLayout root=new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
+        root.setOnApplyWindowInsetsListener((view,insets)->{
+            view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         root.setBackgroundColor(Color.rgb(246,247,249));
 
         TextView header=new TextView(this);
@@ -62,7 +69,7 @@ public class MainActivity extends Activity {
 
         LinearLayout top=new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
-        Button importBtn=button("CAD Excel 불러오기");
+        importBtn=button("CAD Excel 불러오기");
         Button mapBtn=button("지도 보기");
         top.addView(importBtn,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
         top.addView(mapBtn,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
@@ -74,7 +81,7 @@ public class MainActivity extends Activity {
             i.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             startActivityForResult(i,REQ_XLSX);
         });
-        mapBtn.setOnClickListener(v -> startActivity(new Intent(this,MapActivity.class)));
+        mapBtn.setOnClickListener(v -> finish());
 
         ScrollView scroll=new ScrollView(this);
         LinearLayout body=new LinearLayout(this);
@@ -141,15 +148,29 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode,resultCode,data);
         if(requestCode!=REQ_XLSX || resultCode!=RESULT_OK || data==null || data.getData()==null) return;
         Uri uri=data.getData();
-        try{
-            ArrayList<CadRecord> imported=XlsxCadImporter.read(this,uri);
-            db.replaceCadRows(imported);
-            Toast.makeText(this,"CAD 데이터 "+imported.size()+"건을 불러왔습니다.",Toast.LENGTH_LONG).show();
-            refresh();
-        }catch(Exception e){
-            Toast.makeText(this,"Excel 불러오기 오류: "+e.getMessage(),Toast.LENGTH_LONG).show();
-        }
+        importBtn.setEnabled(false);
+        worker.execute(()->{
+            try {
+                ArrayList<CadRecord> imported=XlsxCadImporter.read(this,uri);
+                if(destroyed) return;
+                db.replaceCadRows(imported);
+                runOnUiThread(()->{
+                    if(destroyed) return;
+                    importBtn.setEnabled(true);
+                    Toast.makeText(this,"CAD 데이터 "+imported.size()+"건을 불러왔습니다.",Toast.LENGTH_LONG).show();
+                    refresh();
+                });
+            } catch(Exception e) {
+                runOnUiThread(()->{
+                    if(destroyed) return;
+                    importBtn.setEnabled(true);
+                    Toast.makeText(this,"Excel 불러오기 오류: "+e.getMessage(),Toast.LENGTH_LONG).show();
+                });
+            }
+        });
     }
+
+    @Override protected void onDestroy(){ destroyed=true; worker.shutdownNow(); super.onDestroy(); }
 
     private void saveRecord(){
         String cat=(String)category.getSelectedItem();
@@ -160,6 +181,7 @@ public class MainActivity extends Activity {
         }
 
         CadRecord r=new CadRecord();
+        if(editing!=null) { r.fields.putAll(editing.fields); r.layer=editing.layer; r.sequence=editing.sequence; }
         r.category=cat;
         r.id=rid;
         r.name=name.getText().toString().trim();
@@ -172,6 +194,9 @@ public class MainActivity extends Activity {
         }catch(Exception e){
             Toast.makeText(this,"경도/위도를 확인해주세요.",Toast.LENGTH_SHORT).show();
             return;
+        }
+        if(!r.hasCoordinates()) {
+            Toast.makeText(this,"경도는 -180~180, 위도는 -90~90 범위로 입력해주세요.",Toast.LENGTH_LONG).show(); return;
         }
         if(("FIBER".equals(cat)||"COAX".equals(cat)) && editing!=null) r.sequence=editing.sequence;
         r.fields.put("비고",note.getText().toString().trim());
@@ -198,7 +223,7 @@ public class MainActivity extends Activity {
         subtype.setText(r.subtype);
         longitude.setText(r.hasCoordinates()?Double.toString(r.longitude):"");
         latitude.setText(r.hasCoordinates()?Double.toString(r.latitude):"");
-        note.setText(r.fields.getOrDefault("비고",""));
+        note.setText(r.fields.containsKey("비고") ? r.fields.get("비고") : "");
         Toast.makeText(this,"수정 모드: "+r.title(),Toast.LENGTH_SHORT).show();
     }
 
@@ -224,7 +249,7 @@ public class MainActivity extends Activity {
         ArrayList<CadRecord> all=db.loadAll();
         LinkedHashMap<String,Integer> counts=new LinkedHashMap<>();
         for(String c:categories) counts.put(c,0);
-        for(CadRecord r:all) counts.put(r.category,counts.getOrDefault(r.category,0)+1);
+        for(CadRecord r:all) counts.put(r.category,(counts.containsKey(r.category)?counts.get(r.category):0)+1);
 
         summary.setText("전체 "+all.size()+"건  ·  CELL "+counts.get("CELL")
                 +" / 시설 "+counts.get("FACILITY")

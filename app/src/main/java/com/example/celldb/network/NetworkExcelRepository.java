@@ -13,6 +13,18 @@ public final class NetworkExcelRepository {
 
     public static NetworkData read(InputStream in) throws Exception {
         Map<String, SimpleXlsxReader.Sheet> sheets = SimpleXlsxReader.read(in);
+        validateSheets(sheets);
+        NetworkData data = new NetworkData();
+
+        readCell(sheets.get("CELL"), data);
+        readFacility(sheets.get("FACILITY"), data);
+        readEquipment(sheets.get("EQUIPMENT"), data);
+        data.fiber.addAll(readLines(sheets.get("FIBER"), data));
+        data.coax.addAll(readLines(sheets.get("COAX"), data));
+        return data;
+    }
+
+    public static void validateSheets(Map<String, SimpleXlsxReader.Sheet> sheets) throws java.io.IOException {
         for (String name : new String[]{"CELL", "FACILITY", "EQUIPMENT", "FIBER", "COAX"}) {
             SimpleXlsxReader.Sheet sheet = sheets.get(name);
             if (sheet == null || sheet.rows.isEmpty()) throw new java.io.IOException(name + " 시트가 없습니다.");
@@ -25,14 +37,6 @@ public final class NetworkExcelRepository {
             if ((name.equals("FIBER") || name.equals("COAX")) && !columns.containsKey("순번"))
                 throw new java.io.IOException(name + " 시트에 순번 열이 없습니다.");
         }
-        NetworkData data = new NetworkData();
-
-        readCell(sheets.get("CELL"), data);
-        readFacility(sheets.get("FACILITY"), data);
-        readEquipment(sheets.get("EQUIPMENT"), data);
-        data.fiber.addAll(readLines(sheets.get("FIBER"), data));
-        data.coax.addAll(readLines(sheets.get("COAX"), data));
-        return data;
     }
 
     private static Map<String,Integer> header(List<String> row) {
