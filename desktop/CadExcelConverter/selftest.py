@@ -5,6 +5,7 @@ import ezdxf
 from openpyxl import load_workbook
 
 from converter import scan_layers, convert_selected_layers
+from viewer import build_scene
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
@@ -43,6 +44,11 @@ def main():
         doc.saveas(dxf)
 
         layers = scan_layers(str(dxf))
+        scene = build_scene(str(dxf))
+        assert len(scene.entities) == 5, len(scene.entities)
+        assert scene.bbox[0] < scene.bbox[2]
+        assert any(e.entity_type == "INSERT" for e in scene.entities)
+        assert any(e.entity_type == "LWPOLYLINE" for e in scene.entities)
         names = {x.name: x for x in layers}
         assert "CN_L_Pole_Pole-Joint" in names
         assert names["CN_F_Cable_FOC"].count == 1
