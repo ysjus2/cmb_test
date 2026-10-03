@@ -17,6 +17,7 @@ import com.kakao.vectormap.label.LabelLayerOptions;
 import com.kakao.vectormap.label.LabelOptions;
 import com.kakao.vectormap.label.LabelStyle;
 import com.kakao.vectormap.label.LabelStyles;
+import com.kakao.vectormap.label.LabelTextBuilder;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +70,7 @@ final class KakaoMapRenderer implements MapRenderer {
                     map.setOnLabelClickListener((clickedMap, layer, label) -> {
                         Runnable action = clickActions.get(label.getLabelId());
                         if (action != null) view.post(action);
+                        return action != null;
                     });
                     onReady.run();
                 });
@@ -86,7 +88,8 @@ final class KakaoMapRenderer implements MapRenderer {
     public void addOnuMarker(MapPoint p, String title, Runnable onClick) {
         if (map == null) return;
         String id = "onu-" + nextId++;
-        onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(onuStyle).setTexts(title).setClickable(true));
+        onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(onuStyle)
+                .setTexts(new LabelTextBuilder().setTexts(title)).setClickable(true));
         clickActions.put(id, onClick);
     }
 
