@@ -1,4 +1,10 @@
-# 셀 위치 DB Android 앱
+# CAD Network Android 앱
+
+현재 버전은 CAD 변환 지역 Excel을 읽는 네트워크 관리 앱입니다.
+설치 패키지는 `com.ysjus2.cadnetwork`이며 고정 서명 release APK를 빌드합니다.
+지역 파일 선택, 지도 레이어 및 편집 방법은 [CAD_NETWORK_USAGE.md](CAD_NETWORK_USAGE.md),
+서명 설정은 [SIGNING_SETUP.md](SIGNING_SETUP.md)를 참고하세요.
+아래 ONU/CSV 안내는 초기 버전에 해당합니다.
 
 이 저장소는 GitHub Actions에서 Android APK를 자동 생성하도록 구성되어 있습니다.
 

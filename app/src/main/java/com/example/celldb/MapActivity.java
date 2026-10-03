@@ -151,6 +151,7 @@ public class MapActivity extends Activity {
                     }));
             }
             loadMarkers();
+            if (!boundsPoints.isEmpty()) map.getView().post(() -> { if (!destroyed) showAll(); });
         }, message -> {
             mapError = message;
             status.setText(message);

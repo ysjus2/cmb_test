@@ -210,6 +210,14 @@ public class MainActivity extends Activity {
         r.fields.put("비고",note.getText().toString().trim());
         r.fields.put("경도",Double.toString(r.longitude));
         r.fields.put("위도",Double.toString(r.latitude));
+        if("CELL".equals(cat)) {
+            r.fields.put("셀번호",r.id); r.fields.put("셀명",r.name); r.fields.put("셀구분",r.subtype);
+        } else if("FACILITY".equals(cat)||"EQUIPMENT".equals(cat)) {
+            r.fields.put("FACILITY".equals(cat)?"시설ID":"장비ID",r.id);
+            r.fields.put("구분",r.name); r.fields.put("블록명",r.subtype);
+        } else {
+            r.fields.put("선로ID",r.id); r.fields.put("케이블명",r.name); r.fields.put("케이블ID",r.subtype);
+        }
 
         String oldKey=editing==null ? "__NEW__"+UUID.randomUUID() : editing.stableKey();
         try{
