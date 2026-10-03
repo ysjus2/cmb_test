@@ -599,7 +599,6 @@ class DXFViewer(ttk.Frame):
             try:
                 lon, lat = self.transformer.transform(wx, wy)
                 self.info_var.set(
-                    f"CAD(EPSG:{self.source_epsg}) X={wx:.3f}, Y={wy:.3f}  /  "
                     f"위도={lat:.7f}, 경도={lon:.7f}"
                 )
             except Exception as e:
