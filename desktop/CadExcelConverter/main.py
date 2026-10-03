@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기"
+APP_NAME = "CAD → Excel 레이어 변환기 v1.4"
 
 class App(tk.Tk):
     def __init__(self):
@@ -33,7 +33,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기",
+            text="CAD → Excel 레이어 변환기 v1.4",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
