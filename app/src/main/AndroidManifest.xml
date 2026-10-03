@@ -6,7 +6,8 @@
 
     <application
         android:allowBackup="true"
-        android:label="ONU 위치 DB"
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_cad_network"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
