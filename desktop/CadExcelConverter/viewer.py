@@ -392,6 +392,9 @@ class DXFViewer(ttk.Frame):
     def _build(self):
         bar = ttk.Frame(self)
         bar.pack(fill="x", pady=(0, 4))
+
+        button_frame = ttk.Frame(bar)
+        button_frame.pack(side="left")
         for text, cmd in [
             ("전체보기", self.fit_view),
             ("선택", lambda: self.set_mode("select")),
@@ -401,22 +404,32 @@ class DXFViewer(ttk.Frame):
             ("선택 해제", self.clear_selection),
             ("측정 지우기", self.clear_measure),
         ]:
-            ttk.Button(bar, text=text, command=cmd).pack(side="left", padx=(0, 4))
-        ttk.Label(bar, textvariable=self.status_var).pack(side="right")
+            ttk.Button(button_frame, text=text, command=cmd).pack(side="left", padx=(0, 4))
 
-        body = ttk.Panedwindow(self, orient="vertical")
-        body.pack(fill="both", expand=True)
+        # 상태/좌표/거리 정보는 Viewer 상단 우측에만 표시한다.
+        # 하단 정보창은 제거하여 Canvas 높이를 최대한 확보한다.
+        info_frame = ttk.Frame(bar)
+        info_frame.pack(side="right", fill="x", expand=True, padx=(12, 0))
+        ttk.Label(
+            info_frame,
+            textvariable=self.status_var,
+            anchor="e",
+            justify="right",
+        ).pack(fill="x")
+        ttk.Label(
+            info_frame,
+            textvariable=self.info_var,
+            anchor="e",
+            justify="right",
+        ).pack(fill="x")
 
-        canvas_frame = ttk.Frame(body)
         self.canvas = tk.Canvas(
-            canvas_frame, background="#171a1f", highlightthickness=0, cursor="crosshair"
+            self,
+            background="#171a1f",
+            highlightthickness=0,
+            cursor="crosshair",
         )
         self.canvas.pack(fill="both", expand=True)
-        body.add(canvas_frame, weight=5)
-
-        info = ttk.LabelFrame(body, text="선택 객체 / 측정 정보", padding=6)
-        ttk.Label(info, textvariable=self.info_var, justify="left").pack(anchor="w")
-        body.add(info, weight=1)
 
         self.canvas.bind("<Configure>", lambda e: self.redraw())
         self.canvas.bind("<MouseWheel>", self._wheel)
