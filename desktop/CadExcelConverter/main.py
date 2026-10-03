@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from converter import convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
 
-APP_NAME = "CMB DXF Viewer + Excel v3.3"
+APP_NAME = "CMB DXF Viewer + Excel v3.4"
 
 class App(tk.Tk):
     def __init__(self):
@@ -65,11 +65,16 @@ class App(tk.Tk):
         ttk.Button(form, text="찾기", command=self._pick_output).grid(row=1, column=2, padx=6, pady=(5, 0))
 
         ttk.Label(form, text="EPSG").grid(row=0, column=3, padx=(10, 4))
-        ttk.Combobox(
+        self.epsg_combo = ttk.Combobox(
             form, textvariable=self.epsg_var,
             values=["5174", "2097", "5181", "5179", "5186"],
             width=10,
-        ).grid(row=0, column=4)
+        )
+        self.epsg_combo.grid(row=0, column=4)
+        self.epsg_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda e: self.viewer.set_source_epsg(self.epsg_var.get())
+        )
         form.columnconfigure(1, weight=1)
 
         toolbar = ttk.Frame(root)
@@ -129,6 +134,7 @@ class App(tk.Tk):
         self.panes.add(right, minsize=500, stretch="always")
         self.viewer = DXFViewer(right)
         self.viewer.pack(fill="both", expand=True)
+        self.viewer.set_source_epsg(self.epsg_var.get())
 
         progress_frame = ttk.Frame(root)
         progress_frame.pack(fill="x", pady=(6, 4))
@@ -393,6 +399,7 @@ class App(tk.Tk):
                         self.visible_layers.add(layer.name)
                         self.checked_layers.add(layer.name)
                         self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
+                    self.viewer.set_source_epsg(self.epsg_var.get())
                     self.viewer.load_scene(scene)
                     self.viewer.set_visible_layers(self.visible_layers)
                     self.scan_btn.config(state="normal")
