@@ -18,6 +18,13 @@ import com.kakao.vectormap.label.LabelOptions;
 import com.kakao.vectormap.label.LabelStyle;
 import com.kakao.vectormap.label.LabelStyles;
 import com.kakao.vectormap.label.LabelTextBuilder;
+import com.kakao.vectormap.route.RouteLineLayer;
+import com.kakao.vectormap.route.RouteLineOptions;
+import com.kakao.vectormap.route.RouteLineSegment;
+import com.kakao.vectormap.route.RouteLineStyle;
+import com.kakao.vectormap.route.RouteLineStyles;
+import com.kakao.vectormap.route.RouteLineStylesSet;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,8 +38,13 @@ final class KakaoMapRenderer implements MapRenderer {
     private LabelStyles onuStyle;
     private LabelStyles locationStyle;
     private Label current;
+    private RouteLineLayer fiberLayer;
+    private RouteLineLayer coaxLayer;
+    private RouteLineStylesSet fiberStyles;
+    private RouteLineStylesSet coaxStyles;
     private boolean destroyed;
     private int nextId;
+    private int nextLineId;
 
     KakaoMapRenderer(Context context, String key) {
         KakaoMapSdk.init(context.getApplicationContext(), key);
@@ -50,23 +62,31 @@ final class KakaoMapRenderer implements MapRenderer {
                 if (!destroyed) view.post(() -> {
                     if (!destroyed) onError.accept("카카오 지도를 불러오지 못했습니다. 인터넷 연결 또는 앱 인증 설정을 확인해주세요.");
                 });
-                android.util.Log.e("OnuMap", "Kakao map initialization failed", error);
+                android.util.Log.e("CadMap", "Kakao map initialization failed", error);
             }
         }, new KakaoMapReadyCallback() {
             @Override public void onMapReady(KakaoMap readyMap) {
                 view.post(() -> {
                     if (destroyed) return;
                     map = readyMap;
-                    onuLayer = map.getLabelManager().addLayer(LabelLayerOptions.from("onu")
+                    onuLayer = map.getLabelManager().addLayer(LabelLayerOptions.from("cad-points")
                             .setZOrder(5000).setCompetitionType(CompetitionType.None));
                     locationLayer = map.getLabelManager().addLayer(LabelLayerOptions.from("location")
-                            .setZOrder(5001).setCompetitionType(CompetitionType.None));
-                    onuStyle = map.getLabelManager().addLabelStyles(LabelStyles.from("onu-icon",
-                            LabelStyle.from(MarkerIcons.create(Color.rgb(220, 65, 45), "ONU", false))
+                            .setZOrder(5002).setCompetitionType(CompetitionType.None));
+                    onuStyle = map.getLabelManager().addLabelStyles(LabelStyles.from("cad-icon",
+                            LabelStyle.from(MarkerIcons.create(Color.rgb(220, 65, 45), "CAD", false))
                                     .setAnchorPoint(0.5f, 1.0f).setTextStyles(13, Color.BLACK)));
                     locationStyle = map.getLabelManager().addLabelStyles(LabelStyles.from("location-icon",
                             LabelStyle.from(MarkerIcons.create(Color.rgb(37, 99, 235), "내 위치", true))
                                     .setAnchorPoint(0.5f, 0.5f)));
+
+                    fiberLayer = map.getRouteLineManager().addLayer("fiber-lines", 3000);
+                    coaxLayer = map.getRouteLineManager().addLayer("coax-lines", 2999);
+                    fiberStyles = map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
+                            RouteLineStyles.from(RouteLineStyle.from(5f, Color.rgb(30, 136, 229)))));
+                    coaxStyles = map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
+                            RouteLineStyles.from(RouteLineStyle.from(5f, Color.rgb(245, 124, 0)))));
+
                     map.setOnLabelClickListener((clickedMap, layer, label) -> {
                         Runnable action = clickActions.get(label.getLabelId());
                         if (action != null) view.post(action);
@@ -81,16 +101,35 @@ final class KakaoMapRenderer implements MapRenderer {
     }
 
     public void clearOnuMarkers() {
-        clickActions.clear(); nextId = 0;
+        clickActions.clear();
+        nextId = 0;
         if (onuLayer != null) onuLayer.removeAll();
+    }
+
+    public void clearNetworkLines() {
+        nextLineId = 0;
+        if (fiberLayer != null) fiberLayer.removeAll();
+        if (coaxLayer != null) coaxLayer.removeAll();
     }
 
     public void addOnuMarker(MapPoint p, String title, Runnable onClick) {
         if (map == null) return;
-        String id = "onu-" + nextId++;
+        String id = "cad-" + nextId++;
         onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(onuStyle)
                 .setTexts(new LabelTextBuilder().setTexts(title)).setClickable(true));
         clickActions.put(id, onClick);
+    }
+
+    public void addNetworkLine(List<MapPoint> points, boolean fiber) {
+        if (map == null || points == null || points.size() < 2) return;
+        ArrayList<LatLng> converted = new ArrayList<>();
+        for (MapPoint p : points) converted.add(point(p));
+        RouteLineStylesSet styles = fiber ? fiberStyles : coaxStyles;
+        RouteLineLayer layer = fiber ? fiberLayer : coaxLayer;
+        RouteLineSegment segment = RouteLineSegment.from(converted, styles.getStyles(0));
+        RouteLineOptions options = RouteLineOptions.from((fiber ? "fiber-" : "coax-") + nextLineId++, segment)
+                .setStylesSet(styles);
+        layer.addRouteLine(options);
     }
 
     public void setCurrentLocation(MapPoint p, String accuracy) {
@@ -114,7 +153,13 @@ final class KakaoMapRenderer implements MapRenderer {
         int padding = Math.round(60 * view.getResources().getDisplayMetrics().density);
         map.moveCamera(CameraUpdateFactory.fitMapPoints(converted, padding, 18));
     }
+
     public void resume() { view.resume(); }
     public void pause() { view.pause(); }
-    public void destroy() { destroyed = true; clickActions.clear(); view.finish(); map = null; }
+    public void destroy() {
+        destroyed = true;
+        clickActions.clear();
+        view.finish();
+        map = null;
+    }
 }
