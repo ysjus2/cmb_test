@@ -20,6 +20,7 @@ import java.util.*;
 public class MapActivity extends Activity {
     private final ArrayList<CadRecord> visibleRecords = new ArrayList<>();
     private final ArrayList<MapPoint> visiblePoints = new ArrayList<>();
+    private final ArrayList<MapPoint> boundsPoints = new ArrayList<>();
     private MapRenderer map;
     private CadDatabase db;
     private boolean mapReady;
@@ -133,24 +134,44 @@ public class MapActivity extends Activity {
     private void loadMarkers() {
         visibleRecords.clear();
         visiblePoints.clear();
-        if (mapReady) map.clearOnuMarkers();
+        boundsPoints.clear();
+        if (mapReady) {
+            map.clearOnuMarkers();
+            map.clearNetworkLines();
+        }
 
         ArrayList<CadRecord> all = db.loadAll();
         LinkedHashMap<String,Integer> counts = new LinkedHashMap<>();
         for (String c : new String[]{"CELL","FACILITY","EQUIPMENT","FIBER","COAX"}) counts.put(c,0);
 
         int skipped = 0;
+        LinkedHashMap<String,ArrayList<CadRecord>> fiberLines = new LinkedHashMap<>();
+        LinkedHashMap<String,ArrayList<CadRecord>> coaxLines = new LinkedHashMap<>();
+
         for (CadRecord record : all) {
             counts.put(record.category, counts.getOrDefault(record.category,0)+1);
             if (!record.hasCoordinates()) { skipped++; continue; }
 
-            // 선로는 다음 단계에서 polyline으로 렌더링한다. 현재 단계에서는 시설/장비/CELL만 마커 표시.
-            if ("FIBER".equals(record.category) || "COAX".equals(record.category)) continue;
-
             MapPoint point = new MapPoint(record.latitude, record.longitude);
+            boundsPoints.add(point);
+
+            if ("FIBER".equals(record.category)) {
+                fiberLines.computeIfAbsent(record.id, k -> new ArrayList<>()).add(record);
+                continue;
+            }
+            if ("COAX".equals(record.category)) {
+                coaxLines.computeIfAbsent(record.id, k -> new ArrayList<>()).add(record);
+                continue;
+            }
+
             visibleRecords.add(record);
             visiblePoints.add(point);
             if (mapReady) map.addOnuMarker(point, record.title(), () -> showDetails(record, point));
+        }
+
+        if (mapReady) {
+            addLines(fiberLines, true);
+            addLines(coaxLines, false);
         }
 
         String text = "시설 " + counts.get("FACILITY") + " · 장비 " + counts.get("EQUIPMENT")
@@ -162,17 +183,26 @@ public class MapActivity extends Activity {
 
         if (currentLocation != null) updateLocation(currentLocation);
         if (mapError != null) status.setText(mapError);
-        if (mapReady && !visiblePoints.isEmpty()) {
+        if (mapReady && !boundsPoints.isEmpty()) {
             map.getView().post(() -> { if (!destroyed) showAll(); });
         }
     }
 
+    private void addLines(LinkedHashMap<String,ArrayList<CadRecord>> grouped, boolean fiber) {
+        for (ArrayList<CadRecord> records : grouped.values()) {
+            Collections.sort(records, (a,b) -> Integer.compare(a.sequence,b.sequence));
+            ArrayList<MapPoint> points = new ArrayList<>();
+            for (CadRecord r : records) if (r.hasCoordinates()) points.add(new MapPoint(r.latitude,r.longitude));
+            if (points.size() >= 2) map.addNetworkLine(points, fiber);
+        }
+    }
+
     private void showAll() {
-        if (visiblePoints.isEmpty()) {
+        if (boundsPoints.isEmpty()) {
             status.setText("표시할 시설/장비 데이터가 없습니다. 관리 화면에서 CAD Excel을 불러오세요.");
             return;
         }
-        if (mapReady) map.showAll(visiblePoints);
+        if (mapReady) map.showAll(boundsPoints);
     }
 
     private String distance(MapPoint point) {
