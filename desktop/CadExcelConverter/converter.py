@@ -188,7 +188,7 @@ def _sanitize_binary_tags(src, log):
             i += 1
             continue
 
-        if 310 <= code <= 319:
+        if (310 <= code <= 319) or code == 1004:
             value = value_line.strip()
             valid = bool(value) and len(value) % 2 == 0 and all(
                 ch in b"0123456789abcdefABCDEF" for ch in value
@@ -216,57 +216,55 @@ def _sanitize_binary_tags(src, log):
     return Path(temp.name)
 
 def _read_dxf_resilient(src, log):
+    raw = Path(src).read_bytes()
+    if raw.startswith(b"AutoCAD Binary DXF"):
+        raise RuntimeError(
+            "이 파일은 Binary DXF입니다. 현재 버전은 ASCII DXF를 대상으로 합니다. "
+            "AutoCAD에서 DXF 형식을 ASCII R2018 또는 ASCII R2013으로 다시 저장하거나, "
+            "ODA File Converter로 ASCII DXF로 변환해주세요."
+        )
+
+    sanitized = None
     first_error = None
     recover_error = None
     explore_error = None
-
     try:
-        log("DXF 일반 읽기 시도")
-        return ezdxf.readfile(str(src))
-    except Exception as e:
-        first_error = e
-        log(f"일반 읽기 실패: {e}")
-
-    try:
-        log("DXF recover 모드로 재시도")
-        doc, auditor = recover.readfile(str(src), errors="ignore")
-        if getattr(auditor, "has_errors", False):
-            log(f"recover 경고: {len(getattr(auditor, 'errors', []))}건")
-        log("recover 모드 읽기 성공")
-        return doc
-    except Exception as e:
-        recover_error = e
-        log(f"recover 실패: {e}")
-
-    try:
-        log("DXF explore 모드로 재시도")
-        doc, auditor = recover.explore(str(src), errors="ignore")
-        if getattr(auditor, "has_errors", False):
-            log(f"explore 경고: {len(getattr(auditor, 'errors', []))}건")
-        log("explore 모드 읽기 성공")
-        return doc
-    except Exception as e:
-        explore_error = e
-        log(f"explore 실패: {e}")
-
-    sanitized = None
-    try:
-        log("바이너리 태그 사전 정리 후 최종 재시도")
+        log("원본 DXF 사전 정리 시작")
         sanitized = _sanitize_binary_tags(src, log)
+
         try:
+            log("정리본 일반 읽기 시도")
+            return ezdxf.readfile(str(sanitized))
+        except Exception as e:
+            first_error = e
+            log(f"정리본 일반 읽기 실패: {e}")
+
+        try:
+            log("정리본 recover 모드 재시도")
             doc, auditor = recover.readfile(str(sanitized), errors="ignore")
+            if getattr(auditor, "has_errors", False):
+                log(f"recover 경고: {len(getattr(auditor, 'errors', []))}건")
             log("정리본 recover 읽기 성공")
             return doc
-        except Exception:
+        except Exception as e:
+            recover_error = e
+            log(f"정리본 recover 실패: {e}")
+
+        try:
+            log("정리본 explore 모드 재시도")
             doc, auditor = recover.explore(str(sanitized), errors="ignore")
+            if getattr(auditor, "has_errors", False):
+                log(f"explore 경고: {len(getattr(auditor, 'errors', []))}건")
             log("정리본 explore 읽기 성공")
             return doc
-    except Exception as sanitize_error:
+        except Exception as e:
+            explore_error = e
+            log(f"정리본 explore 실패: {e}")
+
         raise RuntimeError(
             "DXF를 읽지 못했습니다. "
-            f"일반={first_error} / recover={recover_error} / "
-            f"explore={explore_error} / 정리후={sanitize_error}. "
-            "이 경우 원본 DXF 파일을 직접 확인해야 합니다."
+            f"일반={first_error} / recover={recover_error} / explore={explore_error}. "
+            "원본 DXF를 이 대화에 올려주시면 문제 구간을 직접 분석해야 합니다."
         )
     finally:
         if sanitized is not None:
