@@ -15,17 +15,13 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
-import org.json.JSONArray;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Locale;
+import java.util.*;
 
 public class MapActivity extends Activity {
-    private final ArrayList<MainActivity.CellRecord> records = new ArrayList<>();
-    private final ArrayList<MapPoint> points = new ArrayList<>();
+    private final ArrayList<CadRecord> visibleRecords = new ArrayList<>();
+    private final ArrayList<MapPoint> visiblePoints = new ArrayList<>();
     private MapRenderer map;
+    private CadDatabase db;
     private boolean mapReady;
     private boolean destroyed;
     private String mapError;
@@ -34,6 +30,7 @@ public class MapActivity extends Activity {
     private Location currentLocation;
     private boolean requestingLocation;
     private boolean centerOnFix;
+
     private final LocationListener listener = new LocationListener() {
         @Override public void onLocationChanged(Location location) { updateLocation(location); }
         @Override public void onProviderEnabled(String provider) { }
@@ -45,48 +42,54 @@ public class MapActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        db = new CadDatabase(this);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        // Android 15 edge-to-edge: keep buttons clear of system bars.
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                     insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
             return insets;
         });
+
         TextView title = new TextView(this);
-        title.setText("ONU 위치 지도");
+        title.setText("CAD 네트워크 지도");
         title.setTextSize(21);
         title.setTextColor(Color.WHITE);
         title.setBackgroundColor(Color.rgb(15, 23, 42));
         title.setPadding(dp(16), dp(12), dp(16), dp(12));
         root.addView(title);
+
         status = new TextView(this);
         status.setPadding(dp(12), dp(8), dp(12), dp(8));
         root.addView(status);
+
         LinearLayout actions = new LinearLayout(this);
         addButton(actions, "내 위치", () -> { centerOnFix = true; requestLocation(); });
-        addButton(actions, "전체 ONU", this::showAll);
-        addButton(actions, "가까운 ONU", this::showNearest);
+        addButton(actions, "전체 보기", this::showAll);
+        addButton(actions, "가까운 시설", this::showNearest);
         root.addView(actions);
+
         map = BuildConfig.KAKAO_NATIVE_APP_KEY.isEmpty() ? new OsmMapRenderer(this)
                 : new KakaoMapRenderer(this, BuildConfig.KAKAO_NATIVE_APP_KEY);
         root.addView(map.getView(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
         TextView attribution = new TextView(this);
         attribution.setText((map instanceof OsmMapRenderer ? "© OpenStreetMap contributors" : "카카오맵")
-                + " · 지도 배경은 인터넷 연결 필요");
+                + " · CAD 좌표 변환 데이터");
         attribution.setTextSize(11);
         attribution.setGravity(Gravity.CENTER);
         attribution.setPadding(dp(4), dp(6), dp(4), dp(6));
-        attribution.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
-                android.net.Uri.parse(map instanceof OsmMapRenderer ? "https://www.openstreetmap.org/copyright"
-                        : "https://map.kakao.com/"))));
         root.addView(attribution);
+
         Button manage = new Button(this);
-        manage.setText("ONU 정보 등록 / 수정 / CSV 관리");
+        manage.setText("CAD Excel / 시설·장비·선로 등록·수정");
         manage.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
         root.addView(manage);
+
         setContentView(root);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+
         map.start(() -> {
             if (destroyed) return;
             mapReady = true;
@@ -121,48 +124,55 @@ public class MapActivity extends Activity {
         super.onPause();
     }
 
-    @Override protected void onDestroy() { destroyed = true; map.destroy(); super.onDestroy(); }
-
-    private void loadMarkers() {
-        records.clear();
-        points.clear();
-        if (mapReady) map.clearOnuMarkers();
-        int skipped = 0;
-        try {
-            JSONArray data = new JSONArray(getSharedPreferences("cell_db_prefs", MODE_PRIVATE)
-                    .getString("db_json", "[]"));
-            for (int i = 0; i < data.length(); i++) {
-                MainActivity.CellRecord record = MainActivity.CellRecord.fromJson(data.getJSONObject(i));
-                try {
-                    double lat = Double.parseDouble(record.latitude);
-                    double lon = Double.parseDouble(record.longitude);
-                    if (!validCoordinates(lat, lon)) { skipped++; continue; }
-                    MapPoint point = new MapPoint(lat, lon);
-                    records.add(record);
-                    points.add(point);
-                    if (mapReady) map.addOnuMarker(point, record.cellName + " / " + record.cellNumber,
-                            () -> showDetails(record, point));
-                } catch (NumberFormatException invalid) { skipped++; }
-            }
-        } catch (Exception error) {
-            status.setText("저장 정보를 읽지 못했습니다. CSV 관리에서 데이터를 확인하세요.");
-            return;
-        }
-        status.setText("ONU " + records.size() + "건" + (skipped > 0 ? " · 좌표 오류 " + skipped + "건 제외" : "")
-                + " · 빨강: ONU / 파랑: 내 위치");
-        if (currentLocation != null) updateLocation(currentLocation);
-        if (mapError != null) status.setText(mapError);
-        if (mapReady && !points.isEmpty()) map.getView().post(() -> { if (!destroyed) showAll(); });
+    @Override protected void onDestroy() {
+        destroyed = true;
+        map.destroy();
+        super.onDestroy();
     }
 
-    static boolean validCoordinates(double lat, double lon) {
-        return !Double.isNaN(lat) && !Double.isInfinite(lat) && !Double.isNaN(lon) && !Double.isInfinite(lon)
-                && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+    private void loadMarkers() {
+        visibleRecords.clear();
+        visiblePoints.clear();
+        if (mapReady) map.clearOnuMarkers();
+
+        ArrayList<CadRecord> all = db.loadAll();
+        LinkedHashMap<String,Integer> counts = new LinkedHashMap<>();
+        for (String c : new String[]{"CELL","FACILITY","EQUIPMENT","FIBER","COAX"}) counts.put(c,0);
+
+        int skipped = 0;
+        for (CadRecord record : all) {
+            counts.put(record.category, counts.getOrDefault(record.category,0)+1);
+            if (!record.hasCoordinates()) { skipped++; continue; }
+
+            // 선로는 다음 단계에서 polyline으로 렌더링한다. 현재 단계에서는 시설/장비/CELL만 마커 표시.
+            if ("FIBER".equals(record.category) || "COAX".equals(record.category)) continue;
+
+            MapPoint point = new MapPoint(record.latitude, record.longitude);
+            visibleRecords.add(record);
+            visiblePoints.add(point);
+            if (mapReady) map.addOnuMarker(point, record.title(), () -> showDetails(record, point));
+        }
+
+        String text = "시설 " + counts.get("FACILITY") + " · 장비 " + counts.get("EQUIPMENT")
+                + " · CELL " + counts.get("CELL")
+                + " · 광선로점 " + counts.get("FIBER")
+                + " · 동축선로점 " + counts.get("COAX");
+        if (skipped > 0) text += " · 좌표 오류 " + skipped + "건";
+        status.setText(text);
+
+        if (currentLocation != null) updateLocation(currentLocation);
+        if (mapError != null) status.setText(mapError);
+        if (mapReady && !visiblePoints.isEmpty()) {
+            map.getView().post(() -> { if (!destroyed) showAll(); });
+        }
     }
 
     private void showAll() {
-        if (points.isEmpty()) { status.setText("저장된 ONU가 없습니다. 아래 버튼에서 정보를 등록하세요."); return; }
-        if (mapReady) map.showAll(points);
+        if (visiblePoints.isEmpty()) {
+            status.setText("표시할 시설/장비 데이터가 없습니다. 관리 화면에서 CAD Excel을 불러오세요.");
+            return;
+        }
+        if (mapReady) map.showAll(visiblePoints);
     }
 
     private String distance(MapPoint point) {
@@ -170,38 +180,69 @@ public class MapActivity extends Activity {
         float[] result = new float[1];
         Location.distanceBetween(currentLocation.getLatitude(), currentLocation.getLongitude(),
                 point.getLatitude(), point.getLongitude(), result);
-        return result[0] < 1000 ? Math.round(result[0]) + "m" : String.format(Locale.KOREA, "%.2fkm", result[0] / 1000);
+        return result[0] < 1000 ? Math.round(result[0]) + "m"
+                : String.format(Locale.KOREA, "%.2fkm", result[0] / 1000);
     }
 
-    private void showDetails(MainActivity.CellRecord r, MapPoint point) {
+    private void showDetails(CadRecord r, MapPoint point) {
         if (mapReady) map.center(point, false);
-        new AlertDialog.Builder(this).setTitle(r.cellName + " / " + r.cellNumber)
-                .setMessage("거리: " + distance(point) + " (직선거리)\n상위국사: " + r.upperOffice
-                        + "\n상향포트: " + r.upPort + "\n하향포트: " + r.downPort
-                        + "\n주소: " + r.address + "\n전주번호: " + r.poleNumber
-                        + "\n경도: " + r.longitude + "\n위도: " + r.latitude
-                        + "\n셀구분: " + r.cellType + "\n비고: " + r.note)
-                .setPositiveButton("확인", null).show();
+        StringBuilder details = new StringBuilder();
+        details.append("분류: ").append(r.category)
+                .append("\nID: ").append(r.id)
+                .append("\n구분/이름: ").append(r.name)
+                .append("\n세부유형: ").append(r.subtype)
+                .append("\n거리: ").append(distance(point))
+                .append("\n경도: ").append(r.longitude)
+                .append("\n위도: ").append(r.latitude)
+                .append("\n출처: ").append(r.source);
+        for (Map.Entry<String,String> e : r.fields.entrySet()) {
+            String v = e.getValue();
+            if (v != null && !v.trim().isEmpty()
+                    && !"경도".equals(e.getKey()) && !"위도".equals(e.getKey())) {
+                details.append("\n").append(e.getKey()).append(": ").append(v);
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(r.title())
+                .setMessage(details.toString())
+                .setPositiveButton("확인", null)
+                .setNeutralButton("수정", (d,w) -> startActivity(new Intent(this, MainActivity.class)))
+                .show();
     }
 
     private void showNearest() {
-        if (currentLocation == null) { centerOnFix = false; requestLocation(); status.setText("현재 위치를 확인한 후 가까운 ONU를 다시 눌러주세요."); return; }
-        if (records.isEmpty()) { showAll(); return; }
-        ArrayList<Integer> order = new ArrayList<>();
-        for (int i = 0; i < points.size(); i++) order.add(i);
-        Collections.sort(order, (a, b) -> Double.compare(points.get(a).distanceToAsDouble(
-                new MapPoint(currentLocation)), points.get(b).distanceToAsDouble(new MapPoint(currentLocation))));
-        int count = Math.min(5, order.size());
-        String[] names = new String[count];
-        for (int i = 0; i < count; i++) {
-            int index = order.get(i);
-            names[i] = records.get(index).cellName + " / " + records.get(index).cellNumber + " · " + distance(points.get(index));
+        if (currentLocation == null) {
+            centerOnFix = false;
+            requestLocation();
+            status.setText("현재 위치를 확인한 후 가까운 시설을 다시 눌러주세요.");
+            return;
         }
-        new AlertDialog.Builder(this).setTitle("가까운 ONU · 직선거리")
+        if (visibleRecords.isEmpty()) { showAll(); return; }
+
+        ArrayList<Integer> order = new ArrayList<>();
+        MapPoint current = new MapPoint(currentLocation);
+        for (int i=0; i<visiblePoints.size(); i++) order.add(i);
+        Collections.sort(order, (a,b) -> Double.compare(
+                visiblePoints.get(a).distanceToAsDouble(current),
+                visiblePoints.get(b).distanceToAsDouble(current)));
+
+        int count = Math.min(8, order.size());
+        String[] names = new String[count];
+        for (int i=0; i<count; i++) {
+            int idx = order.get(i);
+            CadRecord r = visibleRecords.get(idx);
+            names[i] = r.category + " · " + r.title() + " · " + distance(visiblePoints.get(idx));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("가까운 시설/장비")
                 .setItems(names, (dialog, which) -> {
-                    int index = order.get(which);
-                    showDetails(records.get(index), points.get(index));
-                }).setNegativeButton("닫기", null).show();
+                    int idx = order.get(which);
+                    showDetails(visibleRecords.get(idx), visiblePoints.get(idx));
+                })
+                .setNegativeButton("닫기", null)
+                .show();
     }
 
     private boolean hasLocationPermission() {
@@ -223,19 +264,19 @@ public class MapActivity extends Activity {
                 if (LocationManager.GPS_PROVIDER.equals(provider) && !fine) continue;
                 if (!locationManager.getAllProviders().contains(provider) || !locationManager.isProviderEnabled(provider)) continue;
                 Location cached = locationManager.getLastKnownLocation(provider);
-                if (cached != null && android.os.SystemClock.elapsedRealtimeNanos() - cached.getElapsedRealtimeNanos()
-                        < 120_000_000_000L && (newest == null || cached.getTime() > newest.getTime())) newest = cached;
+                if (cached != null && (newest == null || cached.getTime() > newest.getTime())) newest = cached;
                 locationManager.requestLocationUpdates(provider, 3000, 3, listener);
                 requestingLocation = true;
             }
             if (newest != null) updateLocation(newest);
-            if (!requestingLocation) status.setText("ONU " + records.size() + "건 · 휴대폰 위치 기능을 켜주세요.");
-        } catch (SecurityException error) { status.setText("위치 권한을 확인해주세요."); }
+        } catch (SecurityException error) {
+            status.setText("위치 권한을 확인해주세요.");
+        }
     }
 
     private void stopLocation() {
         if (locationManager != null && requestingLocation) {
-            locationManager.removeUpdates(listener);
+            try { locationManager.removeUpdates(listener); } catch (SecurityException ignored) {}
             requestingLocation = false;
         }
     }
@@ -244,16 +285,17 @@ public class MapActivity extends Activity {
         currentLocation = location;
         MapPoint point = new MapPoint(location);
         if (mapReady) map.setCurrentLocation(point, "정확도 약 ±" + Math.round(location.getAccuracy()) + "m");
-        status.setText(mapError != null ? mapError : "ONU " + records.size() + "건 · 내 위치 정확도 ±"
-                + Math.round(location.getAccuracy()) + "m");
-        if (centerOnFix && mapReady) { map.center(point, true); centerOnFix = false; }
+        if (centerOnFix && mapReady) {
+            map.center(point, true);
+            centerOnFix = false;
+        }
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == 2001) {
             if (hasLocationPermission()) requestLocation();
-            else status.setText("위치 권한 없이 저장된 ONU 지도를 표시합니다.");
+            else status.setText("위치 권한 없이 CAD 네트워크 지도를 표시합니다.");
         }
     }
 }
