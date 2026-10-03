@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from converter import convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
 
-APP_NAME = "CMB DXF Viewer + Excel v3.1"
+APP_NAME = "CMB DXF Viewer + Excel v3.2"
 
 class App(tk.Tk):
     def __init__(self):
@@ -33,8 +33,12 @@ class App(tk.Tk):
         self.visible_layers = set()
         self.last_checked_iid = None
         self.highlighted_iids = set()
+        self.layer_panel_visible = True
+        self.fullscreen = False
 
         self._build()
+        self.bind("<F11>", lambda e: self._toggle_fullscreen())
+        self.bind("<Escape>", self._escape_key)
         self.after(100, self._drain)
 
     def _build(self):
@@ -74,15 +78,28 @@ class App(tk.Tk):
         self.scan_btn.pack(side="left")
         ttk.Button(toolbar, text="추출 전체 선택", command=self._select_all).pack(side="left", padx=(6, 2))
         ttk.Button(toolbar, text="추출 선택 해제", command=self._clear_selection).pack(side="left", padx=2)
+        self.layer_toggle_btn = ttk.Button(toolbar, text="레이어 창 접기", command=self._toggle_layer_panel)
+        self.layer_toggle_btn.pack(side="left", padx=(10, 2))
+        ttk.Button(toolbar, text="전체 화면(F11)", command=self._toggle_fullscreen).pack(side="left", padx=2)
         self.run_btn = ttk.Button(toolbar, text="선택 레이어 Excel 생성", command=self._run, state="disabled")
         self.run_btn.pack(side="left", padx=(12, 2))
         ttk.Label(toolbar, textvariable=self.status_var).pack(side="right")
 
-        panes = ttk.Panedwindow(root, orient="horizontal")
-        panes.pack(fill="both", expand=True)
+        self.panes = tk.PanedWindow(
+            root,
+            orient="horizontal",
+            sashwidth=8,
+            sashrelief="raised",
+            showhandle=True,
+            bg="#9ca3af",
+            bd=0,
+            relief="flat",
+        )
+        self.panes.pack(fill="both", expand=True)
 
-        left = ttk.LabelFrame(panes, text="레이어", padding=6)
-        panes.add(left, weight=2)
+        self.left_panel = ttk.LabelFrame(self.panes, text="레이어", padding=6)
+        left = self.left_panel
+        self.panes.add(left, minsize=220, stretch="always")
 
         self.tree = ttk.Treeview(
             left,
@@ -107,8 +124,9 @@ class App(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         y.pack(side="right", fill="y")
 
-        right = ttk.Frame(panes)
-        panes.add(right, weight=6)
+        self.right_panel = ttk.Frame(self.panes)
+        right = self.right_panel
+        self.panes.add(right, minsize=500, stretch="always")
         self.viewer = DXFViewer(right)
         self.viewer.pack(fill="both", expand=True)
 
@@ -124,6 +142,38 @@ class App(tk.Tk):
         self.log = tk.Text(root, height=5, wrap="word", font=("Consolas", 9))
         self.log.pack(fill="x")
         self._log("회사 배포용: DXF만 지원 / DWG 엔진 없음 / Viewer는 원본 파일을 수정하지 않습니다.")
+
+    def _toggle_layer_panel(self):
+        if self.layer_panel_visible:
+            try:
+                self.panes.forget(self.left_panel)
+            except Exception:
+                pass
+            self.layer_panel_visible = False
+            self.layer_toggle_btn.config(text="레이어 창 펼치기")
+        else:
+            try:
+                self.panes.forget(self.right_panel)
+            except Exception:
+                pass
+            self.panes.add(self.left_panel, minsize=220, stretch="always")
+            self.panes.add(self.right_panel, minsize=500, stretch="always")
+            self.layer_panel_visible = True
+            self.layer_toggle_btn.config(text="레이어 창 접기")
+        self.after(30, self.viewer.redraw)
+
+    def _toggle_fullscreen(self):
+        self.fullscreen = not self.fullscreen
+        self.attributes("-fullscreen", self.fullscreen)
+        self.after(50, self.viewer.redraw)
+
+    def _escape_key(self, event=None):
+        if self.fullscreen:
+            self.fullscreen = False
+            self.attributes("-fullscreen", False)
+            self.after(50, self.viewer.redraw)
+        else:
+            self.viewer.clear_selection()
 
     def _pick_input(self):
         p = filedialog.askopenfilename(
