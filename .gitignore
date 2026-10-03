@@ -23,3 +23,7 @@ kakao-key-hash.txt
 # OS files
 Thumbs.db
 .DS_Store
+
+# Regional customer/network source data stays on the phone or local PC
+*.xlsx
+build_*.zip

@@ -1,0 +1,25 @@
+현재 Android 앱의 카카오맵 연동 코드를 유지한 채, 첨부된 `network` 모듈을 통합해줘.
+
+목표:
+1. 사용자가 "지역 DB 불러오기"를 누르면 Android OpenDocument로 .xlsx 선택
+2. `CELL / FACILITY / EQUIPMENT / FIBER / COAX` 시트 읽기
+3. 현재 카카오맵 위에:
+   - CELL = 마커
+   - FACILITY(전주/맨홀) = 마커
+   - EQUIPMENT(ONU/TAP/AMP/광클로저 등) = 마커
+   - FIBER = RouteLine
+   - COAX = RouteLine
+4. 현재 GPS 위치 표시는 기존 코드 유지
+5. 레이어별 ON/OFF 스위치 추가
+6. 파일을 바꾸면 기존 레이어를 clear하고 새 지역 데이터 렌더링
+7. 서버 사용 금지. Excel은 휴대폰에서 직접 선택해서 읽기
+8. 현재 프로젝트의 package/namespace 구조에 맞게 package/import 조정
+9. 기존 KakaoMap 초기화/App Key/Key Hash 설정은 수정하지 말 것
+10. 빌드 오류가 있으면 현재 사용 중인 KakaoMaps SDK v2 API에 맞게 메서드명을 조정하되 기능은 유지
+
+특히 성능:
+- 다량의 전주/장비는 LodLabelLayer 사용
+- 광/동축 선로는 RouteLine 사용
+- 지역 Excel 1개만 로딩
+
+완료 후 수정 파일 목록, 빌드 결과, 실제 Excel 불러오기 동작 경로를 설명해줘.

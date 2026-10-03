@@ -52,6 +52,7 @@ final class KakaoMapRenderer implements MapRenderer {
     }
 
     public View getView() { return view; }
+    KakaoMap getKakaoMap() { return map; }
     public String getName() { return "카카오맵"; }
     private LatLng point(MapPoint p) { return LatLng.from(p.getLatitude(), p.getLongitude()); }
 

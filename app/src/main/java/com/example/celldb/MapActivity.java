@@ -16,6 +16,14 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.*;
+import android.net.Uri;
+import android.widget.CheckBox;
+import android.widget.HorizontalScrollView;
+import android.widget.Toast;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import com.example.celldb.network.KakaoNetworkRenderer;
+import com.example.celldb.network.NetworkModels.*;
 
 public class MapActivity extends Activity {
     private final ArrayList<CadRecord> visibleRecords = new ArrayList<>();
@@ -31,6 +39,14 @@ public class MapActivity extends Activity {
     private Location currentLocation;
     private boolean requestingLocation;
     private boolean centerOnFix;
+    private KakaoNetworkRenderer networkRenderer;
+    private NetworkData networkData;
+    private final boolean[] layers = {true,true,true,true,true};
+    private final String[] categories = {"CELL","FACILITY","EQUIPMENT","FIBER","COAX"};
+    private final Map<String,CadRecord> networkRecords = new HashMap<>();
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private Button importButton;
+    private TextView regionStatus;
 
     private final LocationListener listener = new LocationListener() {
         @Override public void onLocationChanged(Location location) { updateLocation(location); }
@@ -70,6 +86,38 @@ public class MapActivity extends Activity {
         addButton(actions, "전체 보기", this::showAll);
         addButton(actions, "가까운 시설", this::showNearest);
         root.addView(actions);
+        importButton = new Button(this);
+        importButton.setText("지역 DB 불러오기 (.xlsx)");
+        importButton.setTextSize(13);
+        importButton.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            startActivityForResult(intent,3001);
+        });
+        root.addView(importButton);
+        regionStatus = new TextView(this);
+        regionStatus.setText(getSharedPreferences("network_prefs",MODE_PRIVATE).getString("region_name","지역 Excel을 선택하세요 · 광: 파랑 / 동축: 주황"));
+        regionStatus.setTextSize(11);
+        regionStatus.setPadding(dp(12),dp(2),dp(12),dp(2));
+        root.addView(regionStatus);
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        LinearLayout toggles = new LinearLayout(this);
+        String[] names = {"셀","시설","장비","광","동축"};
+        for (int i=0;i<names.length;i++) {
+            final int index=i;
+            CheckBox check = new CheckBox(this);
+            check.setText(names[i]); check.setTextSize(12);
+            layers[i]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("layer_"+i,true);
+            check.setChecked(layers[i]);
+            check.setOnCheckedChangeListener((button,checked) -> {
+                layers[index]=checked;
+                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putBoolean("layer_"+index,checked).apply();
+                if (networkRenderer != null) applyVisibility(); else loadMarkers();
+            });
+            toggles.addView(check);
+        }
+        scroll.addView(toggles); root.addView(scroll);
 
         map = BuildConfig.KAKAO_NATIVE_APP_KEY.isEmpty() ? new OsmMapRenderer(this)
                 : new KakaoMapRenderer(this, BuildConfig.KAKAO_NATIVE_APP_KEY);
@@ -95,6 +143,13 @@ public class MapActivity extends Activity {
             if (destroyed) return;
             mapReady = true;
             mapError = null;
+            if (map instanceof KakaoMapRenderer) {
+                networkRenderer = new KakaoNetworkRenderer(((KakaoMapRenderer)map).getKakaoMap(), p ->
+                    runOnUiThread(() -> {
+                        CadRecord record=networkRecords.get(p.id);
+                        if (!destroyed && record!=null) showDetails(record,new MapPoint(p.lat,p.lon));
+                    }));
+            }
             loadMarkers();
         }, message -> {
             mapError = message;
@@ -127,82 +182,109 @@ public class MapActivity extends Activity {
 
     @Override protected void onDestroy() {
         destroyed = true;
+        worker.shutdownNow();
         map.destroy();
         super.onDestroy();
     }
 
-    private void loadMarkers() {
-        visibleRecords.clear();
-        visiblePoints.clear();
-        boundsPoints.clear();
-        if (mapReady) {
-            map.clearOnuMarkers();
-            map.clearNetworkLines();
-        }
-
-        ArrayList<CadRecord> all = db.loadAll();
-        LinkedHashMap<String,Integer> counts = new LinkedHashMap<>();
-        for (String c : new String[]{"CELL","FACILITY","EQUIPMENT","FIBER","COAX"}) counts.put(c,0);
-
-        int skipped = 0;
-        LinkedHashMap<String,ArrayList<CadRecord>> fiberLines = new LinkedHashMap<>();
-        LinkedHashMap<String,ArrayList<CadRecord>> coaxLines = new LinkedHashMap<>();
-
-        for (CadRecord record : all) {
-            counts.put(record.category, counts.getOrDefault(record.category,0)+1);
-            if (!record.hasCoordinates()) { skipped++; continue; }
-
-            MapPoint point = new MapPoint(record.latitude, record.longitude);
-            boundsPoints.add(point);
-
-            if ("FIBER".equals(record.category)) {
-                fiberLines.computeIfAbsent(record.id, k -> new ArrayList<>()).add(record);
-                continue;
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent result) {
+        super.onActivityResult(requestCode,resultCode,result);
+        if (requestCode!=3001 || resultCode!=RESULT_OK || result==null || result.getData()==null) return;
+        Uri uri=result.getData();
+        importButton.setEnabled(false);
+        regionStatus.setText("지역 Excel을 읽는 중…");
+        worker.execute(() -> {
+            try {
+                ArrayList<CadRecord> imported=XlsxCadImporter.read(this,uri);
+                if (destroyed) return;
+                db.replaceCadRows(imported);
+                String name="지역 DB";
+                try (android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)) {
+                    if(c!=null && c.moveToFirst()) name=c.getString(0);
+                }
+                final String displayName=name;
+                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putString("region_name",name).apply();
+                runOnUiThread(() -> {
+                    if(destroyed) return;
+                    importButton.setEnabled(true); regionStatus.setText(displayName);
+                    loadMarkers(); showAll();
+                    Toast.makeText(this,"지역 DB "+imported.size()+"행 저장 완료",Toast.LENGTH_LONG).show();
+                });
+            } catch(Exception error) {
+                runOnUiThread(() -> {
+                    if(destroyed) return;
+                    importButton.setEnabled(true);
+                    regionStatus.setText("Excel 읽기 실패: "+error.getMessage());
+                });
             }
-            if ("COAX".equals(record.category)) {
-                coaxLines.computeIfAbsent(record.id, k -> new ArrayList<>()).add(record);
-                continue;
-            }
-
-            visibleRecords.add(record);
-            visiblePoints.add(point);
-            if (mapReady) map.addOnuMarker(point, record.title(), () -> showDetails(record, point));
-        }
-
-        if (mapReady) {
-            addLines(fiberLines, true);
-            addLines(coaxLines, false);
-        }
-
-        String text = "시설 " + counts.get("FACILITY") + " · 장비 " + counts.get("EQUIPMENT")
-                + " · CELL " + counts.get("CELL")
-                + " · 광선로점 " + counts.get("FIBER")
-                + " · 동축선로점 " + counts.get("COAX");
-        if (skipped > 0) text += " · 좌표 오류 " + skipped + "건";
-        status.setText(text);
-
-        if (currentLocation != null) updateLocation(currentLocation);
-        if (mapError != null) status.setText(mapError);
-        if (mapReady && !boundsPoints.isEmpty()) {
-            map.getView().post(() -> { if (!destroyed) showAll(); });
-        }
+        });
     }
 
-    private void addLines(LinkedHashMap<String,ArrayList<CadRecord>> grouped, boolean fiber) {
-        for (ArrayList<CadRecord> records : grouped.values()) {
-            Collections.sort(records, (a,b) -> Integer.compare(a.sequence,b.sequence));
-            ArrayList<MapPoint> points = new ArrayList<>();
-            for (CadRecord r : records) if (r.hasCoordinates()) points.add(new MapPoint(r.latitude,r.longitude));
-            if (points.size() >= 2) map.addNetworkLine(points, fiber);
+    private boolean categoryVisible(String category) {
+        for(int i=0;i<categories.length;i++) if(categories[i].equals(category)) return layers[i];
+        return false;
+    }
+
+    private void applyVisibility() {
+        if(networkRenderer==null) return;
+        networkRenderer.setCellVisible(layers[0]); networkRenderer.setFacilityVisible(layers[1]);
+        networkRenderer.setEquipmentVisible(layers[2]); networkRenderer.setFiberVisible(layers[3]);
+        networkRenderer.setCoaxVisible(layers[4]);
+    }
+
+    private void loadMarkers() {
+        visibleRecords.clear(); visiblePoints.clear(); boundsPoints.clear(); networkRecords.clear();
+        if(mapReady) { map.clearOnuMarkers(); map.clearNetworkLines(); }
+        networkData=new NetworkData();
+        LinkedHashMap<String,ArrayList<CadRecord>> fiber=new LinkedHashMap<>(), coax=new LinkedHashMap<>();
+        for(CadRecord r:db.loadAll()) {
+            if(!r.hasCoordinates()) { networkData.skippedRows++; continue; }
+            MapPoint point=new MapPoint(r.latitude,r.longitude);
+            if(categoryVisible(r.category)) boundsPoints.add(point);
+            if("FIBER".equals(r.category) || "COAX".equals(r.category)) {
+                LinkedHashMap<String,ArrayList<CadRecord>> lines="FIBER".equals(r.category)?fiber:coax;
+                if(!lines.containsKey(r.id)) lines.put(r.id,new ArrayList<>());
+                lines.get(r.id).add(r); continue;
+            }
+            visibleRecords.add(r); visiblePoints.add(point); networkRecords.put(r.stableKey(),r);
+            PointItem item=new PointItem(r.category,r.stableKey(),r.title(),r.latitude,r.longitude,"");
+            if("CELL".equals(r.category)) networkData.cells.add(item);
+            else if("FACILITY".equals(r.category)) networkData.facilities.add(item);
+            else if("EQUIPMENT".equals(r.category)) networkData.equipment.add(item);
+            if(mapReady && networkRenderer==null && categoryVisible(r.category)) map.addOnuMarker(point,r.title(),()->showDetails(r,point));
+        }
+        addLines(fiber,true); addLines(coax,false);
+        if(networkRenderer!=null) { networkRenderer.render(networkData); applyVisibility(); }
+        status.setText("셀 "+networkData.cells.size()+" · 시설 "+networkData.facilities.size()+" · 장비 "+networkData.equipment.size()
+            +" · 광 "+networkData.fiber.size()+" · 동축 "+networkData.coax.size()
+            +(networkData.skippedRows>0?" · 좌표 오류 "+networkData.skippedRows+"행":""));
+        android.util.Log.i("OnuNetwork","Loaded cells="+networkData.cells.size()+" facilities="+networkData.facilities.size()
+            +" equipment="+networkData.equipment.size()+" fiber="+networkData.fiber.size()+" coax="+networkData.coax.size());
+        if(currentLocation!=null) updateLocation(currentLocation);
+        if(mapError!=null) status.setText(mapError);
+    }
+
+    private void addLines(LinkedHashMap<String,ArrayList<CadRecord>> grouped,boolean isFiber) {
+        for(ArrayList<CadRecord> records:grouped.values()) {
+            Collections.sort(records,(a,b)->Integer.compare(a.sequence,b.sequence));
+            if(records.size()<2) continue;
+            CadRecord first=records.get(0);
+            LineItem line=new LineItem(first.id,first.name,first.subtype,first.fields.get("연결정보"),first.fields.get("길이"));
+            ArrayList<MapPoint> points=new ArrayList<>();
+            for(CadRecord r:records) { line.points.add(new GeoPoint(r.latitude,r.longitude)); points.add(new MapPoint(r.latitude,r.longitude)); }
+            (isFiber?networkData.fiber:networkData.coax).add(line);
+            if(mapReady && networkRenderer==null && layers[isFiber?3:4]) map.addNetworkLine(points,isFiber);
         }
     }
 
     private void showAll() {
-        if (boundsPoints.isEmpty()) {
-            status.setText("표시할 시설/장비 데이터가 없습니다. 관리 화면에서 CAD Excel을 불러오세요.");
-            return;
-        }
-        if (mapReady) map.showAll(boundsPoints);
+        ArrayList<MapPoint> points=new ArrayList<>();
+        for(CadRecord r:db.loadAll()) if(r.hasCoordinates() && categoryVisible(r.category)) points.add(new MapPoint(r.latitude,r.longitude));
+        if(points.isEmpty()) { Toast.makeText(this,"표시할 데이터가 없습니다. 지역 DB와 레이어 설정을 확인해주세요.",Toast.LENGTH_LONG).show(); return; }
+        double south=90,north=-90,west=180,east=-180;
+        for(MapPoint p:points) { south=Math.min(south,p.getLatitude()); north=Math.max(north,p.getLatitude()); west=Math.min(west,p.getLongitude()); east=Math.max(east,p.getLongitude()); }
+        ArrayList<MapPoint> corners=new ArrayList<>(); corners.add(new MapPoint(south,west)); corners.add(new MapPoint(north,east));
+        if(mapReady) map.showAll(corners);
     }
 
     private String distance(MapPoint point) {
@@ -252,7 +334,7 @@ public class MapActivity extends Activity {
 
         ArrayList<Integer> order = new ArrayList<>();
         MapPoint current = new MapPoint(currentLocation);
-        for (int i=0; i<visiblePoints.size(); i++) order.add(i);
+        for (int i=0; i<visiblePoints.size(); i++) if(categoryVisible(visibleRecords.get(i).category)) order.add(i);
         Collections.sort(order, (a,b) -> Double.compare(
                 visiblePoints.get(a).distanceToAsDouble(current),
                 visiblePoints.get(b).distanceToAsDouble(current)));
@@ -294,7 +376,7 @@ public class MapActivity extends Activity {
                 if (LocationManager.GPS_PROVIDER.equals(provider) && !fine) continue;
                 if (!locationManager.getAllProviders().contains(provider) || !locationManager.isProviderEnabled(provider)) continue;
                 Location cached = locationManager.getLastKnownLocation(provider);
-                if (cached != null && (newest == null || cached.getTime() > newest.getTime())) newest = cached;
+                if (cached != null && android.os.SystemClock.elapsedRealtimeNanos()-cached.getElapsedRealtimeNanos()<120_000_000_000L && (newest == null || cached.getTime() > newest.getTime())) newest = cached;
                 locationManager.requestLocationUpdates(provider, 3000, 3, listener);
                 requestingLocation = true;
             }

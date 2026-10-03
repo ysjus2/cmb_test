@@ -26,8 +26,8 @@ android {
         applicationId "com.ysjus2.cadnetwork"
         minSdk 23
         targetSdk 35
-        versionCode 6
-        versionName "2.2"
+        versionCode 7
+        versionName "2.3"
         buildConfigField 'String', 'KAKAO_NATIVE_APP_KEY', '"' + kakaoKey + '"'
     }
 
@@ -64,6 +64,7 @@ tasks.whenTaskAdded { task ->
 }
 
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
     implementation 'com.kakao.maps.open:android:2.15.2'
 }
