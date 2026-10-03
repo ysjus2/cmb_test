@@ -170,27 +170,110 @@ def _open_cad(input_path, oda_exe=None):
         raise ValueError("지원 형식은 DWG 또는 DXF입니다.")
     return src, temp
 
+def _sanitize_binary_tags(src, log):
+    raw = Path(src).read_bytes().splitlines(keepends=True)
+    out = []
+    fixed = 0
+    i = 0
+    while i < len(raw):
+        code_line = raw[i]
+        if i + 1 >= len(raw):
+            out.append(code_line)
+            break
+        value_line = raw[i + 1]
+        try:
+            code = int(code_line.strip().decode("ascii", errors="strict"))
+        except Exception:
+            out.append(code_line)
+            i += 1
+            continue
+
+        if 310 <= code <= 319:
+            value = value_line.strip()
+            valid = bool(value) and len(value) % 2 == 0 and all(
+                ch in b"0123456789abcdefABCDEF" for ch in value
+            )
+            if not valid:
+                out.append(code_line)
+                newline = b"\r\n" if value_line.endswith(b"\r\n") else b"\n"
+                out.append(b"00" + newline)
+                fixed += 1
+                i += 2
+                continue
+
+        out.append(code_line)
+        out.append(value_line)
+        i += 2
+
+    temp = tempfile.NamedTemporaryFile(
+        prefix="cad_sanitized_",
+        suffix=".dxf",
+        delete=False,
+    )
+    temp.write(b"".join(out))
+    temp.close()
+    log(f"비정상 바이너리 태그 {fixed}건 정리")
+    return Path(temp.name)
+
 def _read_dxf_resilient(src, log):
+    first_error = None
+    recover_error = None
+    explore_error = None
+
     try:
         log("DXF 일반 읽기 시도")
         return ezdxf.readfile(str(src))
-    except Exception as first_error:
-        log(f"일반 읽기 실패: {first_error}")
-        log("DXF 복구 모드로 재시도")
+    except Exception as e:
+        first_error = e
+        log(f"일반 읽기 실패: {e}")
+
+    try:
+        log("DXF recover 모드로 재시도")
+        doc, auditor = recover.readfile(str(src), errors="ignore")
+        if getattr(auditor, "has_errors", False):
+            log(f"recover 경고: {len(getattr(auditor, 'errors', []))}건")
+        log("recover 모드 읽기 성공")
+        return doc
+    except Exception as e:
+        recover_error = e
+        log(f"recover 실패: {e}")
+
+    try:
+        log("DXF explore 모드로 재시도")
+        doc, auditor = recover.explore(str(src), errors="ignore")
+        if getattr(auditor, "has_errors", False):
+            log(f"explore 경고: {len(getattr(auditor, 'errors', []))}건")
+        log("explore 모드 읽기 성공")
+        return doc
+    except Exception as e:
+        explore_error = e
+        log(f"explore 실패: {e}")
+
+    sanitized = None
+    try:
+        log("바이너리 태그 사전 정리 후 최종 재시도")
+        sanitized = _sanitize_binary_tags(src, log)
         try:
-            doc, auditor = recover.readfile(str(src), errors="ignore")
-            if getattr(auditor, "has_errors", False):
-                log(f"복구 모드 경고: {len(getattr(auditor, 'errors', []))}건")
-            log("복구 모드 읽기 성공")
+            doc, auditor = recover.readfile(str(sanitized), errors="ignore")
+            log("정리본 recover 읽기 성공")
             return doc
-        except Exception as recover_error:
-            raise RuntimeError(
-                "DXF를 읽지 못했습니다. 일반 읽기 오류: "
-                + str(first_error)
-                + " / 복구 모드 오류: "
-                + str(recover_error)
-                + " / AutoCAD에서 DXF를 ASCII 형식(R2018 또는 R2013)으로 다시 저장한 뒤 재시도해주세요."
-            )
+        except Exception:
+            doc, auditor = recover.explore(str(sanitized), errors="ignore")
+            log("정리본 explore 읽기 성공")
+            return doc
+    except Exception as sanitize_error:
+        raise RuntimeError(
+            "DXF를 읽지 못했습니다. "
+            f"일반={first_error} / recover={recover_error} / "
+            f"explore={explore_error} / 정리후={sanitize_error}. "
+            "이 경우 원본 DXF 파일을 직접 확인해야 합니다."
+        )
+    finally:
+        if sanitized is not None:
+            try:
+                sanitized.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 def scan_layers(input_path, oda_exe=None, log: Callable[[str], None] | None = None):
     log = log or (lambda msg: None)
