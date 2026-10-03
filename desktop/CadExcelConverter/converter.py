@@ -260,11 +260,13 @@ def dwg_to_dxf(dwg_path, oda_exe=None, log=None):
         "ZIP 전체를 압축 해제한 뒤 CAD_Excel_Converter.exe를 실행해주세요."
     )
 
-def _open_cad(input_path, oda_exe=None):
+def _open_cad(input_path, oda_exe=None, log=None):
+    log = log or (lambda msg: None)
     src = Path(input_path)
     temp = None
     if src.suffix.lower() == ".dwg":
-        src, temp = dwg_to_dxf(src, oda_exe, lambda m: None)
+        log("DWG 감지 → 내장 변환 엔진으로 자동 DXF 변환")
+        src, temp = dwg_to_dxf(src, oda_exe, log)
     elif src.suffix.lower() != ".dxf":
         raise ValueError("지원 형식은 DWG 또는 DXF입니다.")
     return src, temp
@@ -374,7 +376,7 @@ def _read_dxf_resilient(src, log):
 
 def scan_layers(input_path, oda_exe=None, log: Callable[[str], None] | None = None):
     log = log or (lambda msg: None)
-    src, temp = _open_cad(input_path, oda_exe)
+    src, temp = _open_cad(input_path, oda_exe, log)
     try:
         log(f"CAD 레이어 스캔: {src}")
         doc = _read_dxf_resilient(src, log)
@@ -417,7 +419,7 @@ def convert_selected_layers(
     if not selected:
         raise ValueError("추출할 레이어를 하나 이상 선택해주세요.")
 
-    src, temp = _open_cad(input_path, oda_exe)
+    src, temp = _open_cad(input_path, oda_exe, log)
     try:
         log(f"CAD 읽기: {src}")
         doc = _read_dxf_resilient(src, log)
