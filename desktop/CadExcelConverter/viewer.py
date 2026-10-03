@@ -3,10 +3,11 @@ from __future__ import annotations
 import math
 import tkinter as tk
 from dataclasses import dataclass, field
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 from ezdxf.path import make_path
 from ezdxf.colors import aci2rgb
+from pyproj import Transformer
 
 from converter import load_dxf_document
 
@@ -21,6 +22,9 @@ class VisualEntity:
     primitives: list = field(default_factory=list)
     bbox: tuple | None = None
     color: str = "#d4d7dc"
+    attributes: dict = field(default_factory=dict)
+    xdata: list = field(default_factory=list)
+    dxf_data: dict = field(default_factory=dict)
 
 @dataclass
 class Scene:
@@ -220,6 +224,49 @@ def _resolve_entity_color(doc, entity, layer_name, inherited=None):
         pass
     return inherited or "#d4d7dc"
 
+
+def _stringify_value(value):
+    try:
+        if hasattr(value, "x") and hasattr(value, "y"):
+            z = getattr(value, "z", None)
+            if z is None:
+                return f"{float(value.x):.6f}, {float(value.y):.6f}"
+            return f"{float(value.x):.6f}, {float(value.y):.6f}, {float(z):.6f}"
+    except Exception:
+        pass
+    return str(value)
+
+def _collect_entity_details(doc, ent):
+    attributes = {}
+    if ent.dxftype() == "INSERT":
+        try:
+            for a in getattr(ent, "attribs", []):
+                attributes[str(a.dxf.tag)] = str(a.dxf.text)
+        except Exception:
+            pass
+
+    xdata = []
+    try:
+        for appid in doc.appids:
+            name = str(appid.dxf.name)
+            try:
+                tags = ent.get_xdata(name)
+            except Exception:
+                continue
+            values = [f"{tag.code}: {_stringify_value(tag.value)}" for tag in tags]
+            if values:
+                xdata.append((name, values))
+    except Exception:
+        pass
+
+    dxf_data = {}
+    try:
+        for key, value in ent.dxfattribs().items():
+            dxf_data[str(key)] = _stringify_value(value)
+    except Exception:
+        pass
+    return attributes, xdata, dxf_data
+
 def build_scene(input_path, log=None, progress=None):
     log = log or (lambda msg: None)
     progress = progress or (lambda percent, task: None)
@@ -254,6 +301,7 @@ def build_scene(input_path, log=None, progress=None):
         except Exception:
             pass
         display_color = _resolve_entity_color(doc, ent, layer)
+        attributes, xdata, dxf_data = _collect_entity_details(doc, ent)
         entities.append(VisualEntity(
             index=i,
             entity_type=typ,
@@ -264,6 +312,9 @@ def build_scene(input_path, log=None, progress=None):
             primitives=primitives,
             bbox=tuple(box) if box else None,
             color=display_color,
+            attributes=attributes,
+            xdata=xdata,
+            dxf_data=dxf_data,
         ))
         if i + 1 == total or (i + 1) % max(1, total // 100) == 0:
             progress(10 + int((i + 1) / total * 88), f"Viewer 객체 준비 {i+1:,}/{total:,}")
@@ -294,6 +345,8 @@ class DXFViewer(ttk.Frame):
         self.completed_measurements = []
         self.hover_world = None
         self.pan_start = None
+        self.source_epsg = 5174
+        self.transformer = Transformer.from_crs("EPSG:5174", "EPSG:4326", always_xy=True)
         self.status_var = tk.StringVar(value="DXF를 열어주세요.")
         self.info_var = tk.StringVar(value="")
         self._build()
@@ -305,8 +358,8 @@ class DXFViewer(ttk.Frame):
             ("전체보기", self.fit_view),
             ("선택", lambda: self.set_mode("select")),
             ("거리 측정", lambda: self.set_mode("distance")),
-            ("면적 측정", lambda: self.set_mode("area")),
             ("좌표 확인", lambda: self.set_mode("coord")),
+            ("상세정보", self.show_details),
             ("선택 해제", self.clear_selection),
             ("측정 지우기", self.clear_measure),
         ]:
@@ -363,14 +416,70 @@ class DXFViewer(ttk.Frame):
     def set_mode(self, mode):
         self.mode = mode
         self.measure_points = []
-        labels = {"select":"선택", "distance":"거리 측정", "area":"면적 측정", "coord":"좌표 확인"}
+        labels = {"select":"선택", "distance":"거리 측정", "coord":"좌표 확인"}
         self.status_var.set(f"모드: {labels.get(mode, mode)}")
-        if mode in {"distance", "area"}:
+        if mode == "distance":
             self.info_var.set(
                 "지점을 계속 클릭하세요. 구간/누적 거리가 표시됩니다. 더블클릭 또는 Enter로 완료합니다."
-                if mode == "distance"
-                else "꼭짓점을 계속 클릭하고 더블클릭 또는 Enter로 완료하세요."
             )
+
+    def set_source_epsg(self, epsg):
+        try:
+            epsg = int(epsg)
+            self.source_epsg = epsg
+            self.transformer = Transformer.from_crs(
+                f"EPSG:{epsg}", "EPSG:4326", always_xy=True
+            )
+        except Exception as e:
+            messagebox.showerror("좌표계 오류", f"EPSG:{epsg} 좌표계를 사용할 수 없습니다.\n{e}")
+
+    def show_details(self):
+        if not self.scene or not self.selected:
+            messagebox.showinfo("상세정보", "먼저 Viewer에서 기기/객체를 선택해주세요.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("선택 객체 상세정보")
+        win.geometry("760x620")
+        win.transient(self.winfo_toplevel())
+
+        text = tk.Text(win, wrap="word", font=("Consolas", 10))
+        y = ttk.Scrollbar(win, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=y.set)
+        text.pack(side="left", fill="both", expand=True)
+        y.pack(side="right", fill="y")
+
+        for order, idx in enumerate(sorted(self.selected), 1):
+            ent = self.scene.entities[idx]
+            text.insert("end", f"[객체 {order}]\n")
+            text.insert("end", f"TYPE: {ent.entity_type}\n")
+            text.insert("end", f"LAYER: {ent.layer}\n")
+            text.insert("end", f"HANDLE: {ent.handle}\n")
+            if ent.block_name:
+                text.insert("end", f"BLOCK: {ent.block_name}\n")
+            if ent.text:
+                text.insert("end", f"TEXT: {ent.text}\n")
+
+            if ent.attributes:
+                text.insert("end", "\n[BLOCK ATTRIBUTES]\n")
+                for key, value in ent.attributes.items():
+                    text.insert("end", f"{key}: {value}\n")
+
+            if ent.xdata:
+                text.insert("end", "\n[XDATA]\n")
+                for appid, values in ent.xdata:
+                    text.insert("end", f"<{appid}>\n")
+                    for value in values:
+                        text.insert("end", f"  {value}\n")
+
+            if ent.dxf_data:
+                text.insert("end", "\n[DXF PROPERTIES]\n")
+                for key in sorted(ent.dxf_data):
+                    text.insert("end", f"{key}: {ent.dxf_data[key]}\n")
+
+            text.insert("end", "\n" + "="*72 + "\n\n")
+
+        text.config(state="disabled")
 
     def world_to_screen(self, x, y):
         return x * self.scale + self.ox, -y * self.scale + self.oy
@@ -487,7 +596,14 @@ class DXFViewer(ttk.Frame):
     def _left_click(self, event):
         wx, wy = self.screen_to_world(event.x, event.y)
         if self.mode == "coord":
-            self.info_var.set(f"좌표 X={wx:.3f}, Y={wy:.3f}")
+            try:
+                lon, lat = self.transformer.transform(wx, wy)
+                self.info_var.set(
+                    f"CAD(EPSG:{self.source_epsg}) X={wx:.3f}, Y={wy:.3f}  /  "
+                    f"위도={lat:.7f}, 경도={lon:.7f}"
+                )
+            except Exception as e:
+                self.info_var.set(f"좌표 X={wx:.3f}, Y={wy:.3f} / 위경도 변환 오류: {e}")
             return
         if self.mode == "distance":
             self.measure_points.append((wx, wy))
@@ -510,11 +626,6 @@ class DXFViewer(ttk.Frame):
                 )
             self.redraw()
             return
-        if self.mode == "area":
-            self.measure_points.append((wx, wy))
-            self.redraw()
-            return
-
         idx = self._nearest_entity(event.x, event.y)
         shift = bool(event.state & 0x0001)
         if idx is None:
@@ -555,34 +666,6 @@ class DXFViewer(ttk.Frame):
             self.redraw()
             return
 
-        if self.mode == "area":
-            if len(self.measure_points) < 3:
-                return
-            pts = list(self.measure_points)
-            area = abs(sum(
-                pts[i][0]*pts[(i+1)%len(pts)][1] - pts[(i+1)%len(pts)][0]*pts[i][1]
-                for i in range(len(pts))
-            )) / 2.0
-            perimeter = sum(
-                math.hypot(
-                    pts[(i+1)%len(pts)][0]-pts[i][0],
-                    pts[(i+1)%len(pts)][1]-pts[i][1]
-                )
-                for i in range(len(pts))
-            )
-            self.completed_measurements.append({
-                "type": "area",
-                "points": pts,
-                "value": area,
-                "perimeter": perimeter,
-                "label": f"{area:,.3f}",
-            })
-            self.info_var.set(
-                f"면적: {area:,.3f}  /  둘레: {perimeter:,.3f}  /  꼭짓점 {len(pts)}개"
-            )
-            self.measure_points = []
-            self.redraw()
-
     def _double_click(self, event):
         self._finish_measurement()
 
@@ -608,6 +691,10 @@ class DXFViewer(ttk.Frame):
                 extra.append(f"블록={e.block_name}")
             if e.text:
                 extra.append(f"문자={e.text[:80]}")
+            if e.attributes:
+                extra.append(f"속성={len(e.attributes)}개")
+            if e.xdata:
+                extra.append(f"XDATA={len(e.xdata)}개")
             rows.append(f"{e.entity_type} · Layer={e.layer} · Handle={e.handle}" + ((" · " + " · ".join(extra)) if extra else ""))
         if len(self.selected) > 8:
             rows.append(f"... 외 {len(self.selected)-8}개")
@@ -668,14 +755,7 @@ class DXFViewer(ttk.Frame):
                     text=f'총 {m.get("label", "")}',
                     fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
                 )
-            elif m.get("type") == "area":
-                cx = sum(p[0] for p in pts) / len(pts)
-                cy = sum(p[1] for p in pts) / len(pts)
-                sx, sy = self.world_to_screen(cx, cy)
-                self.canvas.create_text(
-                    sx, sy, text=f'면적 {m.get("label", "")}',
-                    fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
-                )
+
 
         # 현재 측정 중인 선과 마우스까지의 임시 선.
         if self.measure_points:
@@ -712,11 +792,5 @@ class DXFViewer(ttk.Frame):
                     lx+8, ly-14, anchor="w",
                     text=f"누적 {sum(segments):,.3f}",
                     fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
-                )
-            if self.mode == "area" and len(self.measure_points) >= 3:
-                x0, y0 = self.world_to_screen(*self.measure_points[0])
-                x1, y1 = self.world_to_screen(*self.measure_points[-1])
-                self.canvas.create_line(
-                    x1, y1, x0, y0, fill="#ffcc33", width=1, dash=(2, 3)
                 )
 
