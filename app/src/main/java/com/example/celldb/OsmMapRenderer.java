@@ -12,6 +12,7 @@ import org.osmdroid.util.BoundingBox;
 import org.osmdroid.util.GeoPoint;
 import org.osmdroid.views.MapView;
 import org.osmdroid.views.overlay.Marker;
+import org.osmdroid.views.overlay.Polyline;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,12 +20,13 @@ import java.util.List;
 final class OsmMapRenderer implements MapRenderer {
     private final Context context;
     private final MapView map;
+    private final ArrayList<Polyline> networkLines = new ArrayList<>();
     private Marker current;
 
     OsmMapRenderer(Context context) {
         this.context = context;
         IConfigurationProvider config = Configuration.getInstance();
-        config.setUserAgentValue("ONUPositionDB/1.2 (com.example.celldb; https://github.com/ysjus2/cmb_test)");
+        config.setUserAgentValue("CADNetworkDB/2.0 (com.example.celldb; https://github.com/ysjus2/cmb_test)");
         config.setOsmdroidBasePath(new File(context.getFilesDir(), "maps"));
         config.setOsmdroidTileCache(new File(context.getCacheDir(), "map-tiles"));
         map = new MapView(context);
@@ -37,7 +39,18 @@ final class OsmMapRenderer implements MapRenderer {
     public View getView() { return map; }
     public String getName() { return "OpenStreetMap"; }
     public void start(Runnable onReady, ErrorCallback onError) { onReady.run(); }
-    public void clearOnuMarkers() { map.getOverlays().clear(); current = null; }
+
+    public void clearOnuMarkers() {
+        map.getOverlays().removeIf(o -> o instanceof Marker && o != current);
+        map.invalidate();
+    }
+
+    public void clearNetworkLines() {
+        for (Polyline line : networkLines) map.getOverlays().remove(line);
+        networkLines.clear();
+        map.invalidate();
+    }
+
     private GeoPoint point(MapPoint p) { return new GeoPoint(p.getLatitude(), p.getLongitude()); }
 
     private BitmapDrawable icon(int color, String text, boolean current) {
@@ -52,10 +65,23 @@ final class OsmMapRenderer implements MapRenderer {
         Marker marker = new Marker(map);
         marker.setPosition(point(p));
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-        marker.setIcon(icon(Color.rgb(220, 65, 45), "ONU", false));
+        marker.setIcon(icon(Color.rgb(220, 65, 45), "CAD", false));
         marker.setTitle(title);
         marker.setOnMarkerClickListener((selected, view) -> { onClick.run(); return true; });
         map.getOverlays().add(marker);
+        map.invalidate();
+    }
+
+    public void addNetworkLine(List<MapPoint> points, boolean fiber) {
+        if (points == null || points.size() < 2) return;
+        Polyline line = new Polyline();
+        ArrayList<GeoPoint> converted = new ArrayList<>();
+        for (MapPoint p : points) converted.add(point(p));
+        line.setPoints(converted);
+        line.getOutlinePaint().setStrokeWidth(5f * context.getResources().getDisplayMetrics().density);
+        line.getOutlinePaint().setColor(fiber ? Color.rgb(30, 136, 229) : Color.rgb(245, 124, 0));
+        networkLines.add(line);
+        map.getOverlays().add(line);
         map.invalidate();
     }
 
@@ -67,7 +93,9 @@ final class OsmMapRenderer implements MapRenderer {
             current.setTitle("현재 위치");
             map.getOverlays().add(current);
         }
-        current.setPosition(point(p)); current.setSnippet(accuracy); map.invalidate();
+        current.setPosition(point(p));
+        current.setSnippet(accuracy);
+        map.invalidate();
     }
 
     public void center(MapPoint p, boolean zoomIn) {
@@ -83,6 +111,7 @@ final class OsmMapRenderer implements MapRenderer {
         map.zoomToBoundingBox(BoundingBox.fromGeoPoints(converted), true,
                 Math.round(60 * context.getResources().getDisplayMetrics().density), 18.0, null);
     }
+
     public void resume() { map.onResume(); }
     public void pause() { map.onPause(); }
     public void destroy() { map.onDetach(); }
