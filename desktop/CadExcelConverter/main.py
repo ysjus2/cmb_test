@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from converter import convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
 
-APP_NAME = "CMB DXF Viewer + Excel v3.2"
+APP_NAME = "CMB DXF Viewer + Excel v3.3"
 
 class App(tk.Tk):
     def __init__(self):
