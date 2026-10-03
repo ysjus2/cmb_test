@@ -374,21 +374,32 @@ def _read_dxf_resilient(src, log):
             except Exception:
                 pass
 
-def scan_layers(input_path, oda_exe=None, log: Callable[[str], None] | None = None):
+def scan_layers(input_path, oda_exe=None, log: Callable[[str], None] | None = None, progress=None):
     log = log or (lambda msg: None)
+    progress = progress or (lambda percent, task: None)
+    progress(3, "CAD 파일 준비")
+    if str(input_path).lower().endswith(".dwg"):
+        progress(8, "DWG → DXF 자동 변환")
     src, temp = _open_cad(input_path, oda_exe, log)
+    progress(35 if str(input_path).lower().endswith(".dwg") else 12, "DXF 읽기")
     try:
         log(f"CAD 레이어 스캔: {src}")
         doc = _read_dxf_resilient(src, log)
+        progress(48, "CAD 레이어 분석")
         counts = {}
         types = {}
-        for ent in doc.modelspace():
+        entities = list(doc.modelspace())
+        total = max(1, len(entities))
+        for index, ent in enumerate(entities, 1):
             layer = _norm(getattr(ent.dxf, "layer", "0")) or "0"
             counts[layer] = counts.get(layer, 0) + 1
             types.setdefault(layer, set()).add(ent.dxftype())
+            if index == total or index % max(1, total // 100) == 0:
+                progress(48 + int(index / total * 47), f"레이어 분석 {index:,}/{total:,}")
         result = []
         for name in sorted(counts, key=lambda x: x.lower()):
             result.append(LayerInfo(name, counts[name], ", ".join(sorted(types[name]))))
+        progress(100, f"레이어 {len(result)}개 분석 완료")
         return result
     finally:
         if temp is not None:
@@ -413,17 +424,24 @@ def convert_selected_layers(
     source_epsg=5174,
     oda_exe=None,
     log: Callable[[str], None] | None = None,
+    progress=None,
 ):
     log = log or (lambda msg: None)
+    progress = progress or (lambda percent, task: None)
     selected = list(dict.fromkeys(selected_layers))
     if not selected:
         raise ValueError("추출할 레이어를 하나 이상 선택해주세요.")
 
+    progress(2, "CAD 파일 준비")
+    if str(input_path).lower().endswith(".dwg"):
+        progress(6, "DWG → DXF 자동 변환")
     src, temp = _open_cad(input_path, oda_exe, log)
+    progress(20 if str(input_path).lower().endswith(".dwg") else 8, "DXF 읽기")
     try:
         log(f"CAD 읽기: {src}")
         doc = _read_dxf_resilient(src, log)
         msp = doc.modelspace()
+        progress(28, "선택 레이어 객체 분석")
         transformer = Transformer.from_crs(
             f"EPSG:{source_epsg}",
             "EPSG:4326",
@@ -434,7 +452,9 @@ def convert_selected_layers(
         entity_counts = {name: 0 for name in selected}
         stats = ConversionStats(layers=len(selected))
 
-        for ent in msp:
+        entities = list(msp)
+        total_entities = max(1, len(entities))
+        for entity_index, ent in enumerate(entities, 1):
             layer = _norm(getattr(ent.dxf, "layer", "0")) or "0"
             if layer not in grouped:
                 continue
@@ -471,12 +491,17 @@ def convert_selected_layers(
                 stats.rows += 1
                 stats.skipped += 1
 
+            if entity_index == total_entities or entity_index % max(1, total_entities // 100) == 0:
+                progress(28 + int(entity_index / total_entities * 47), f"객체 변환 {entity_index:,}/{total_entities:,}")
+
+        progress(78, "Excel 시트 생성")
         wb = Workbook()
         wb.remove(wb.active)
         used = set()
         index_rows = []
 
-        for layer in selected:
+        selected_total = max(1, len(selected))
+        for layer_index, layer in enumerate(selected, 1):
             sheet_name = _safe_sheet_name(layer, used)
             ws = wb.create_sheet(sheet_name)
             _write_sheet(ws, LAYER_HEADERS, grouped[layer])
@@ -486,6 +511,7 @@ def convert_selected_layers(
                 entity_counts[layer],
                 len(grouped[layer]),
             ])
+            progress(78 + int(layer_index / selected_total * 15), f"Excel 시트 작성 {layer_index}/{selected_total}")
 
         idx = wb.create_sheet("LAYER_INDEX", 0)
         _write_sheet(
@@ -508,16 +534,18 @@ def convert_selected_layers(
 
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
+        progress(96, "Excel 파일 저장")
         wb.save(out)
         log(f"완료: {out}")
+        progress(100, "완료")
         return stats
     finally:
         if temp is not None:
             temp.cleanup()
 
 # Backward-compatible wrapper: export all discovered layers.
-def convert_file(input_path, output_path, source_epsg=5174, oda_exe=None, log=None):
-    layers = scan_layers(input_path, oda_exe, log)
+def convert_file(input_path, output_path, source_epsg=5174, oda_exe=None, log=None, progress=None):
+    layers = scan_layers(input_path, oda_exe, log, progress)
     return convert_selected_layers(
         input_path,
         output_path,
@@ -525,4 +553,5 @@ def convert_file(input_path, output_path, source_epsg=5174, oda_exe=None, log=No
         source_epsg,
         oda_exe,
         log,
+        progress,
     )
