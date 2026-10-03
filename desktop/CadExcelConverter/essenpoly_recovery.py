@@ -12,6 +12,13 @@ def _pairs(lines):
     return out
 
 
+def _parse_int(value):
+    try:
+        return int(float(str(value).strip()))
+    except Exception:
+        return None
+
+
 def recover_essenpoly_polylines(input_path):
     """Recover embedded AcDbPolyline geometry from ESSENPOLY custom entities.
 
@@ -19,6 +26,10 @@ def recover_essenpoly_polylines(input_path):
     source file and does not depend on any proprietary DWG/DXF component.
     Malformed binary 310 groups are ignored because the usable polyline is
     stored again as ordinary 10/20 coordinate tags in the Embedded Object.
+
+    The original entity color is also retained when it is explicitly stored
+    as ACI (group 62) or true-color (group 420). If no explicit color exists,
+    the Viewer can fall back to the DXF layer color.
     """
     path = Path(input_path)
     if path.suffix.lower() != ".dxf" or not path.is_file():
@@ -67,6 +78,33 @@ def recover_essenpoly_polylines(input_path):
                     polyline = idx
                     break
 
+        # Prefer the embedded AcDbEntity color because that is what CAD uses
+        # for the visible polyline. Fall back to the outer ESSENPOLY color.
+        color_aci = None
+        true_color = None
+        if embedded >= 0:
+            for code, value in pairs[embedded + 1:polyline if polyline >= 0 else len(pairs)]:
+                if code == "62":
+                    parsed = _parse_int(value)
+                    if parsed not in (None, 0, 256):
+                        color_aci = parsed
+                elif code == "420":
+                    parsed = _parse_int(value)
+                    if parsed is not None:
+                        true_color = parsed
+        if color_aci is None and true_color is None:
+            for code, value in pairs[:embedded if embedded >= 0 else len(pairs)]:
+                if code == "62":
+                    parsed = _parse_int(value)
+                    if parsed not in (None, 0, 256):
+                        color_aci = parsed
+                        break
+                elif code == "420":
+                    parsed = _parse_int(value)
+                    if parsed is not None:
+                        true_color = parsed
+                        break
+
         points = []
         if polyline >= 0:
             pending_x = None
@@ -89,6 +127,8 @@ def recover_essenpoly_polylines(input_path):
                 "layer": layer,
                 "points": points,
                 "attributes": metadata,
+                "color_aci": color_aci,
+                "true_color": true_color,
             })
 
         i = max(j, i + 2)
