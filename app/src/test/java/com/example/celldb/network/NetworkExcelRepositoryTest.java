@@ -15,7 +15,7 @@ public class NetworkExcelRepositoryTest {
         for (int i=0; i<values.length; i++) out.append(cell("" + (char)('A'+i) + index, values[i]));
         return out.append("</row>").toString();
     }
-    private byte[] workbook(boolean missingSheet, boolean badHeader) throws Exception {
+    public byte[] workbook(boolean missingSheet, boolean badHeader) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(out)) {
             String[] names = {"CELL", "FACILITY", "EQUIPMENT", "FIBER", "COAX"};

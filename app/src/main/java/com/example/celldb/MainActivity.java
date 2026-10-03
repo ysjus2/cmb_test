@@ -17,7 +17,7 @@ public class MainActivity extends Activity {
 
     private CadDatabase db;
     private Spinner category;
-    private EditText id, name, subtype, longitude, latitude, note;
+    private EditText id, name, subtype, longitude, latitude, note, sequence;
     private LinearLayout listBox;
     private TextView summary;
     private CadRecord editing;
@@ -109,6 +109,8 @@ public class MainActivity extends Activity {
         longitude=input("경도");
         latitude=input("위도");
         note=input("비고");
+        sequence=input("선로점 순번 (광/동축 선로)");
+        sequence.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         longitude.setInputType(android.text.InputType.TYPE_CLASS_NUMBER|android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL|android.text.InputType.TYPE_NUMBER_FLAG_SIGNED);
         latitude.setInputType(longitude.getInputType());
 
@@ -118,6 +120,7 @@ public class MainActivity extends Activity {
         body.addView(label("경도")); body.addView(longitude);
         body.addView(label("위도")); body.addView(latitude);
         body.addView(label("비고")); body.addView(note);
+        body.addView(label("선로점 순번 (광/동축)")); body.addView(sequence);
 
         LinearLayout actions=new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -198,7 +201,12 @@ public class MainActivity extends Activity {
         if(!r.hasCoordinates()) {
             Toast.makeText(this,"경도는 -180~180, 위도는 -90~90 범위로 입력해주세요.",Toast.LENGTH_LONG).show(); return;
         }
-        if(("FIBER".equals(cat)||"COAX".equals(cat)) && editing!=null) r.sequence=editing.sequence;
+        if("FIBER".equals(cat)||"COAX".equals(cat)) {
+            try { r.sequence=Integer.parseInt(sequence.getText().toString().trim()); }
+            catch(Exception error) { Toast.makeText(this,"선로점 순번을 입력해주세요.",Toast.LENGTH_LONG).show(); return; }
+            if(r.sequence<0) { Toast.makeText(this,"선로점 순번은 0 이상이어야 합니다.",Toast.LENGTH_LONG).show(); return; }
+            r.fields.put("순번",Integer.toString(r.sequence));
+        }
         r.fields.put("비고",note.getText().toString().trim());
         r.fields.put("경도",Double.toString(r.longitude));
         r.fields.put("위도",Double.toString(r.latitude));
@@ -224,13 +232,14 @@ public class MainActivity extends Activity {
         longitude.setText(r.hasCoordinates()?Double.toString(r.longitude):"");
         latitude.setText(r.hasCoordinates()?Double.toString(r.latitude):"");
         note.setText(r.fields.containsKey("비고") ? r.fields.get("비고") : "");
+        sequence.setText(("FIBER".equals(r.category)||"COAX".equals(r.category)) ? Integer.toString(r.sequence) : "");
         Toast.makeText(this,"수정 모드: "+r.title(),Toast.LENGTH_SHORT).show();
     }
 
     private void clearForm(){
         editing=null;
         id.setText(""); name.setText(""); subtype.setText("");
-        longitude.setText(""); latitude.setText(""); note.setText("");
+        longitude.setText(""); latitude.setText(""); note.setText(""); sequence.setText("");
     }
 
     private void delete(CadRecord r){
