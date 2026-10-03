@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from converter import convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
 
-APP_NAME = "CMB DXF Viewer + Excel v3.4"
+APP_NAME = "CMB DXF Viewer + Excel v3.5"
 
 class App(tk.Tk):
     def __init__(self):
@@ -136,18 +136,17 @@ class App(tk.Tk):
         self.viewer.pack(fill="both", expand=True)
         self.viewer.set_source_epsg(self.epsg_var.get())
 
-        progress_frame = ttk.Frame(root)
-        progress_frame.pack(fill="x", pady=(6, 4))
+        # 진행 영역은 작업 중에만 표시하고 완료되면 자동으로 숨긴다.
+        self.progress_frame = ttk.Frame(root)
         self.progress_canvas = tk.Canvas(
-            progress_frame, height=30, highlightthickness=1,
+            self.progress_frame, height=30, highlightthickness=1,
             highlightbackground="#9ca3af", bg="#e5e7eb"
         )
         self.progress_canvas.pack(fill="x")
         self.progress_canvas.bind("<Configure>", lambda e: self._draw_progress())
+        self.progress_frame.pack_forget()
 
-        self.log = tk.Text(root, height=5, wrap="word", font=("Consolas", 9))
-        self.log.pack(fill="x")
-        self._log("회사 배포용: DXF만 지원 / DWG 엔진 없음 / Viewer는 원본 파일을 수정하지 않습니다.")
+        self.last_log = ""
 
     def _toggle_layer_panel(self):
         if self.layer_panel_visible:
@@ -213,6 +212,7 @@ class App(tk.Tk):
         self.scan_btn.config(state="disabled")
         self.run_btn.config(state="disabled")
         self.status_var.set("DXF 분석 중...")
+        self._show_progress()
         self._set_progress(0, "DXF 분석 준비")
         self.tree.delete(*self.tree.get_children())
         self.layer_names.clear()
@@ -364,6 +364,7 @@ class App(tk.Tk):
 
         self.run_btn.config(state="disabled")
         self.scan_btn.config(state="disabled")
+        self._show_progress()
         self._set_progress(0, "Excel 변환 준비")
         self._log("=" * 60)
         self._log("Excel 추출 레이어: " + ", ".join(selected))
@@ -406,6 +407,7 @@ class App(tk.Tk):
                     self.run_btn.config(state="normal" if layers else "disabled")
                     self._update_status()
                     self._set_progress(100, f"DXF Viewer 준비 완료 · 객체 {len(scene.entities):,}개")
+                    self.after(450, self._hide_progress)
                     if scene.unsupported:
                         text = ", ".join(f"{k}:{v}" for k, v in sorted(scene.unsupported.items()))
                         self._log("Viewer 미표시 객체: " + text)
@@ -413,17 +415,29 @@ class App(tk.Tk):
                     self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal")
                     self._set_progress(100, "Excel 생성 완료")
+                    self.after(450, self._hide_progress)
                     self._log(f"완료 · 레이어 {data.layers} · 객체 {data.entities} · 행 {data.rows}")
                     messagebox.showinfo(APP_NAME, "선택 레이어 Excel 생성이 완료되었습니다.")
                 elif kind == "error":
                     self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal" if self.layer_names else "disabled")
                     self._set_progress(self.progress_value, "오류 발생")
+                    self.after(1200, self._hide_progress)
                     self._log("오류: " + data)
                     messagebox.showerror(APP_NAME, data)
         except queue.Empty:
             pass
         self.after(100, self._drain)
+
+    def _show_progress(self):
+        if not self.progress_frame.winfo_manager():
+            self.progress_frame.pack(fill="x", pady=(6, 0))
+        self.progress_frame.lift()
+
+    def _hide_progress(self):
+        if self.progress_frame.winfo_manager():
+            self.progress_frame.pack_forget()
+        self.after(20, self.viewer.redraw)
 
     def _set_progress(self, percent, task):
         try:
@@ -452,8 +466,8 @@ class App(tk.Tk):
         )
 
     def _log(self, msg):
-        self.log.insert("end", str(msg) + "\n")
-        self.log.see("end")
+        # 로그는 내부 상태로만 보관한다. 화면 하단 로그창은 사용하지 않는다.
+        self.last_log = str(msg)
 
 if __name__ == "__main__":
     App().mainloop()
