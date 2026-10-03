@@ -341,6 +341,7 @@ class DXFViewer(ttk.Frame):
         self.canvas.bind("<Double-Button-1>", self._double_click)
         self.canvas.bind("<Motion>", self._motion)
         self.bind_all("<Escape>", lambda e: self.clear_selection())
+        self.bind_all("<Return>", lambda e: self._finish_measurement())
 
     def load_scene(self, scene):
         self.scene = scene
@@ -365,7 +366,11 @@ class DXFViewer(ttk.Frame):
         labels = {"select":"선택", "distance":"거리 측정", "area":"면적 측정", "coord":"좌표 확인"}
         self.status_var.set(f"모드: {labels.get(mode, mode)}")
         if mode in {"distance", "area"}:
-            self.info_var.set("화면의 지점을 클릭하세요." if mode == "distance" else "꼭짓점을 클릭하고 더블클릭하여 완료하세요.")
+            self.info_var.set(
+                "지점을 계속 클릭하세요. 구간/누적 거리가 표시됩니다. 더블클릭 또는 Enter로 완료합니다."
+                if mode == "distance"
+                else "꼭짓점을 계속 클릭하고 더블클릭 또는 Enter로 완료하세요."
+            )
 
     def world_to_screen(self, x, y):
         return x * self.scale + self.ox, -y * self.scale + self.oy
@@ -487,20 +492,22 @@ class DXFViewer(ttk.Frame):
         if self.mode == "distance":
             self.measure_points.append((wx, wy))
             if len(self.measure_points) == 1:
-                self.info_var.set(f"시작점 X={wx:.3f}, Y={wy:.3f} · 두 번째 점을 클릭하세요.")
-            elif len(self.measure_points) == 2:
-                a, b = self.measure_points
-                d = math.hypot(b[0]-a[0], b[1]-a[1])
-                self.completed_measurements.append({
-                    "type": "distance",
-                    "points": [a, b],
-                    "value": d,
-                    "label": f"{d:,.3f}",
-                })
                 self.info_var.set(
-                    f"거리: {d:,.3f}  ({a[0]:.3f},{a[1]:.3f}) → ({b[0]:.3f},{b[1]:.3f})"
+                    f"시작점 X={wx:.3f}, Y={wy:.3f} · 다음 지점을 계속 클릭하세요."
                 )
-                self.measure_points = []
+            else:
+                a, b = self.measure_points[-2], self.measure_points[-1]
+                segment = math.hypot(b[0]-a[0], b[1]-a[1])
+                total = sum(
+                    math.hypot(
+                        self.measure_points[i][0] - self.measure_points[i-1][0],
+                        self.measure_points[i][1] - self.measure_points[i-1][1],
+                    )
+                    for i in range(1, len(self.measure_points))
+                )
+                self.info_var.set(
+                    f"구간: {segment:,.3f}  /  누적 총 길이: {total:,.3f}  /  지점 {len(self.measure_points)}개"
+                )
             self.redraw()
             return
         if self.mode == "area":
@@ -524,28 +531,60 @@ class DXFViewer(ttk.Frame):
         self._show_selected_info()
         self.redraw()
 
-    def _double_click(self, event):
-        if self.mode != "area" or len(self.measure_points) < 3:
+    def _finish_measurement(self):
+        if self.mode == "distance":
+            if len(self.measure_points) < 2:
+                return
+            pts = list(self.measure_points)
+            segments = [
+                math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1])
+                for i in range(1, len(pts))
+            ]
+            total = sum(segments)
+            self.completed_measurements.append({
+                "type": "distance_path",
+                "points": pts,
+                "segments": segments,
+                "value": total,
+                "label": f"{total:,.3f}",
+            })
+            self.info_var.set(
+                f"누적 총 길이: {total:,.3f}  /  구간 {len(segments)}개  /  지점 {len(pts)}개"
+            )
+            self.measure_points = []
+            self.redraw()
             return
-        pts = self.measure_points
-        area = abs(sum(
-            pts[i][0]*pts[(i+1)%len(pts)][1] - pts[(i+1)%len(pts)][0]*pts[i][1]
-            for i in range(len(pts))
-        )) / 2.0
-        perimeter = sum(
-            math.hypot(pts[(i+1)%len(pts)][0]-pts[i][0], pts[(i+1)%len(pts)][1]-pts[i][1])
-            for i in range(len(pts))
-        )
-        self.completed_measurements.append({
-            "type": "area",
-            "points": list(pts),
-            "value": area,
-            "perimeter": perimeter,
-            "label": f"{area:,.3f}",
-        })
-        self.info_var.set(f"면적: {area:,.3f}  /  둘레: {perimeter:,.3f}  /  꼭짓점 {len(pts)}개")
-        self.measure_points = []
-        self.redraw()
+
+        if self.mode == "area":
+            if len(self.measure_points) < 3:
+                return
+            pts = list(self.measure_points)
+            area = abs(sum(
+                pts[i][0]*pts[(i+1)%len(pts)][1] - pts[(i+1)%len(pts)][0]*pts[i][1]
+                for i in range(len(pts))
+            )) / 2.0
+            perimeter = sum(
+                math.hypot(
+                    pts[(i+1)%len(pts)][0]-pts[i][0],
+                    pts[(i+1)%len(pts)][1]-pts[i][1]
+                )
+                for i in range(len(pts))
+            )
+            self.completed_measurements.append({
+                "type": "area",
+                "points": pts,
+                "value": area,
+                "perimeter": perimeter,
+                "label": f"{area:,.3f}",
+            })
+            self.info_var.set(
+                f"면적: {area:,.3f}  /  둘레: {perimeter:,.3f}  /  꼭짓점 {len(pts)}개"
+            )
+            self.measure_points = []
+            self.redraw()
+
+    def _double_click(self, event):
+        self._finish_measurement()
 
     def _motion(self, event):
         if not self.scene:
@@ -610,12 +649,23 @@ class DXFViewer(ttk.Frame):
                 close=m.get("type") == "area",
                 width=2,
             )
-            if m.get("type") == "distance" and len(pts) >= 2:
-                mx = (pts[0][0] + pts[1][0]) / 2
-                my = (pts[0][1] + pts[1][1]) / 2
-                sx, sy = self.world_to_screen(mx, my)
+            if m.get("type") in {"distance", "distance_path"} and len(pts) >= 2:
+                segments = m.get("segments") or [
+                    math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1])
+                    for i in range(1, len(pts))
+                ]
+                for i in range(1, len(pts)):
+                    mx = (pts[i-1][0] + pts[i][0]) / 2
+                    my = (pts[i-1][1] + pts[i][1]) / 2
+                    sx, sy = self.world_to_screen(mx, my)
+                    self.canvas.create_text(
+                        sx, sy-10, text=f"{segments[i-1]:,.3f}",
+                        fill="#fff3bf", font=("Malgun Gothic", 9)
+                    )
+                lx, ly = self.world_to_screen(*pts[-1])
                 self.canvas.create_text(
-                    sx, sy-10, text=f'{m.get("label", "")}',
+                    lx+8, ly-14, anchor="w",
+                    text=f'총 {m.get("label", "")}',
                     fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
                 )
             elif m.get("type") == "area":
@@ -640,6 +690,28 @@ class DXFViewer(ttk.Frame):
                 x2, y2 = self.world_to_screen(*self.hover_world)
                 self.canvas.create_line(
                     x1, y1, x2, y2, fill="#ffcc33", width=1, dash=(2, 3)
+                )
+            if self.mode == "distance" and len(self.measure_points) >= 2:
+                segments = [
+                    math.hypot(
+                        self.measure_points[i][0]-self.measure_points[i-1][0],
+                        self.measure_points[i][1]-self.measure_points[i-1][1]
+                    )
+                    for i in range(1, len(self.measure_points))
+                ]
+                for i in range(1, len(self.measure_points)):
+                    mx = (self.measure_points[i-1][0] + self.measure_points[i][0]) / 2
+                    my = (self.measure_points[i-1][1] + self.measure_points[i][1]) / 2
+                    sx, sy = self.world_to_screen(mx, my)
+                    self.canvas.create_text(
+                        sx, sy-10, text=f"{segments[i-1]:,.3f}",
+                        fill="#fff3bf", font=("Malgun Gothic", 9)
+                    )
+                lx, ly = self.world_to_screen(*self.measure_points[-1])
+                self.canvas.create_text(
+                    lx+8, ly-14, anchor="w",
+                    text=f"누적 {sum(segments):,.3f}",
+                    fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
                 )
             if self.mode == "area" and len(self.measure_points) >= 3:
                 x0, y0 = self.world_to_screen(*self.measure_points[0])
