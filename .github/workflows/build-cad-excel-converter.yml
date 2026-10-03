@@ -49,6 +49,9 @@ jobs:
       - name: Audit runtime licenses
         run: python license_audit.py
 
+      - name: Test ESSENPOLY recovery
+        run: python essenpoly_selftest.py
+
       - name: Run self-test
         run: python selftest.py
 
