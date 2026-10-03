@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v1.8"
+APP_NAME = "CAD → Excel 레이어 변환기 v1.9"
 
 class App(tk.Tk):
     def __init__(self):
@@ -28,6 +28,7 @@ class App(tk.Tk):
         self.layer_rows = {}
         self.checked_layers = set()
         self.last_checked_iid = None
+        self.highlighted_iids = set()
         self._build()
         self.after(100, self._drain)
 
@@ -37,7 +38,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v1.8",
+            text="CAD → Excel 레이어 변환기 v1.9",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -93,6 +94,7 @@ class App(tk.Tk):
         self.tree.column("layer", width=350, stretch=True)
         self.tree.column("count", width=90, anchor="center")
         self.tree.column("types", width=400, stretch=True)
+        self.tree.tag_configure("range_selected", background="#2563eb", foreground="#ffffff")
         self.tree.bind("<Button-1>", self._tree_click)
         y = ttk.Scrollbar(layer_box, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=y.set)
@@ -181,6 +183,7 @@ class App(tk.Tk):
         self.layer_rows.clear()
         self.checked_layers.clear()
         self.last_checked_iid = None
+        self.highlighted_iids.clear()
 
         def worker():
             try:
@@ -213,11 +216,22 @@ class App(tk.Tk):
             f"레이어 {len(self.layer_rows)}개 발견 · {len(self.checked_layers)}개 선택"
         )
 
+    def _highlight_items(self, items):
+        for old_iid in list(self.highlighted_iids):
+            if self.tree.exists(old_iid):
+                self.tree.item(old_iid, tags=())
+        self.highlighted_iids = set(items)
+        for item in items:
+            if self.tree.exists(item):
+                self.tree.item(item, tags=("range_selected",))
+        if items:
+            self.tree.see(items[-1])
+
     def _tree_click(self, event):
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if not iid or col not in ("#1", "#2"):
-            return
+        if not iid:
+            return "break"
 
         items = list(self.tree.get_children())
         shift_pressed = bool(event.state & 0x0001)
@@ -228,30 +242,46 @@ class App(tk.Tk):
             lo, hi = sorted((start, end))
             range_items = items[lo:hi + 1]
 
-            # CAD 방식: 구간을 파란색 선택 상태로 표시
-            self.tree.selection_set(range_items)
+            # CAD 방식: 시작~끝 구간을 직접 파란색으로 강조
+            self._highlight_items(range_items)
 
-            # 시작 항목의 현재 체크 상태를 기준으로 구간 전체 상태 반전
-            anchor_name = self.layer_names.get(self.last_checked_iid)
-            target_checked = anchor_name not in self.checked_layers
+            # 구간 전체가 체크 상태면 전체 해제,
+            # 하나라도 미체크면 구간 전체 체크
+            all_checked = all(
+                self.layer_names.get(item) in self.checked_layers
+                for item in range_items
+            )
+            target_checked = not all_checked
             for item in range_items:
                 self._set_checked(item, target_checked)
-        else:
-            # 일반 클릭은 해당 항목만 파란색 선택 + 체크 상태 반전
-            self.tree.selection_set((iid,))
+
+            # 다음 Shift 선택은 방금 클릭한 행을 새 기준점으로 사용
+            self.last_checked_iid = iid
+            return "break"
+
+        # 일반 클릭: 행은 파란색 강조만 하고 기준점으로 지정
+        self._highlight_items([iid])
+        self.last_checked_iid = iid
+
+        # 체크 열을 클릭했을 때만 해당 항목 체크/해제
+        if col == "#1":
             name = self.layer_names.get(iid)
             self._set_checked(iid, name not in self.checked_layers)
 
-        self.last_checked_iid = iid
         return "break"
 
     def _select_all(self):
-        for iid in self.tree.get_children():
+        items = list(self.tree.get_children())
+        for iid in items:
             self._set_checked(iid, True)
+        self._highlight_items(items)
 
     def _clear_selection(self):
-        for iid in self.tree.get_children():
+        items = list(self.tree.get_children())
+        for iid in items:
             self._set_checked(iid, False)
+        self._highlight_items([])
+        self.last_checked_iid = None
 
     def _run(self):
         selected = [
