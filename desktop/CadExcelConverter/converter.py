@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 import ezdxf
+from ezdxf import recover
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
@@ -169,12 +170,34 @@ def _open_cad(input_path, oda_exe=None):
         raise ValueError("지원 형식은 DWG 또는 DXF입니다.")
     return src, temp
 
+def _read_dxf_resilient(src, log):
+    try:
+        log("DXF 일반 읽기 시도")
+        return ezdxf.readfile(str(src))
+    except Exception as first_error:
+        log(f"일반 읽기 실패: {first_error}")
+        log("DXF 복구 모드로 재시도")
+        try:
+            doc, auditor = recover.readfile(str(src), errors="ignore")
+            if getattr(auditor, "has_errors", False):
+                log(f"복구 모드 경고: {len(getattr(auditor, 'errors', []))}건")
+            log("복구 모드 읽기 성공")
+            return doc
+        except Exception as recover_error:
+            raise RuntimeError(
+                "DXF를 읽지 못했습니다. 일반 읽기 오류: "
+                + str(first_error)
+                + " / 복구 모드 오류: "
+                + str(recover_error)
+                + " / AutoCAD에서 DXF를 ASCII 형식(R2018 또는 R2013)으로 다시 저장한 뒤 재시도해주세요."
+            )
+
 def scan_layers(input_path, oda_exe=None, log: Callable[[str], None] | None = None):
     log = log or (lambda msg: None)
     src, temp = _open_cad(input_path, oda_exe)
     try:
         log(f"CAD 레이어 스캔: {src}")
-        doc = ezdxf.readfile(str(src))
+        doc = _read_dxf_resilient(src, log)
         counts = {}
         types = {}
         for ent in doc.modelspace():
@@ -217,7 +240,7 @@ def convert_selected_layers(
     src, temp = _open_cad(input_path, oda_exe)
     try:
         log(f"CAD 읽기: {src}")
-        doc = ezdxf.readfile(str(src))
+        doc = _read_dxf_resilient(src, log)
         msp = doc.modelspace()
         transformer = Transformer.from_crs(
             f"EPSG:{source_epsg}",
