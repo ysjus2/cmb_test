@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from converter import convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
 
-APP_NAME = "CMB DXF Viewer + Excel v3.5"
+APP_NAME = "CMB DXF Viewer + Excel v3.6"
 
 class App(tk.Tk):
     def __init__(self):
@@ -37,6 +37,7 @@ class App(tk.Tk):
         self.fullscreen = False
 
         self._build()
+        self.after(120, self._set_initial_layer_width)
         self.bind("<F11>", lambda e: self._toggle_fullscreen())
         self.bind("<Escape>", self._escape_key)
         self.after(100, self._drain)
@@ -147,6 +148,17 @@ class App(tk.Tk):
         self.progress_frame.pack_forget()
 
         self.last_log = ""
+
+    def _set_initial_layer_width(self):
+        if not self.layer_panel_visible:
+            return
+        try:
+            total = max(1000, self.panes.winfo_width())
+            target = max(220, int(total * 0.20))
+            self.panes.sash_place(0, target, 0)
+        except Exception:
+            pass
+        self.after(20, self.viewer.redraw)
 
     def _toggle_layer_panel(self):
         if self.layer_panel_visible:
