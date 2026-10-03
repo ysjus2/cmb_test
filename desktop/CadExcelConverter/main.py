@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v1.6"
+APP_NAME = "CAD → Excel 레이어 변환기 v1.7"
 
 class App(tk.Tk):
     def __init__(self):
@@ -21,7 +21,6 @@ class App(tk.Tk):
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
         self.epsg_var = tk.StringVar(value="5174")
-        self.oda_var = tk.StringVar()
         self.status_var = tk.StringVar(value="CAD 파일을 선택해주세요.")
         self.layer_names = {}
         self.layer_rows = {}
@@ -36,7 +35,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v1.6",
+            text="CAD → Excel 레이어 변환기 v1.7",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -64,7 +63,6 @@ class App(tk.Tk):
             text="현재 샘플 CAD 기준 EPSG:5174",
         ).grid(row=2, column=2, sticky="w", padx=8)
 
-        self._row(form, 3, "ODA 변환기", self.oda_var, self._pick_oda, optional=True)
         form.columnconfigure(1, weight=1)
 
         topbar = ttk.Frame(root)
@@ -116,7 +114,7 @@ class App(tk.Tk):
 
         self.log = tk.Text(root, height=9, wrap="word", font=("Consolas", 10))
         self.log.pack(fill="x")
-        self._log("DXF는 직접 읽습니다. DWG는 로컬 ODA File Converter를 사용합니다.")
+        self._log("DXF는 직접 읽습니다. DWG는 내장 변환 엔진으로 자동 변환합니다.")
 
     def _row(self, parent, row, label, var, command, optional=False):
         ttk.Label(parent, text=label).grid(
@@ -155,16 +153,6 @@ class App(tk.Tk):
         if p:
             self.output_var.set(p)
 
-    def _pick_oda(self):
-        p = filedialog.askopenfilename(
-            filetypes=[
-                ("ODA File Converter","ODAFileConverter.exe"),
-                ("실행 파일","*.exe"),
-            ]
-        )
-        if p:
-            self.oda_var.set(p)
-
     def _scan(self):
         inp = self.input_var.get().strip()
         if not inp or not os.path.isfile(inp):
@@ -183,7 +171,7 @@ class App(tk.Tk):
             try:
                 layers = scan_layers(
                     inp,
-                    self.oda_var.get().strip() or None,
+                    None,
                     log=lambda m: self.q.put(("log",m)),
                 )
                 self.q.put(("layers",layers))
@@ -271,7 +259,7 @@ class App(tk.Tk):
                     out,
                     selected,
                     epsg,
-                    self.oda_var.get().strip() or None,
+                    None,
                     log=lambda m: self.q.put(("log",m)),
                 )
                 self.q.put(("done",stats))
