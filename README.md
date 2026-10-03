@@ -2,6 +2,34 @@
 
 이 저장소는 GitHub Actions에서 Android APK를 자동 생성하도록 구성되어 있습니다.
 
+## 집과 회사에서 이어서 개발하기
+
+처음 사용하는 PC에서는 GitHub 저장소를 `git clone <저장소 URL>`로 내려받습니다.
+각 PC에서 Git 작성자 이름과 이메일, GitHub 인증을 설정해야 합니다.
+
+작업 시작 전에 실행합니다.
+
+```powershell
+git status
+git pull --ff-only
+```
+
+작업을 마치면 변경 내용을 확인하고 저장합니다.
+
+```powershell
+git diff
+git add .
+git commit -m "변경 내용 요약"
+git push
+```
+
+다른 PC로 이동하기 전에 푸시가 성공했는지 확인합니다. 로컬에 미커밋 변경이
+있거나 `pull --ff-only`가 실패하면 변경 내용을 확인하고 정리한 뒤 진행합니다.
+`main` 또는 `master`에 푸시하면 APK 빌드가 자동 실행됩니다.
+
+빌드 결과물, PC별 Android SDK 경로(`local.properties`), 서명 키는 Git에서 제외됩니다.
+휴대폰에 저장한 셀 정보와 CSV 데이터는 소스 코드 동기화와 별도로 백업합니다.
+
 ## 앱 기능
 - 앱 실행 시 위치 권한 요청
 - 현재 GPS 좌표 자동 입력
