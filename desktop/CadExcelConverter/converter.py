@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,48 +125,146 @@ def _write_sheet(ws, headers, rows):
             sample.append(len(str(ws.cell(r, i).value or "")))
         ws.column_dimensions[get_column_letter(i)].width = max(10, min(42, max(sample)))
 
+def _runtime_root():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+def _find_bundled_libredwg():
+    roots = [
+        _runtime_root() / "libredwg",
+        _runtime_root() / "engine" / "libredwg",
+        _runtime_root(),
+    ]
+    for root in roots:
+        if not root.exists():
+            continue
+        for name in ("dwgread.exe", "dwg2dxf.exe"):
+            direct = root / name
+            if direct.is_file():
+                return direct
+            try:
+                found = next(root.rglob(name), None)
+                if found and found.is_file():
+                    return found
+            except Exception:
+                pass
+    return None
+
 def _find_oda():
     candidates = [
         os.environ.get("ODA_FILE_CONVERTER"),
-        r"C:\Program Files\ODA\ODAFileConverter\ODAFileConverter.exe",
-        r"C:\Program Files\ODAFileConverter\ODAFileConverter.exe",
+        shutil.which("ODAFileConverter.exe"),
+        r"C:\\Program Files\\ODA\\ODAFileConverter\\ODAFileConverter.exe",
+        r"C:\\Program Files\\ODAFileConverter\\ODAFileConverter.exe",
     ]
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return c
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return os.path.abspath(candidate)
     return None
 
-def dwg_to_dxf(dwg_path, oda_exe=None):
-    oda = oda_exe or _find_oda()
-    if not oda:
-        raise RuntimeError("DWG 변환에는 ODA File Converter가 필요합니다. ODAFileConverter.exe 경로를 지정해주세요.")
-    temp = tempfile.TemporaryDirectory(prefix="cad_excel_")
-    src = Path(temp.name) / "in"
-    dst = Path(temp.name) / "out"
+def _libredwg_to_dxf(dwg_path, engine, temp, log):
+    out = Path(temp.name) / "converted.dxf"
+    env = os.environ.copy()
+    engine_dir = str(Path(engine).parent)
+    env["PATH"] = engine_dir + os.pathsep + env.get("PATH", "")
+
+    exe_name = Path(engine).name.lower()
+    if exe_name == "dwgread.exe":
+        cmd = [str(engine), "-O", "DXF", "-o", str(out), str(dwg_path)]
+        proc = subprocess.run(
+            cmd,
+            cwd=engine_dir,
+            capture_output=True,
+            text=True,
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    else:
+        work = Path(temp.name) / "libredwg"
+        work.mkdir(exist_ok=True)
+        copied = work / Path(dwg_path).name
+        shutil.copy2(dwg_path, copied)
+        cmd = [str(engine), "--overwrite", str(copied)]
+        proc = subprocess.run(
+            cmd,
+            cwd=str(work),
+            capture_output=True,
+            text=True,
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        matches = list(work.glob("*.dxf")) + list(work.glob("*.DXF"))
+        if matches:
+            shutil.copy2(matches[0], out)
+
+    if proc.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+        raise RuntimeError(
+            "내장 LibreDWG 변환 실패: " + (proc.stderr or proc.stdout or f"exit={proc.returncode}")
+        )
+    log("내장 LibreDWG DWG→DXF 변환 완료")
+    return out
+
+def _oda_to_dxf(dwg_path, oda, temp, log):
+    src = Path(temp.name) / "oda_input"
+    dst = Path(temp.name) / "oda_output"
     src.mkdir()
     dst.mkdir()
     shutil.copy2(dwg_path, src / Path(dwg_path).name)
-    cmd = [oda, str(src), str(dst), "ACAD2018", "DXF", "0", "1", "*.dwg"]
+    cmd = [oda, str(src), str(dst), "ACAD2018", "DXF", "0", "1"]
     proc = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    if proc.returncode != 0:
-        temp.cleanup()
-        raise RuntimeError("ODA DWG→DXF 변환 실패: " + (proc.stderr or proc.stdout or str(proc.returncode)))
     matches = list(dst.rglob("*.dxf")) + list(dst.rglob("*.DXF"))
-    if not matches:
-        temp.cleanup()
-        raise RuntimeError("ODA 변환 후 DXF 파일을 찾지 못했습니다.")
-    return matches[0], temp
+    if proc.returncode != 0 or not matches:
+        raise RuntimeError("ODA 변환 실패: " + (proc.stderr or proc.stdout or str(proc.returncode)))
+    log("설치된 ODA DWG→DXF 변환 완료")
+    return matches[0]
+
+def dwg_to_dxf(dwg_path, oda_exe=None, log=None):
+    log = log or (lambda msg: None)
+    temp = tempfile.TemporaryDirectory(prefix="cad_excel_")
+
+    engine = _find_bundled_libredwg()
+    if engine:
+        log(f"내장 DWG 엔진 사용: {engine.name}")
+        try:
+            return _libredwg_to_dxf(Path(dwg_path), engine, temp, log), temp
+        except Exception as lib_error:
+            log(str(lib_error))
+            oda = oda_exe or _find_oda()
+            if oda:
+                log("LibreDWG 실패 → 설치된 ODA로 자동 재시도")
+                try:
+                    return _oda_to_dxf(Path(dwg_path), oda, temp, log), temp
+                except Exception:
+                    pass
+            temp.cleanup()
+            raise
+
+    oda = oda_exe or _find_oda()
+    if oda:
+        log("내장 LibreDWG 없음 → 설치된 ODA 사용")
+        try:
+            return _oda_to_dxf(Path(dwg_path), oda, temp, log), temp
+        except Exception:
+            temp.cleanup()
+            raise
+
+    temp.cleanup()
+    raise RuntimeError(
+        "내장 DWG 변환 엔진이 패키지에서 누락되었습니다. "
+        "ZIP 전체를 압축 해제한 뒤 CAD_Excel_Converter.exe를 실행해주세요."
+    )
 
 def _open_cad(input_path, oda_exe=None):
     src = Path(input_path)
     temp = None
     if src.suffix.lower() == ".dwg":
-        src, temp = dwg_to_dxf(src, oda_exe)
+        src, temp = dwg_to_dxf(src, oda_exe, lambda m: None)
     elif src.suffix.lower() != ".dxf":
         raise ValueError("지원 형식은 DWG 또는 DXF입니다.")
     return src, temp
