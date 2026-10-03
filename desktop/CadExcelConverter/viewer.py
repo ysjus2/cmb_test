@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from tkinter import ttk
 
 from ezdxf.path import make_path
+from ezdxf.colors import aci2rgb
 
 from converter import load_dxf_document
 
@@ -19,6 +20,7 @@ class VisualEntity:
     block_name: str = ""
     primitives: list = field(default_factory=list)
     bbox: tuple | None = None
+    color: str = "#d4d7dc"
 
 @dataclass
 class Scene:
@@ -164,6 +166,60 @@ def _entity_primitives(entity, inherited_layer=None, depth=0):
 
     return layer, primitives
 
+
+def _rgb_hex(rgb):
+    try:
+        return f"#{int(rgb.r):02x}{int(rgb.g):02x}{int(rgb.b):02x}"
+    except Exception:
+        try:
+            r, g, b = rgb
+            return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+        except Exception:
+            return "#d4d7dc"
+
+def _contrast_color(hex_color):
+    try:
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+        # CAD dark background에서 너무 어두운 색은 화면 표시용으로만 밝게 보정.
+        if (r + g + b) < 105:
+            return "#c7cbd1"
+    except Exception:
+        pass
+    return hex_color
+
+def _resolve_entity_color(doc, entity, layer_name, inherited=None):
+    try:
+        true_color = getattr(entity.dxf, "true_color", None)
+        if true_color is not None:
+            value = int(true_color)
+            return _contrast_color(f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}")
+    except Exception:
+        pass
+
+    try:
+        color = int(getattr(entity.dxf, "color", 256))
+    except Exception:
+        color = 256
+
+    if color == 0 and inherited:
+        return inherited
+    if 1 <= color <= 255:
+        try:
+            return _contrast_color(_rgb_hex(aci2rgb(color)))
+        except Exception:
+            pass
+
+    try:
+        layer = doc.layers.get(layer_name)
+        layer_color = abs(int(layer.dxf.color))
+        if 1 <= layer_color <= 255:
+            return _contrast_color(_rgb_hex(aci2rgb(layer_color)))
+    except Exception:
+        pass
+    return inherited or "#d4d7dc"
+
 def build_scene(input_path, log=None, progress=None):
     log = log or (lambda msg: None)
     progress = progress or (lambda percent, task: None)
@@ -197,6 +253,7 @@ def build_scene(input_path, log=None, progress=None):
                 text = " | ".join(attrs)
         except Exception:
             pass
+        display_color = _resolve_entity_color(doc, ent, layer)
         entities.append(VisualEntity(
             index=i,
             entity_type=typ,
@@ -206,6 +263,7 @@ def build_scene(input_path, log=None, progress=None):
             block_name=block_name,
             primitives=primitives,
             bbox=tuple(box) if box else None,
+            color=display_color,
         ))
         if i + 1 == total or (i + 1) % max(1, total // 100) == 0:
             progress(10 + int((i + 1) / total * 88), f"Viewer 객체 준비 {i+1:,}/{total:,}")
@@ -233,6 +291,8 @@ class DXFViewer(ttk.Frame):
         self.mode = "select"
         self.measure_points = []
         self.measure_items = []
+        self.completed_measurements = []
+        self.hover_world = None
         self.pan_start = None
         self.status_var = tk.StringVar(value="DXF를 열어주세요.")
         self.info_var = tk.StringVar(value="")
@@ -244,9 +304,9 @@ class DXFViewer(ttk.Frame):
         for text, cmd in [
             ("전체보기", self.fit_view),
             ("선택", lambda: self.set_mode("select")),
-            ("거리", lambda: self.set_mode("distance")),
-            ("면적", lambda: self.set_mode("area")),
-            ("좌표", lambda: self.set_mode("coord")),
+            ("거리 측정", lambda: self.set_mode("distance")),
+            ("면적 측정", lambda: self.set_mode("area")),
+            ("좌표 확인", lambda: self.set_mode("coord")),
             ("선택 해제", self.clear_selection),
             ("측정 지우기", self.clear_measure),
         ]:
@@ -286,6 +346,8 @@ class DXFViewer(ttk.Frame):
         self.scene = scene
         self.visible_layers = {e.layer for e in scene.entities}
         self.selected.clear()
+        self.measure_points = []
+        self.completed_measurements = []
         self.fit_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
@@ -336,7 +398,7 @@ class DXFViewer(ttk.Frame):
             if ent.layer not in self.visible_layers:
                 continue
             selected = ent.index in self.selected
-            color = "#22a7ff" if selected else "#d4d7dc"
+            color = "#22a7ff" if selected else ent.color
             width = 3 if selected else 1
             ids = []
             for kind, data in ent.primitives:
@@ -424,10 +486,20 @@ class DXFViewer(ttk.Frame):
             return
         if self.mode == "distance":
             self.measure_points.append((wx, wy))
-            if len(self.measure_points) == 2:
+            if len(self.measure_points) == 1:
+                self.info_var.set(f"시작점 X={wx:.3f}, Y={wy:.3f} · 두 번째 점을 클릭하세요.")
+            elif len(self.measure_points) == 2:
                 a, b = self.measure_points
                 d = math.hypot(b[0]-a[0], b[1]-a[1])
-                self.info_var.set(f"거리: {d:,.3f}  ({a[0]:.3f},{a[1]:.3f}) → ({b[0]:.3f},{b[1]:.3f})")
+                self.completed_measurements.append({
+                    "type": "distance",
+                    "points": [a, b],
+                    "value": d,
+                    "label": f"{d:,.3f}",
+                })
+                self.info_var.set(
+                    f"거리: {d:,.3f}  ({a[0]:.3f},{a[1]:.3f}) → ({b[0]:.3f},{b[1]:.3f})"
+                )
                 self.measure_points = []
             self.redraw()
             return
@@ -464,15 +536,26 @@ class DXFViewer(ttk.Frame):
             math.hypot(pts[(i+1)%len(pts)][0]-pts[i][0], pts[(i+1)%len(pts)][1]-pts[i][1])
             for i in range(len(pts))
         )
+        self.completed_measurements.append({
+            "type": "area",
+            "points": list(pts),
+            "value": area,
+            "perimeter": perimeter,
+            "label": f"{area:,.3f}",
+        })
         self.info_var.set(f"면적: {area:,.3f}  /  둘레: {perimeter:,.3f}  /  꼭짓점 {len(pts)}개")
+        self.measure_points = []
         self.redraw()
 
     def _motion(self, event):
         if not self.scene:
             return
         wx, wy = self.screen_to_world(event.x, event.y)
+        self.hover_world = (wx, wy)
         base = self.status_var.get().split(" · X=")[0]
         self.status_var.set(f"{base} · X={wx:.3f} Y={wy:.3f}")
+        if self.mode in {"distance", "area"} and self.measure_points:
+            self.redraw()
 
     def _show_selected_info(self):
         if not self.scene or not self.selected:
@@ -499,20 +582,69 @@ class DXFViewer(ttk.Frame):
     def clear_measure(self):
         self.measure_points = []
         self.measure_items = []
+        self.completed_measurements = []
         self.info_var.set("")
         self.redraw()
 
-    def _redraw_measure(self):
-        if not self.measure_points:
-            return
+    def _draw_measure_polyline(self, points, color="#ffcc33", close=False, width=2):
         coords = []
-        for x, y in self.measure_points:
+        for x, y in points:
             sx, sy = self.world_to_screen(x, y)
             coords.extend([sx, sy])
-            self.canvas.create_oval(sx-3, sy-3, sx+3, sy+3, fill="#ffcc33", outline="")
+            self.canvas.create_oval(sx-3, sy-3, sx+3, sy+3, fill=color, outline="")
+        if close and len(points) >= 3:
+            sx, sy = self.world_to_screen(*points[0])
+            coords.extend([sx, sy])
         if len(coords) >= 4:
-            self.canvas.create_line(*coords, fill="#ffcc33", width=2, dash=(4, 2))
-        if self.mode == "area" and len(self.measure_points) >= 3:
-            x0, y0 = self.world_to_screen(*self.measure_points[0])
-            x1, y1 = self.world_to_screen(*self.measure_points[-1])
-            self.canvas.create_line(x1, y1, x0, y0, fill="#ffcc33", width=1, dash=(2, 3))
+            self.canvas.create_line(*coords, fill=color, width=width, dash=(4, 2))
+
+    def _redraw_measure(self):
+        # 완료된 거리/면적은 확대/축소/PAN 후에도 계속 표시한다.
+        for m in self.completed_measurements:
+            pts = m.get("points", [])
+            if not pts:
+                continue
+            self._draw_measure_polyline(
+                pts,
+                color="#ffd43b",
+                close=m.get("type") == "area",
+                width=2,
+            )
+            if m.get("type") == "distance" and len(pts) >= 2:
+                mx = (pts[0][0] + pts[1][0]) / 2
+                my = (pts[0][1] + pts[1][1]) / 2
+                sx, sy = self.world_to_screen(mx, my)
+                self.canvas.create_text(
+                    sx, sy-10, text=f'{m.get("label", "")}',
+                    fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
+                )
+            elif m.get("type") == "area":
+                cx = sum(p[0] for p in pts) / len(pts)
+                cy = sum(p[1] for p in pts) / len(pts)
+                sx, sy = self.world_to_screen(cx, cy)
+                self.canvas.create_text(
+                    sx, sy, text=f'면적 {m.get("label", "")}',
+                    fill="#fff3bf", font=("Malgun Gothic", 10, "bold")
+                )
+
+        # 현재 측정 중인 선과 마우스까지의 임시 선.
+        if self.measure_points:
+            self._draw_measure_polyline(
+                self.measure_points,
+                color="#ffcc33",
+                close=False,
+                width=2,
+            )
+            if self.hover_world:
+                x1, y1 = self.world_to_screen(*self.measure_points[-1])
+                x2, y2 = self.world_to_screen(*self.hover_world)
+                self.canvas.create_line(
+                    x1, y1, x2, y2, fill="#ffcc33", width=1, dash=(2, 3)
+                )
+            if self.mode == "area" and len(self.measure_points) >= 3:
+                x0, y0 = self.world_to_screen(*self.measure_points[0])
+                x1, y1 = self.world_to_screen(*self.measure_points[-1])
+                self.canvas.create_line(
+                    x1, y1, x0, y0, fill="#ffcc33", width=1, dash=(2, 3)
+                )
+
