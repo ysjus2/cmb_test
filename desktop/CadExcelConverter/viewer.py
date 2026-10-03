@@ -25,6 +25,7 @@ class VisualEntity:
     attributes: dict = field(default_factory=dict)
     xdata: list = field(default_factory=list)
     dxf_data: dict = field(default_factory=dict)
+    pole_info: dict = field(default_factory=dict)
 
 @dataclass
 class Scene:
@@ -267,6 +268,41 @@ def _collect_entity_details(doc, ent):
         pass
     return attributes, xdata, dxf_data
 
+
+_POLE_KEYWORDS = (
+    "전주", "전주번호", "전주명", "주번호", "지지물",
+    "pole", "pole_no", "poleno", "poleid", "pole_id"
+)
+
+def _extract_pole_info(attributes, xdata, dxf_data, text="", block_name=""):
+    found = {}
+
+    def check_pair(key, value):
+        k = str(key or "").strip()
+        v = str(value or "").strip()
+        blob = (k + " " + v).lower()
+        if any(word.lower() in blob for word in _POLE_KEYWORDS):
+            label = k or "전주"
+            if v:
+                found[label] = v
+
+    for key, value in (attributes or {}).items():
+        check_pair(key, value)
+
+    for appid, values in (xdata or []):
+        for value in values:
+            check_pair(appid, value)
+
+    for key, value in (dxf_data or {}).items():
+        check_pair(key, value)
+
+    if text:
+        check_pair("TEXT", text)
+    if block_name:
+        check_pair("BLOCK", block_name)
+
+    return found
+
 def build_scene(input_path, log=None, progress=None):
     log = log or (lambda msg: None)
     progress = progress or (lambda percent, task: None)
@@ -302,6 +338,7 @@ def build_scene(input_path, log=None, progress=None):
             pass
         display_color = _resolve_entity_color(doc, ent, layer)
         attributes, xdata, dxf_data = _collect_entity_details(doc, ent)
+        pole_info = _extract_pole_info(attributes, xdata, dxf_data, text, block_name)
         entities.append(VisualEntity(
             index=i,
             entity_type=typ,
@@ -315,6 +352,7 @@ def build_scene(input_path, log=None, progress=None):
             attributes=attributes,
             xdata=xdata,
             dxf_data=dxf_data,
+            pole_info=pole_info,
         ))
         if i + 1 == total or (i + 1) % max(1, total // 100) == 0:
             progress(10 + int((i + 1) / total * 88), f"Viewer 객체 준비 {i+1:,}/{total:,}")
@@ -459,6 +497,11 @@ class DXFViewer(ttk.Frame):
                 text.insert("end", f"BLOCK: {ent.block_name}\n")
             if ent.text:
                 text.insert("end", f"TEXT: {ent.text}\n")
+
+            if ent.pole_info:
+                text.insert("end", "\n[전주 정보]\n")
+                for key, value in ent.pole_info.items():
+                    text.insert("end", f"{key}: {value}\n")
 
             if ent.attributes:
                 text.insert("end", "\n[BLOCK ATTRIBUTES]\n")
@@ -692,6 +735,8 @@ class DXFViewer(ttk.Frame):
                 extra.append(f"문자={e.text[:80]}")
             if e.attributes:
                 extra.append(f"속성={len(e.attributes)}개")
+            if e.pole_info:
+                extra.append("전주정보")
             if e.xdata:
                 extra.append(f"XDATA={len(e.xdata)}개")
             rows.append(f"{e.entity_type} · Layer={e.layer} · Handle={e.handle}" + ((" · " + " · ".join(extra)) if extra else ""))
