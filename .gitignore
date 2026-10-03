@@ -1,5 +1,6 @@
 # Gradle and Android build output
 .gradle/
+.local/
 **/build/
 *.apk
 *.aab
