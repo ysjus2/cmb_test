@@ -82,7 +82,7 @@ class App(tk.Tk):
             layer_box,
             columns=("check","layer","count","types"),
             show="headings",
-            selectmode="none",
+            selectmode="extended",
             height=18,
         )
         self.tree.heading("check", text="선택")
@@ -226,9 +226,19 @@ class App(tk.Tk):
             start = items.index(self.last_checked_iid)
             end = items.index(iid)
             lo, hi = sorted((start, end))
-            for item in items[lo:hi + 1]:
-                self._set_checked(item, True)
+            range_items = items[lo:hi + 1]
+
+            # CAD 방식: 구간을 파란색 선택 상태로 표시
+            self.tree.selection_set(range_items)
+
+            # 시작 항목의 현재 체크 상태를 기준으로 구간 전체 상태 반전
+            anchor_name = self.layer_names.get(self.last_checked_iid)
+            target_checked = anchor_name not in self.checked_layers
+            for item in range_items:
+                self._set_checked(item, target_checked)
         else:
+            # 일반 클릭은 해당 항목만 파란색 선택 + 체크 상태 반전
+            self.tree.selection_set((iid,))
             name = self.layer_names.get(iid)
             self._set_checked(iid, name not in self.checked_layers)
 
