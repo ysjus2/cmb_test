@@ -36,7 +36,7 @@ git push
 - 파란 현재 위치 표시 및 가까운 ONU 최대 5건 직선거리 조회
 - 전체 ONU 보기 / 내 위치로 이동
 - ONU 정보 등록·수정·CSV 관리 화면 이동
-- 지도 배경: OpenStreetMap (인터넷 연결 필요), 저장 정보는 휴대폰 내부 유지
+- 지도 배경: 카카오맵 또는 OpenStreetMap (인터넷 연결 필요), 저장 정보는 휴대폰 내부 유지
 - 앱 실행 시 위치 권한 요청
 - 현재 GPS 좌표 자동 입력
 - 셀명
@@ -54,6 +54,29 @@ git push
 - 수정 / 삭제
 - CSV 내보내기
 - CSV 불러오기
+
+## 카카오맵 연결
+
+카카오 네이티브 앱 키가 설정된 빌드는 카카오맵을 사용합니다. 키가 없는 빌드는
+기존 OpenStreetMap을 사용합니다. 지도 렌더링은 `MapRenderer`로 분리되어 ONU
+데이터 및 GPS 계산과 독립적입니다.
+
+1. 카카오디벨로퍼스에서 앱을 만들고 카카오맵 사용 설정을 켭니다.
+2. 네이티브 앱 키의 Android 앱 정보에 패키지명 `com.example.celldb`를 등록합니다.
+3. GitHub 저장소 Settings → Secrets and variables → Actions에서
+   `KAKAO_NATIVE_APP_KEY`라는 Repository secret에 네이티브 앱 키를 저장합니다.
+4. Actions에서 Build APK를 실행합니다. 다운로드한 아티팩트의
+   `kakao-key-hash.txt` 내용을 카카오 Android 키 해시로 등록합니다.
+5. 같은 아티팩트의 `app-debug.apk`를 설치하고 지도 인증을 확인합니다.
+
+로컬 빌드는 `kakao.properties.example`을 `kakao.properties`로 복사해 키를 입력하거나
+`KAKAO_NATIVE_APP_KEY` 환경변수를 사용합니다. 키 파일은 Git에서 제외됩니다.
+어드민 키나 REST API 키를 사용하지 않습니다.
+
+현재 Actions의 개발 서명은 빌드마다 달라질 수 있습니다. 새 빌드를 설치할 때는
+해당 빌드의 공개 키 해시를 등록해야 합니다. 앱 업데이트가 서명 불일치로 거부될
+수 있으므로 재설치 전 반드시 ONU 데이터를 백업해야 합니다. 지속적인 배포를 위한
+고정 서명은 별도로 설정해야 하며, 서명 키를 Git이나 Actions 캐시에 보관하지 않습니다.
 
 ---
 

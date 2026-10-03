@@ -5,11 +5,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.drawable.BitmapDrawable;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -21,27 +17,21 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import org.json.JSONArray;
-import org.osmdroid.config.Configuration;
-import org.osmdroid.config.IConfigurationProvider;
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
-import org.osmdroid.util.BoundingBox;
-import org.osmdroid.util.GeoPoint;
-import org.osmdroid.views.MapView;
-import org.osmdroid.views.overlay.Marker;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Locale;
 
 public class MapActivity extends Activity {
     private final ArrayList<MainActivity.CellRecord> records = new ArrayList<>();
-    private final ArrayList<GeoPoint> points = new ArrayList<>();
-    private MapView map;
+    private final ArrayList<MapPoint> points = new ArrayList<>();
+    private MapRenderer map;
+    private boolean mapReady;
+    private boolean destroyed;
+    private String mapError;
     private TextView status;
     private LocationManager locationManager;
     private Location currentLocation;
-    private Marker currentMarker;
     private boolean requestingLocation;
     private boolean centerOnFix;
     private final LocationListener listener = new LocationListener() {
@@ -55,10 +45,6 @@ public class MapActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        IConfigurationProvider config = Configuration.getInstance();
-        config.setUserAgentValue("ONUPositionDB/1.1 (com.example.celldb; https://github.com/ysjus2/cmb_test)");
-        config.setOsmdroidBasePath(new File(getFilesDir(), "maps"));
-        config.setOsmdroidTileCache(new File(getCacheDir(), "map-tiles"));
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         // Android 15 edge-to-edge: keep buttons clear of system bars.
@@ -82,19 +68,18 @@ public class MapActivity extends Activity {
         addButton(actions, "전체 ONU", this::showAll);
         addButton(actions, "가까운 ONU", this::showNearest);
         root.addView(actions);
-        map = new MapView(this);
-        map.setTileSource(TileSourceFactory.MAPNIK);
-        map.setMultiTouchControls(true);
-        map.getController().setZoom(16.0);
-        map.getController().setCenter(new GeoPoint(36.5, 127.5));
-        root.addView(map, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        map = BuildConfig.KAKAO_NATIVE_APP_KEY.isEmpty() ? new OsmMapRenderer(this)
+                : new KakaoMapRenderer(this, BuildConfig.KAKAO_NATIVE_APP_KEY);
+        root.addView(map.getView(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         TextView attribution = new TextView(this);
-        attribution.setText("© OpenStreetMap contributors · 지도 배경은 인터넷 연결 필요");
+        attribution.setText((map instanceof OsmMapRenderer ? "© OpenStreetMap contributors" : "카카오맵")
+                + " · 지도 배경은 인터넷 연결 필요");
         attribution.setTextSize(11);
         attribution.setGravity(Gravity.CENTER);
         attribution.setPadding(dp(4), dp(6), dp(4), dp(6));
         attribution.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
-                android.net.Uri.parse("https://www.openstreetmap.org/copyright"))));
+                android.net.Uri.parse(map instanceof OsmMapRenderer ? "https://www.openstreetmap.org/copyright"
+                        : "https://map.kakao.com/"))));
         root.addView(attribution);
         Button manage = new Button(this);
         manage.setText("ONU 정보 등록 / 수정 / CSV 관리");
@@ -102,6 +87,15 @@ public class MapActivity extends Activity {
         root.addView(manage);
         setContentView(root);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        map.start(() -> {
+            if (destroyed) return;
+            mapReady = true;
+            mapError = null;
+            loadMarkers();
+        }, message -> {
+            mapError = message;
+            status.setText(message);
+        });
     }
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
@@ -116,24 +110,23 @@ public class MapActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        map.onResume();
+        map.resume();
         loadMarkers();
         requestLocation();
     }
 
     @Override protected void onPause() {
         stopLocation();
-        map.onPause();
+        map.pause();
         super.onPause();
     }
 
-    @Override protected void onDestroy() { map.onDetach(); super.onDestroy(); }
+    @Override protected void onDestroy() { destroyed = true; map.destroy(); super.onDestroy(); }
 
     private void loadMarkers() {
         records.clear();
         points.clear();
-        map.getOverlays().clear();
-        currentMarker = null;
+        if (mapReady) map.clearOnuMarkers();
         int skipped = 0;
         try {
             JSONArray data = new JSONArray(getSharedPreferences("cell_db_prefs", MODE_PRIVATE)
@@ -144,16 +137,11 @@ public class MapActivity extends Activity {
                     double lat = Double.parseDouble(record.latitude);
                     double lon = Double.parseDouble(record.longitude);
                     if (!validCoordinates(lat, lon)) { skipped++; continue; }
-                    GeoPoint point = new GeoPoint(lat, lon);
+                    MapPoint point = new MapPoint(lat, lon);
                     records.add(record);
                     points.add(point);
-                    Marker marker = new Marker(map);
-                    marker.setPosition(point);
-                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-                    marker.setIcon(markerIcon(Color.rgb(220, 65, 45), "ONU"));
-                    marker.setTitle(record.cellName + " / " + record.cellNumber);
-                    marker.setOnMarkerClickListener((selected, view) -> { showDetails(record, point); return true; });
-                    map.getOverlays().add(marker);
+                    if (mapReady) map.addOnuMarker(point, record.cellName + " / " + record.cellNumber,
+                            () -> showDetails(record, point));
                 } catch (NumberFormatException invalid) { skipped++; }
             }
         } catch (Exception error) {
@@ -163,8 +151,8 @@ public class MapActivity extends Activity {
         status.setText("ONU " + records.size() + "건" + (skipped > 0 ? " · 좌표 오류 " + skipped + "건 제외" : "")
                 + " · 빨강: ONU / 파랑: 내 위치");
         if (currentLocation != null) updateLocation(currentLocation);
-        if (!points.isEmpty()) map.post(this::showAll);
-        map.invalidate();
+        if (mapError != null) status.setText(mapError);
+        if (mapReady && !points.isEmpty()) map.getView().post(() -> { if (!destroyed) showAll(); });
     }
 
     static boolean validCoordinates(double lat, double lon) {
@@ -172,34 +160,12 @@ public class MapActivity extends Activity {
                 && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
     }
 
-    private BitmapDrawable markerIcon(int color, String label) {
-        Bitmap bitmap = Bitmap.createBitmap(dp(48), dp(56), Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        paint.setColor(color);
-        canvas.drawCircle(dp(24), dp(24), dp(22), paint);
-        android.graphics.Path tail = new android.graphics.Path();
-        tail.moveTo(dp(14), dp(39)); tail.lineTo(dp(24), dp(55)); tail.lineTo(dp(34), dp(39)); tail.close();
-        canvas.drawPath(tail, paint);
-        paint.setColor(Color.WHITE);
-        paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(dp(12));
-        paint.setFakeBoldText(true);
-        canvas.drawText(label, dp(24), dp(28), paint);
-        return new BitmapDrawable(getResources(), bitmap);
-    }
-
     private void showAll() {
         if (points.isEmpty()) { status.setText("저장된 ONU가 없습니다. 아래 버튼에서 정보를 등록하세요."); return; }
-        if (points.size() == 1) {
-            map.getController().setZoom(17.0);
-            map.getController().setCenter(points.get(0));
-        } else {
-            map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), true, dp(60), 18.0, null);
-        }
+        if (mapReady) map.showAll(points);
     }
 
-    private String distance(GeoPoint point) {
+    private String distance(MapPoint point) {
         if (currentLocation == null) return "현재 위치 확인 전";
         float[] result = new float[1];
         Location.distanceBetween(currentLocation.getLatitude(), currentLocation.getLongitude(),
@@ -207,8 +173,8 @@ public class MapActivity extends Activity {
         return result[0] < 1000 ? Math.round(result[0]) + "m" : String.format(Locale.KOREA, "%.2fkm", result[0] / 1000);
     }
 
-    private void showDetails(MainActivity.CellRecord r, GeoPoint point) {
-        map.getController().animateTo(point);
+    private void showDetails(MainActivity.CellRecord r, MapPoint point) {
+        if (mapReady) map.center(point, false);
         new AlertDialog.Builder(this).setTitle(r.cellName + " / " + r.cellNumber)
                 .setMessage("거리: " + distance(point) + " (직선거리)\n상위국사: " + r.upperOffice
                         + "\n상향포트: " + r.upPort + "\n하향포트: " + r.downPort
@@ -224,7 +190,7 @@ public class MapActivity extends Activity {
         ArrayList<Integer> order = new ArrayList<>();
         for (int i = 0; i < points.size(); i++) order.add(i);
         Collections.sort(order, (a, b) -> Double.compare(points.get(a).distanceToAsDouble(
-                new GeoPoint(currentLocation)), points.get(b).distanceToAsDouble(new GeoPoint(currentLocation))));
+                new MapPoint(currentLocation)), points.get(b).distanceToAsDouble(new MapPoint(currentLocation))));
         int count = Math.min(5, order.size());
         String[] names = new String[count];
         for (int i = 0; i < count; i++) {
@@ -276,19 +242,11 @@ public class MapActivity extends Activity {
 
     private void updateLocation(Location location) {
         currentLocation = location;
-        GeoPoint point = new GeoPoint(location);
-        if (currentMarker == null) {
-            currentMarker = new Marker(map);
-            currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
-            currentMarker.setIcon(markerIcon(Color.rgb(37, 99, 235), "내 위치"));
-            currentMarker.setTitle("현재 위치");
-            map.getOverlays().add(currentMarker);
-        }
-        currentMarker.setPosition(point);
-        currentMarker.setSnippet("정확도 약 ±" + Math.round(location.getAccuracy()) + "m");
-        status.setText("ONU " + records.size() + "건 · 내 위치 정확도 ±" + Math.round(location.getAccuracy()) + "m");
-        if (centerOnFix) { map.getController().animateTo(point); centerOnFix = false; }
-        map.invalidate();
+        MapPoint point = new MapPoint(location);
+        if (mapReady) map.setCurrentLocation(point, "정확도 약 ±" + Math.round(location.getAccuracy()) + "m");
+        status.setText(mapError != null ? mapError : "ONU " + records.size() + "건 · 내 위치 정확도 ±"
+                + Math.round(location.getAccuracy()) + "m");
+        if (centerOnFix && mapReady) { map.center(point, true); centerOnFix = false; }
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {

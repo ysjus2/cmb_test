@@ -1,0 +1,3 @@
+# Copy to kakao.properties for local builds (excluded from Git).
+# Use the Native App Key, never the Admin Key or REST API Key.
+KAKAO_NATIVE_APP_KEY=

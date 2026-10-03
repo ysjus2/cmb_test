@@ -2,6 +2,16 @@ plugins {
     id 'com.android.application'
 }
 
+def kakaoProperties = new Properties()
+def kakaoPropertiesFile = rootProject.file('kakao.properties')
+if (kakaoPropertiesFile.exists()) {
+    kakaoPropertiesFile.withInputStream { kakaoProperties.load(it) }
+}
+def kakaoKey = System.getenv('KAKAO_NATIVE_APP_KEY') ?: kakaoProperties.getProperty('KAKAO_NATIVE_APP_KEY', '')
+if (kakaoKey && !(kakaoKey ==~ /[a-fA-F0-9]{32}/)) {
+    throw new GradleException('KAKAO_NATIVE_APP_KEY must be a 32-character native app key.')
+}
+
 android {
     namespace 'com.example.celldb'
     compileSdk 35
@@ -10,11 +20,14 @@ android {
         applicationId "com.example.celldb"
         minSdk 23
         targetSdk 35
-        versionCode 2
-        versionName "1.1"
+        versionCode 3
+        versionName "1.2"
+        buildConfigField 'String', 'KAKAO_NATIVE_APP_KEY', '"' + kakaoKey + '"'
     }
+    buildFeatures { buildConfig true }
 }
 
 dependencies {
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
+    implementation 'com.kakao.maps.open:android:2.15.2'
 }

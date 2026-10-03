@@ -27,10 +27,21 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build APK
+        env:
+          KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
         run: gradle :app:assembleDebug
+
+      - name: Export public certificate hash for Kakao
+        run: |
+          keytool -exportcert -alias androiddebugkey \
+            -keystore "$HOME/.android/debug.keystore" -storepass android \
+            | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CellLocationDB-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            kakao-key-hash.txt
+          if-no-files-found: error
