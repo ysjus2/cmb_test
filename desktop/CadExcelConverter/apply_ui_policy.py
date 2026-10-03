@@ -39,4 +39,4 @@ viewer = replace_once(
 )
 viewer_path.write_text(viewer, encoding="utf-8")
 
-print("UI policy patches applied: v3.7 / 지번 default OFF / semantic detail values")
+print("UI policy patches applied: v3.7 / parcel layer default OFF / semantic detail values")
