@@ -22,6 +22,7 @@ import android.widget.TextView;
 
 import org.json.JSONArray;
 import org.osmdroid.config.Configuration;
+import org.osmdroid.config.IConfigurationProvider;
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory;
 import org.osmdroid.util.BoundingBox;
 import org.osmdroid.util.GeoPoint;
@@ -54,7 +55,7 @@ public class MapActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        Configuration config = Configuration.getInstance();
+        IConfigurationProvider config = Configuration.getInstance();
         config.setUserAgentValue("ONUPositionDB/1.1 (com.example.celldb; https://github.com/ysjus2/cmb_test)");
         config.setOsmdroidBasePath(new File(getFilesDir(), "maps"));
         config.setOsmdroidTileCache(new File(getCacheDir(), "map-tiles"));
@@ -278,7 +279,7 @@ public class MapActivity extends Activity {
         GeoPoint point = new GeoPoint(location);
         if (currentMarker == null) {
             currentMarker = new Marker(map);
-            currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
+            currentMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER);
             currentMarker.setIcon(markerIcon(Color.rgb(37, 99, 235), "내 위치"));
             currentMarker.setTitle("현재 위치");
             map.getOverlays().add(currentMarker);
