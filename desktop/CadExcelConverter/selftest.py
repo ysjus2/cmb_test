@@ -4,7 +4,7 @@ from pathlib import Path
 import ezdxf
 from openpyxl import load_workbook
 
-from converter import convert_file
+from converter import convert_file, list_layers
 
 def main():
     with tempfile.TemporaryDirectory() as tmp:
@@ -41,19 +41,35 @@ def main():
         )
         doc.saveas(dxf)
 
-        stats = convert_file(str(dxf), str(xlsx), 5174)
-        assert stats.facilities == 1, stats
-        assert stats.equipment == 1, stats
-        assert stats.fiber_points == 3, stats
-        assert stats.coax_points == 2, stats
+        layers = dict(list_layers(str(dxf)))
+        assert layers["CN_L_Pole_Pole-Joint"] == 1
+        assert layers["CN_C_ONU"] == 1
+        assert layers["CN_F_Cable_FOC"] == 1
+        assert layers["CN_C_Cable_500F"] == 1
+
+        chosen = ["CN_L_Pole_Pole-Joint", "CN_F_Cable_FOC"]
+        stats = convert_file(str(dxf), str(xlsx), 5174, selected_layers=chosen)
+        assert stats.layers == 2, stats
+        assert stats.entities == 2, stats
+        assert stats.rows == 4, stats
 
         wb = load_workbook(xlsx, data_only=True)
-        assert ["CELL", "FACILITY", "EQUIPMENT", "FIBER", "COAX", "INFO"] == wb.sheetnames
-        ws = wb["FACILITY"]
-        lon = ws.cell(2, 7).value
-        lat = ws.cell(2, 8).value
+        assert "INFO" in wb.sheetnames
+        assert "LAYER_INDEX" in wb.sheetnames
+        assert "CN_L_Pole_Pole-Joint" in wb.sheetnames
+        assert "CN_F_Cable_FOC" in wb.sheetnames
+        assert "CN_C_ONU" not in wb.sheetnames
+
+        ws = wb["CN_L_Pole_Pole-Joint"]
+        lon = ws.cell(2, 9).value
+        lat = ws.cell(2, 10).value
         assert abs(lon - 126.5208008) < 0.0001, lon
         assert abs(lat - 35.0649176) < 0.0001, lat
+
+        line_ws = wb["CN_F_Cable_FOC"]
+        assert line_ws.max_row == 4
+        assert line_ws.cell(2, 6).value == 1
+        assert line_ws.cell(4, 6).value == 3
 
         print("SELFTEST OK")
 
