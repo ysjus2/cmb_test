@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v1.4"
+APP_NAME = "CAD → Excel 레이어 변환기 v1.5"
 
 class App(tk.Tk):
     def __init__(self):
@@ -24,6 +24,8 @@ class App(tk.Tk):
         self.oda_var = tk.StringVar()
         self.status_var = tk.StringVar(value="CAD 파일을 선택해주세요.")
         self.layer_names = {}
+        self.layer_rows = {}
+        self.checked_layers = set()
         self._build()
         self.after(100, self._drain)
 
@@ -33,7 +35,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v1.4",
+            text="CAD → Excel 레이어 변환기 v1.5",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -77,17 +79,20 @@ class App(tk.Tk):
 
         self.tree = ttk.Treeview(
             layer_box,
-            columns=("count","types"),
-            show="tree headings",
-            selectmode="extended",
+            columns=("check","layer","count","types"),
+            show="headings",
+            selectmode="none",
             height=18,
         )
-        self.tree.heading("#0", text="레이어명")
+        self.tree.heading("check", text="선택")
+        self.tree.heading("layer", text="레이어명")
         self.tree.heading("count", text="객체수")
         self.tree.heading("types", text="객체종류")
-        self.tree.column("#0", width=360, stretch=True)
+        self.tree.column("check", width=60, anchor="center", stretch=False)
+        self.tree.column("layer", width=350, stretch=True)
         self.tree.column("count", width=90, anchor="center")
-        self.tree.column("types", width=420, stretch=True)
+        self.tree.column("types", width=400, stretch=True)
+        self.tree.bind("<Button-1>", self._tree_click)
         y = ttk.Scrollbar(layer_box, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=y.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -169,6 +174,8 @@ class App(tk.Tk):
         self.status_var.set("레이어 분석 중...")
         self.tree.delete(*self.tree.get_children())
         self.layer_names.clear()
+        self.layer_rows.clear()
+        self.checked_layers.clear()
 
         def worker():
             try:
@@ -183,18 +190,44 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _set_checked(self, iid, checked):
+        row = self.layer_rows.get(iid)
+        if not row:
+            return
+        name, count, types = row
+        if checked:
+            self.checked_layers.add(name)
+        else:
+            self.checked_layers.discard(name)
+        self.tree.item(
+            iid,
+            values=("☑" if checked else "☐", name, count, types),
+        )
+        self.status_var.set(
+            f"레이어 {len(self.layer_rows)}개 발견 · {len(self.checked_layers)}개 선택"
+        )
+
+    def _tree_click(self, event):
+        iid = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if iid and col in ("#1", "#2"):
+            name = self.layer_names.get(iid)
+            self._set_checked(iid, name not in self.checked_layers)
+            return "break"
+
     def _select_all(self):
-        items = self.tree.get_children()
-        self.tree.selection_set(items)
+        for iid in self.tree.get_children():
+            self._set_checked(iid, True)
 
     def _clear_selection(self):
-        self.tree.selection_remove(self.tree.selection())
+        for iid in self.tree.get_children():
+            self._set_checked(iid, False)
 
     def _run(self):
         selected = [
-            self.layer_names[item]
-            for item in self.tree.selection()
-            if item in self.layer_names
+            self.layer_names[iid]
+            for iid in self.tree.get_children()
+            if self.layer_names.get(iid) in self.checked_layers
         ]
         if not selected:
             messagebox.showerror(APP_NAME, "추출할 레이어를 선택해주세요.")
@@ -241,16 +274,16 @@ class App(tk.Tk):
                     for i, layer in enumerate(data):
                         iid = f"L{i}"
                         self.layer_names[iid] = layer.name
+                        self.layer_rows[iid] = (layer.name, layer.count, layer.types)
                         self.tree.insert(
                             "",
                             "end",
                             iid=iid,
-                            text=layer.name,
-                            values=(layer.count, layer.types),
+                            values=("☐", layer.name, layer.count, layer.types),
                         )
                     self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal" if data else "disabled")
-                    self.status_var.set(f"레이어 {len(data)}개 발견")
+                    self.status_var.set(f"레이어 {len(data)}개 발견 · 0개 선택")
                     self._log(f"레이어 {len(data)}개 스캔 완료")
                 elif kind == "done":
                     self.scan_btn.config(state="normal")
