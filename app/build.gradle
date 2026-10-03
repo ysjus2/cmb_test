@@ -12,6 +12,12 @@ if (kakaoKey && !(kakaoKey ==~ /[a-fA-F0-9]{32}/)) {
     throw new GradleException('KAKAO_NATIVE_APP_KEY must be a 32-character native app key.')
 }
 
+def signingStoreFile = System.getenv('ANDROID_KEYSTORE_FILE')
+def signingStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+def signingKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
+def signingKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+def fixedSigningReady = signingStoreFile && signingStorePassword && signingKeyAlias && signingKeyPassword
+
 android {
     namespace 'com.example.celldb'
     compileSdk 35
@@ -20,11 +26,41 @@ android {
         applicationId "com.example.celldb"
         minSdk 23
         targetSdk 35
-        versionCode 4
-        versionName "2.0"
+        versionCode 5
+        versionName "2.1"
         buildConfigField 'String', 'KAKAO_NATIVE_APP_KEY', '"' + kakaoKey + '"'
     }
+
+    signingConfigs {
+        fixedRelease {
+            if (fixedSigningReady) {
+                storeFile file(signingStoreFile)
+                storePassword signingStorePassword
+                keyAlias signingKeyAlias
+                keyPassword signingKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (fixedSigningReady) {
+                signingConfig signingConfigs.fixedRelease
+            }
+        }
+    }
+
     buildFeatures { buildConfig true }
+}
+
+tasks.whenTaskAdded { task ->
+    if (task.name.toLowerCase().contains('release') && !fixedSigningReady) {
+        task.doFirst {
+            throw new GradleException('Fixed Android signing secrets are missing. Configure ANDROID_KEYSTORE_* values.')
+        }
+    }
 }
 
 dependencies {
