@@ -18,7 +18,7 @@ main = replace_once(
 main = replace_once(
     main,
     'APP_NAME = "CMB DXF Viewer + Excel v3.6"',
-    'APP_NAME = "CMB DXF Viewer + Excel v3.8"',
+    'APP_NAME = "CMB DXF Viewer + Excel v3.9"',
     "version",
 )
 main = replace_once(
@@ -45,6 +45,30 @@ viewer = replace_once(
 )
 viewer = replace_once(
     viewer,
+    '''def _resolve_entity_color(doc, entity, layer_name, inherited=None):\n''',
+    '''def _is_optical_cable_layer(layer_name):\n    name = str(layer_name or "")\n    upper = name.upper()\n    return (\n        "F_CABLE" in upper\n        or "FOC" in upper\n        or "FIBER" in upper\n        or "OPTIC" in upper\n        or "광케이블" in name\n        or "광선로" in name\n    )\n\ndef _is_cable_layer(layer_name):\n    name = str(layer_name or "")\n    upper = name.upper()\n    return _is_optical_cable_layer(name) or "CABLE" in upper or "케이블" in name or "선로" in name\n\ndef _display_color_for_layer(doc, layer_name, aci=None, true_color=None):\n    # Cable colors carry field meaning (especially coax power state), so cable\n    # layers must keep the original CAD color without brightness substitution.\n    raw = None\n    try:\n        if true_color is not None:\n            value = int(true_color)\n            raw = f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}"\n    except Exception:\n        raw = None\n    if raw is None:\n        try:\n            if aci is not None:\n                value = abs(int(aci))\n                if 1 <= value <= 255:\n                    raw = _rgb_hex(aci2rgb(value))\n        except Exception:\n            raw = None\n    if raw is None:\n        try:\n            layer = doc.layers.get(layer_name)\n            value = abs(int(layer.dxf.color))\n            if 1 <= value <= 255:\n                raw = _rgb_hex(aci2rgb(value))\n        except Exception:\n            raw = None\n    if raw is None:\n        raw = "#d4d7dc"\n    return raw if _is_cable_layer(layer_name) else _contrast_color(raw)\n\ndef _resolve_entity_color(doc, entity, layer_name, inherited=None):\n''',
+    "cable color helpers",
+)
+viewer = replace_once(
+    viewer,
+    '''            return _contrast_color(f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}")\n''',
+    '''            raw = f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}"\n            return raw if _is_cable_layer(layer_name) else _contrast_color(raw)\n''',
+    "true color preserve for cables",
+)
+viewer = replace_once(
+    viewer,
+    '''            return _contrast_color(_rgb_hex(aci2rgb(color)))\n''',
+    '''            raw = _rgb_hex(aci2rgb(color))\n            return raw if _is_cable_layer(layer_name) else _contrast_color(raw)\n''',
+    "ACI color preserve for cables",
+)
+viewer = replace_once(
+    viewer,
+    '''            return _contrast_color(_rgb_hex(aci2rgb(layer_color)))\n''',
+    '''            raw = _rgb_hex(aci2rgb(layer_color))\n            return raw if _is_cable_layer(layer_name) else _contrast_color(raw)\n''',
+    "layer color preserve for cables",
+)
+viewer = replace_once(
+    viewer,
     '''    def show_details(self):\n''',
     '''    @staticmethod\n    def _detail_label(key):\n        labels = {\n            "insert": "삽입점",\n            "location": "위치",\n            "center": "중심점",\n            "start": "시작점",\n            "end": "끝점",\n            "rotation": "회전각",\n            "angle": "각도",\n            "radius": "반지름",\n            "xscale": "X 스케일",\n            "yscale": "Y 스케일",\n            "zscale": "Z 스케일",\n            "elevation": "표고",\n            "extrusion": "돌출방향",\n            "height": "문자높이",\n            "text": "문자",\n            "name": "이름",\n            "closed": "폐합여부",\n        }\n        raw = str(key).strip()\n        return labels.get(raw.lower(), raw)\n\n    def show_details(self):\n''',
     "detail label mapping",
@@ -58,9 +82,15 @@ viewer = replace_once(
 viewer = replace_once(
     viewer,
     '''    if scene_box is None:\n        scene_box = [0.0, 0.0, 1.0, 1.0]\n''',
-    '''    # 일부 통신망 CAD는 케이블을 ESSENPOLY 사용자 객체로 저장한다.\n    # 손상된 310 바이너리 태그와 별개로 Embedded AcDbPolyline의 10/20 좌표는\n    # 정상적으로 남아 있으므로 원본 DXF를 수정하지 않고 Viewer 표시만 복구한다.\n    recovered = recover_essenpoly_polylines(input_path)\n    by_handle = {e.handle: e for e in entities if e.handle}\n    recovered_count = 0\n    for item in recovered:\n        points = item["points"]\n        box = _points_bbox(points)\n        if box is None:\n            continue\n        layer = item["layer"]\n        color = "#d4d7dc"\n        try:\n            aci = abs(int(doc.layers.get(layer).dxf.color))\n            if 1 <= aci <= 255:\n                color = _contrast_color(_rgb_hex(aci2rgb(aci)))\n        except Exception:\n            pass\n\n        target = by_handle.get(item.get("handle", ""))\n        if target is not None and not target.primitives:\n            target.layer = layer\n            target.primitives = [("polyline", points)]\n            target.bbox = tuple(box)\n            target.color = color\n            target.attributes.update(item.get("attributes", {}))\n            if unsupported.get("ESSENPOLY", 0) > 0:\n                unsupported["ESSENPOLY"] -= 1\n                if unsupported["ESSENPOLY"] <= 0:\n                    unsupported.pop("ESSENPOLY", None)\n        elif target is None:\n            idx = len(entities)\n            entity = VisualEntity(\n                index=idx,\n                entity_type="ESSENPOLY",\n                layer=layer,\n                handle=item.get("handle", ""),\n                primitives=[("polyline", points)],\n                bbox=tuple(box),\n                color=color,\n                attributes=item.get("attributes", {}),\n            )\n            entities.append(entity)\n            if entity.handle:\n                by_handle[entity.handle] = entity\n        else:\n            continue\n        scene_box = _merge_bbox(scene_box, box)\n        recovered_count += 1\n\n    if recovered_count:\n        log(f"ESSENPOLY 케이블/선로 {recovered_count}개 Viewer 복구")\n\n    if scene_box is None:\n        scene_box = [0.0, 0.0, 1.0, 1.0]\n''',
+    '''    # 일부 통신망 CAD는 케이블을 ESSENPOLY 사용자 객체로 저장한다.\n    # 손상된 310 바이너리 태그와 별개로 Embedded AcDbPolyline의 10/20 좌표는\n    # 정상적으로 남아 있으므로 원본 DXF를 수정하지 않고 Viewer 표시만 복구한다.\n    recovered = recover_essenpoly_polylines(input_path)\n    by_handle = {e.handle: e for e in entities if e.handle}\n    recovered_count = 0\n    for item in recovered:\n        points = item["points"]\n        box = _points_bbox(points)\n        if box is None:\n            continue\n        layer = item["layer"]\n        color = _display_color_for_layer(\n            doc,\n            layer,\n            aci=item.get("color_aci"),\n            true_color=item.get("true_color"),\n        )\n\n        target = by_handle.get(item.get("handle", ""))\n        if target is not None and not target.primitives:\n            target.layer = layer\n            target.primitives = [("polyline", points)]\n            target.bbox = tuple(box)\n            target.color = color\n            target.attributes.update(item.get("attributes", {}))\n            if unsupported.get("ESSENPOLY", 0) > 0:\n                unsupported["ESSENPOLY"] -= 1\n                if unsupported["ESSENPOLY"] <= 0:\n                    unsupported.pop("ESSENPOLY", None)\n        elif target is None:\n            idx = len(entities)\n            entity = VisualEntity(\n                index=idx,\n                entity_type="ESSENPOLY",\n                layer=layer,\n                handle=item.get("handle", ""),\n                primitives=[("polyline", points)],\n                bbox=tuple(box),\n                color=color,\n                attributes=item.get("attributes", {}),\n            )\n            entities.append(entity)\n            if entity.handle:\n                by_handle[entity.handle] = entity\n        else:\n            continue\n        scene_box = _merge_bbox(scene_box, box)\n        recovered_count += 1\n\n    if recovered_count:\n        log(f"ESSENPOLY 케이블/선로 {recovered_count}개 Viewer 복구")\n\n    if scene_box is None:\n        scene_box = [0.0, 0.0, 1.0, 1.0]\n''',
     "ESSENPOLY scene recovery",
+)
+viewer = replace_once(
+    viewer,
+    '''                        if len(coords) >= 4:\n                            ids.append(c.create_line(*coords, fill=color, width=width))\n''',
+    '''                        if len(coords) >= 4:\n                            # 광케이블은 CAD 내부 Polyline 정점 순서의 마지막 점을\n                            # 현재 도면의 IN 방향으로 간주해 화살표를 표시한다.\n                            # 동축 및 기타 케이블에는 방향 화살표를 표시하지 않는다.\n                            if _is_optical_cable_layer(ent.layer):\n                                ids.append(c.create_line(\n                                    *coords, fill=color, width=max(width, 2),\n                                    arrow=tk.LAST, arrowshape=(10, 12, 5),\n                                ))\n                            else:\n                                ids.append(c.create_line(*coords, fill=color, width=width))\n''',
+    "fiber IN direction arrow",
 )
 viewer_path.write_text(viewer, encoding="utf-8")
 
-print("UI policy patches applied: v3.8 / ESSENPOLY recovery / parcel default OFF")
+print("UI policy patches applied: v3.9 / original cable colors / fiber IN arrows")
