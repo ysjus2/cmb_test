@@ -1,0 +1,55 @@
+name: Build CAD Excel Converter
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'desktop/CadExcelConverter/**'
+      - '.github/workflows/build-cad-excel-converter.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop/CadExcelConverter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: desktop/CadExcelConverter/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build portable EXE
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name "CAD_Excel_Converter" `
+            --collect-all pyproj `
+            --collect-all ezdxf `
+            main.py
+
+      - name: Package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item dist\CAD_Excel_Converter.exe package\CAD_Excel_Converter.exe
+          Copy-Item README.md package\사용방법.txt
+          Compress-Archive -Path package\* -DestinationPath CAD_Excel_Converter_Windows_x64.zip
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD-Excel-Converter-Windows-x64
+          path: desktop/CadExcelConverter/CAD_Excel_Converter_Windows_x64.zip
+          if-no-files-found: error
