@@ -120,6 +120,10 @@ public class MainActivity extends Activity {
         locationBtn.setOnClickListener(v -> requestLocationAndFetch());
         content.addView(locationBtn);
 
+        Button mapBtn = btn("ONU 지도 보기");
+        mapBtn.setOnClickListener(v -> startActivity(new Intent(this, MapActivity.class)));
+        content.addView(mapBtn);
+
         cellName = input("예: 역삼-01");
         cellNumber = input("예: C-0001");
         upperOffice = input("상위국사");
@@ -279,8 +283,9 @@ public class MainActivity extends Activity {
             return null;
         }
         try {
-            Double.parseDouble(lat);
-            Double.parseDouble(lon);
+            if (!MapActivity.validCoordinates(Double.parseDouble(lat), Double.parseDouble(lon))) {
+                throw new IllegalArgumentException("좌표 범위 오류");
+            }
         } catch (Exception e) {
             Toast.makeText(this, "위도/경도를 확인해주세요.", Toast.LENGTH_SHORT).show();
             return null;
