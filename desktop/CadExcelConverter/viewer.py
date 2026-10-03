@@ -484,58 +484,110 @@ class DXFViewer(ttk.Frame):
         except Exception as e:
             messagebox.showerror("좌표계 오류", f"EPSG:{epsg} 좌표계를 사용할 수 없습니다.\n{e}")
 
+    @staticmethod
+    def _detail_value_present(value):
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple, dict, set)):
+            return bool(value)
+        return True
+
     def show_details(self):
         if not self.scene or not self.selected:
             messagebox.showinfo("상세정보", "먼저 Viewer에서 기기/객체를 선택해주세요.")
             return
 
-        win = tk.Toplevel(self)
-        win.title("선택 객체 상세정보")
-        win.geometry("760x620")
-        win.transient(self.winfo_toplevel())
-
-        text = tk.Text(win, wrap="word", font=("Consolas", 10))
-        y = ttk.Scrollbar(win, orient="vertical", command=text.yview)
-        text.configure(yscrollcommand=y.set)
-        text.pack(side="left", fill="both", expand=True)
-        y.pack(side="right", fill="y")
-
+        rows = []
         for order, idx in enumerate(sorted(self.selected), 1):
             ent = self.scene.entities[idx]
-            text.insert("end", f"[객체 {order}]\n")
-            text.insert("end", f"TYPE: {ent.entity_type}\n")
-            text.insert("end", f"LAYER: {ent.layer}\n")
-            text.insert("end", f"HANDLE: {ent.handle}\n")
-            if ent.block_name:
-                text.insert("end", f"BLOCK: {ent.block_name}\n")
-            if ent.text:
-                text.insert("end", f"TEXT: {ent.text}\n")
+            if len(self.selected) > 1:
+                rows.append((f"[객체 {order}]", ""))
 
-            if ent.pole_info:
-                text.insert("end", "\n[전주 정보]\n")
-                for key, value in ent.pole_info.items():
-                    text.insert("end", f"{key}: {value}\n")
+            # 사용자에게 의미 있는 기본 정보만 먼저 표시.
+            base = [
+                ("TYPE", ent.entity_type),
+                ("LAYER", ent.layer),
+                ("BLOCK", ent.block_name),
+                ("TEXT", ent.text),
+                ("HANDLE", ent.handle),
+            ]
+            for key, value in base:
+                if self._detail_value_present(value):
+                    rows.append((key, str(value).strip()))
 
-            if ent.attributes:
-                text.insert("end", "\n[BLOCK ATTRIBUTES]\n")
-                for key, value in ent.attributes.items():
-                    text.insert("end", f"{key}: {value}\n")
+            # 전주 정보는 가장 중요한 업무 정보이므로 위쪽에 별도 표시.
+            for key, value in (ent.pole_info or {}).items():
+                if self._detail_value_present(value):
+                    rows.append((f"전주/{key}", str(value).strip()))
 
-            if ent.xdata:
-                text.insert("end", "\n[XDATA]\n")
-                for appid, values in ent.xdata:
-                    text.insert("end", f"<{appid}>\n")
-                    for value in values:
-                        text.insert("end", f"  {value}\n")
+            # 블록 속성: 주소/기기명/설치정보 등 실제 업무 데이터.
+            for key, value in (ent.attributes or {}).items():
+                if self._detail_value_present(value):
+                    rows.append((str(key).strip(), str(value).strip()))
 
-            if ent.dxf_data:
-                text.insert("end", "\n[DXF PROPERTIES]\n")
-                for key in sorted(ent.dxf_data):
-                    text.insert("end", f"{key}: {ent.dxf_data[key]}\n")
+            # XDATA도 값이 있는 항목만 표시.
+            for appid, values in (ent.xdata or []):
+                for value in values:
+                    if self._detail_value_present(value):
+                        rows.append((f"XDATA/{appid}", str(value).strip()))
 
-            text.insert("end", "\n" + "="*72 + "\n\n")
+            # DXF 기본 속성은 중복/공란/기본값을 최대한 제외.
+            skip_keys = {
+                "layer", "handle", "owner", "paperspace", "color",
+                "linetype", "ltscale", "invisible", "lineweight",
+            }
+            existing = {(k.lower(), val) for k, val in rows}
+            for key in sorted(ent.dxf_data or {}):
+                if key.lower() in skip_keys:
+                    continue
+                value = ent.dxf_data[key]
+                if not self._detail_value_present(value):
+                    continue
+                text_value = str(value).strip()
+                if text_value in {"0", "0.0", "0.000000", "None", "()", "[]", "{}"}:
+                    continue
+                if (key.lower(), text_value) in existing:
+                    continue
+                rows.append((key, text_value))
 
-        text.config(state="disabled")
+        if not rows:
+            messagebox.showinfo("상세정보", "표시할 상세정보가 없습니다.")
+            return
+
+        # 내용 길이에 맞춰 창 크기를 자동 계산한다.
+        max_key = max(len(k) for k, _ in rows)
+        max_val = max(len(val) for _, val in rows)
+        width = max(420, min(820, 180 + max_key * 8 + max_val * 7))
+        height = max(220, min(650, 70 + len(rows) * 25))
+
+        win = tk.Toplevel(self)
+        win.title("선택 객체 상세정보")
+        win.geometry(f"{width}x{height}")
+        win.transient(self.winfo_toplevel())
+
+        frame = ttk.Frame(win, padding=8)
+        frame.pack(fill="both", expand=True)
+
+        tree = ttk.Treeview(
+            frame,
+            columns=("key", "value"),
+            show="headings",
+            height=min(22, max(5, len(rows))),
+        )
+        tree.heading("key", text="항목")
+        tree.heading("value", text="내용")
+        tree.column("key", width=max(110, min(220, max_key * 9 + 30)), stretch=False)
+        tree.column("value", width=max(250, min(560, max_val * 8 + 40)), stretch=True)
+
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        for key, value in rows:
+            tree.insert("", "end", values=(key, value))
 
     def world_to_screen(self, x, y):
         return x * self.scale + self.ox, -y * self.scale + self.oy
@@ -543,14 +595,67 @@ class DXFViewer(ttk.Frame):
     def screen_to_world(self, sx, sy):
         return (sx - self.ox) / self.scale, -(sy - self.oy) / self.scale
 
+    @staticmethod
+    def _percentile(values, p):
+        if not values:
+            return 0.0
+        values = sorted(values)
+        if len(values) == 1:
+            return values[0]
+        pos = (len(values) - 1) * p
+        lo = int(math.floor(pos))
+        hi = int(math.ceil(pos))
+        if lo == hi:
+            return values[lo]
+        frac = pos - lo
+        return values[lo] * (1 - frac) + values[hi] * frac
+
+    def _visible_fit_bbox(self):
+        if not self.scene:
+            return None
+        boxes = [
+            e.bbox for e in self.scene.entities
+            if e.layer in self.visible_layers and e.bbox is not None
+        ]
+        if not boxes:
+            return self.scene.bbox
+
+        # 객체가 충분히 많으면 멀리 떨어진 단독 잡객체가 전체 도면을
+        # 한쪽으로 밀지 않도록 객체 중심점의 2~98% 분포를 기준으로 잡는다.
+        if len(boxes) >= 30:
+            centers_x = [(b[0] + b[2]) / 2 for b in boxes]
+            centers_y = [(b[1] + b[3]) / 2 for b in boxes]
+            qx1 = self._percentile(centers_x, 0.02)
+            qx2 = self._percentile(centers_x, 0.98)
+            qy1 = self._percentile(centers_y, 0.02)
+            qy2 = self._percentile(centers_y, 0.98)
+            filtered = []
+            for b in boxes:
+                cx = (b[0] + b[2]) / 2
+                cy = (b[1] + b[3]) / 2
+                if qx1 <= cx <= qx2 and qy1 <= cy <= qy2:
+                    filtered.append(b)
+            if len(filtered) >= max(10, int(len(boxes) * 0.7)):
+                boxes = filtered
+
+        minx = min(b[0] for b in boxes)
+        miny = min(b[1] for b in boxes)
+        maxx = max(b[2] for b in boxes)
+        maxy = max(b[3] for b in boxes)
+        return (minx, miny, maxx, maxy)
+
     def fit_view(self):
         if not self.scene:
             return
         self.update_idletasks()
         w, h = max(100, self.canvas.winfo_width()), max(100, self.canvas.winfo_height())
-        minx, miny, maxx, maxy = self.scene.bbox
+        bbox = self._visible_fit_bbox() or self.scene.bbox
+        minx, miny, maxx, maxy = bbox
         dx, dy = max(maxx-minx, 1e-9), max(maxy-miny, 1e-9)
-        self.scale = max(1e-9, min((w-50)/dx, (h-50)/dy))
+
+        # 화면 가장자리와 도면 사이에 약간의 여백을 둔다.
+        margin = 36
+        self.scale = max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
         cx, cy = (minx+maxx)/2, (miny+maxy)/2
         self.ox = w/2 - cx*self.scale
         self.oy = h/2 + cy*self.scale
