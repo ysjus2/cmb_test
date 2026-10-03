@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v1.9"
+APP_NAME = "CAD → Excel 레이어 변환기 v2.0"
 
 class App(tk.Tk):
     def __init__(self):
@@ -38,7 +38,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v1.9",
+            text="CAD → Excel 레이어 변환기 v2.0",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -236,38 +236,50 @@ class App(tk.Tk):
         items = list(self.tree.get_children())
         shift_pressed = bool(event.state & 0x0001)
 
+        # 1) Shift 선택: 체크와 무관하게 시작~끝을 파란 선택 상태로만 만든다.
+        #    Shift 키를 놓아도 이 선택 상태는 계속 유지된다.
         if shift_pressed and self.last_checked_iid in items:
             start = items.index(self.last_checked_iid)
             end = items.index(iid)
             lo, hi = sorted((start, end))
             range_items = items[lo:hi + 1]
-
-            # CAD 방식: 시작~끝 구간을 직접 파란색으로 강조
             self._highlight_items(range_items)
 
-            # 구간 전체가 체크 상태면 전체 해제,
-            # 하나라도 미체크면 구간 전체 체크
-            all_checked = all(
-                self.layer_names.get(item) in self.checked_layers
-                for item in range_items
-            )
-            target_checked = not all_checked
-            for item in range_items:
-                self._set_checked(item, target_checked)
+            # Shift+체크박스 클릭이면 방금 선택한 범위 전체를
+            # 클릭한 항목의 현재 체크 상태 기준으로 일괄 체크/해제한다.
+            if col == "#1":
+                clicked_name = self.layer_names.get(iid)
+                target_checked = clicked_name not in self.checked_layers
+                for item in range_items:
+                    self._set_checked(item, target_checked)
 
-            # 다음 Shift 선택은 방금 클릭한 행을 새 기준점으로 사용
+            # CAD처럼 기준점은 마지막 클릭 위치로 이동하지만
+            # 파란 선택 상태는 그대로 유지한다.
             self.last_checked_iid = iid
             return "break"
 
-        # 일반 클릭: 행은 파란색 강조만 하고 기준점으로 지정
+        # 2) 체크박스 클릭:
+        #    클릭한 행이 현재 파란 선택 안에 있으면 파란 선택 전체에 적용.
+        #    클릭한 행이 선택 밖이면 그 행 하나만 새 선택으로 만들고 적용.
+        if col == "#1":
+            if iid in self.highlighted_iids and self.highlighted_iids:
+                target_items = [item for item in items if item in self.highlighted_iids]
+            else:
+                target_items = [iid]
+                self._highlight_items(target_items)
+                self.last_checked_iid = iid
+
+            clicked_name = self.layer_names.get(iid)
+            target_checked = clicked_name not in self.checked_layers
+            for item in target_items:
+                self._set_checked(item, target_checked)
+
+            # 체크/해제 후에도 파란 선택은 절대 해제하지 않는다.
+            return "break"
+
+        # 3) 일반 행 클릭: 새 단일 선택/새 Shift 기준점.
         self._highlight_items([iid])
         self.last_checked_iid = iid
-
-        # 체크 열을 클릭했을 때만 해당 항목 체크/해제
-        if col == "#1":
-            name = self.layer_names.get(iid)
-            self._set_checked(iid, name not in self.checked_layers)
-
         return "break"
 
     def _select_all(self):
