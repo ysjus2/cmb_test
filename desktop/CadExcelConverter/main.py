@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v1.5"
+APP_NAME = "CAD → Excel 레이어 변환기 v1.6"
 
 class App(tk.Tk):
     def __init__(self):
@@ -26,6 +26,7 @@ class App(tk.Tk):
         self.layer_names = {}
         self.layer_rows = {}
         self.checked_layers = set()
+        self.last_checked_iid = None
         self._build()
         self.after(100, self._drain)
 
@@ -35,7 +36,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v1.5",
+            text="CAD → Excel 레이어 변환기 v1.6",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -176,6 +177,7 @@ class App(tk.Tk):
         self.layer_names.clear()
         self.layer_rows.clear()
         self.checked_layers.clear()
+        self.last_checked_iid = None
 
         def worker():
             try:
@@ -210,10 +212,24 @@ class App(tk.Tk):
     def _tree_click(self, event):
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if iid and col in ("#1", "#2"):
+        if not iid or col not in ("#1", "#2"):
+            return
+
+        items = list(self.tree.get_children())
+        shift_pressed = bool(event.state & 0x0001)
+
+        if shift_pressed and self.last_checked_iid in items:
+            start = items.index(self.last_checked_iid)
+            end = items.index(iid)
+            lo, hi = sorted((start, end))
+            for item in items[lo:hi + 1]:
+                self._set_checked(item, True)
+        else:
             name = self.layer_names.get(iid)
             self._set_checked(iid, name not in self.checked_layers)
-            return "break"
+
+        self.last_checked_iid = iid
+        return "break"
 
     def _select_all(self):
         for iid in self.tree.get_children():
