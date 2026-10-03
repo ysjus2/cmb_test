@@ -7,7 +7,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from converter import convert_file, list_layers
+from converter import scan_layers, convert_selected_layers
 
 APP_NAME = "CAD → Excel 레이어 변환기"
 
@@ -15,15 +15,15 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
-        self.geometry("980x760")
-        self.minsize(900, 680)
+        self.geometry("1050x760")
+        self.minsize(920, 650)
         self.q = queue.Queue()
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
         self.epsg_var = tk.StringVar(value="5174")
         self.oda_var = tk.StringVar()
         self.status_var = tk.StringVar(value="CAD 파일을 선택해주세요.")
-        self.layer_items = []
+        self.layer_names = {}
         self._build()
         self.after(100, self._drain)
 
@@ -31,151 +31,177 @@ class App(tk.Tk):
         root = ttk.Frame(self, padding=14)
         root.pack(fill="both", expand=True)
 
-        ttk.Label(root, text="CAD → Excel 레이어 변환기",
-                  font=("Malgun Gothic", 20, "bold")).pack(anchor="w")
         ttk.Label(
             root,
-            text="AI/서버 전송 없음 · CAD와 Excel은 이 PC 내부에서만 처리",
+            text="CAD → Excel 레이어 변환기",
+            font=("Malgun Gothic", 20, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            root,
+            text="AI/서버 전송 없음 · CAD를 열고 필요한 레이어만 선택하여 레이어별 Excel 시트로 저장",
             foreground="#126b3a",
-        ).pack(anchor="w", pady=(2, 14))
+        ).pack(anchor="w", pady=(2, 12))
 
         form = ttk.Frame(root)
         form.pack(fill="x")
         self._row(form, 0, "CAD 파일", self.input_var, self._pick_input)
         self._row(form, 1, "출력 Excel", self.output_var, self._pick_output)
 
-        ttk.Label(form, text="원본 좌표계").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=6)
-        ttk.Combobox(
-            form, textvariable=self.epsg_var,
-            values=["5174", "2097", "5181", "5179", "5186"], width=18
-        ).grid(row=2, column=1, sticky="w", pady=6)
-        ttk.Label(form, text="현재 샘플 CAD 기준: EPSG:5174").grid(
-            row=2, column=2, sticky="w", padx=8
+        ttk.Label(form, text="원본 좌표계").grid(
+            row=2, column=0, sticky="w", padx=(0,8), pady=6
         )
+        ttk.Combobox(
+            form,
+            textvariable=self.epsg_var,
+            values=["5174","2097","5181","5179","5186"],
+            width=18,
+        ).grid(row=2, column=1, sticky="w", pady=6)
+        ttk.Label(
+            form,
+            text="현재 샘플 CAD 기준 EPSG:5174",
+        ).grid(row=2, column=2, sticky="w", padx=8)
 
         self._row(form, 3, "ODA 변환기", self.oda_var, self._pick_oda, optional=True)
         form.columnconfigure(1, weight=1)
 
-        layer_frame = ttk.LabelFrame(root, text="CAD 레이어 선택", padding=10)
-        layer_frame.pack(fill="both", expand=True, pady=(10, 8))
+        topbar = ttk.Frame(root)
+        topbar.pack(fill="x", pady=(10,6))
+        self.scan_btn = ttk.Button(topbar, text="1. 레이어 읽기", command=self._scan)
+        self.scan_btn.pack(side="left")
+        ttk.Button(topbar, text="전체 선택", command=self._select_all).pack(side="left", padx=6)
+        ttk.Button(topbar, text="선택 해제", command=self._clear_selection).pack(side="left")
+        ttk.Label(topbar, textvariable=self.status_var).pack(side="right")
 
-        toolbar = ttk.Frame(layer_frame)
-        toolbar.pack(fill="x", pady=(0, 8))
-        ttk.Button(toolbar, text="레이어 읽기", command=self._load_layers).pack(side="left")
-        ttk.Button(toolbar, text="전체 선택", command=self._select_all).pack(side="left", padx=6)
-        ttk.Button(toolbar, text="전체 해제", command=self._clear_all).pack(side="left")
-        ttk.Label(
-            toolbar,
-            text="Ctrl/Shift로 여러 레이어를 선택할 수 있습니다."
-        ).pack(side="right")
+        layer_box = ttk.LabelFrame(root, text="CAD 레이어 선택", padding=8)
+        layer_box.pack(fill="both", expand=True)
 
-        list_wrap = ttk.Frame(layer_frame)
-        list_wrap.pack(fill="both", expand=True)
-
-        self.layer_list = tk.Listbox(
-            list_wrap,
-            selectmode=tk.EXTENDED,
-            exportselection=False,
-            font=("Malgun Gothic", 10),
+        self.tree = ttk.Treeview(
+            layer_box,
+            columns=("count","types"),
+            show="tree headings",
+            selectmode="extended",
+            height=18,
         )
-        yscroll = ttk.Scrollbar(list_wrap, orient="vertical", command=self.layer_list.yview)
-        self.layer_list.configure(yscrollcommand=yscroll.set)
-        self.layer_list.pack(side="left", fill="both", expand=True)
-        yscroll.pack(side="right", fill="y")
+        self.tree.heading("#0", text="레이어명")
+        self.tree.heading("count", text="객체수")
+        self.tree.heading("types", text="객체종류")
+        self.tree.column("#0", width=360, stretch=True)
+        self.tree.column("count", width=90, anchor="center")
+        self.tree.column("types", width=420, stretch=True)
+        y = ttk.Scrollbar(layer_box, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=y.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        y.pack(side="right", fill="y")
 
-        bottom = ttk.Frame(root)
-        bottom.pack(fill="x", pady=(4, 8))
-        self.run_btn = ttk.Button(bottom, text="선택 레이어 Excel 생성", command=self._run)
+        bottombar = ttk.Frame(root)
+        bottombar.pack(fill="x", pady=10)
+        self.run_btn = ttk.Button(
+            bottombar,
+            text="2. 선택 레이어 Excel 생성",
+            command=self._run,
+            state="disabled",
+        )
         self.run_btn.pack(side="left")
-        ttk.Button(bottom, text="출력 폴더 열기", command=self._open_output).pack(side="left", padx=8)
-        ttk.Label(bottom, textvariable=self.status_var).pack(side="right")
+        ttk.Button(
+            bottombar,
+            text="출력 폴더 열기",
+            command=self._open_output,
+        ).pack(side="left", padx=8)
 
-        info = ttk.LabelFrame(root, text="출력 방식", padding=8)
-        info.pack(fill="x", pady=(0, 8))
-        ttk.Label(info, text="• 선택한 CAD 레이어마다 Excel 시트 1개 생성").pack(anchor="w")
-        ttk.Label(info, text="• LAYER_INDEX 시트에 CAD 레이어명 ↔ Excel 시트명 대응표 생성").pack(anchor="w")
-        ttk.Label(info, text="• 선/폴리라인은 좌표점별 행으로 저장, 블록/텍스트/포인트도 동일 시트에 기록").pack(anchor="w")
-
-        self.log = tk.Text(root, height=8, wrap="word", font=("Consolas", 9))
+        self.log = tk.Text(root, height=9, wrap="word", font=("Consolas", 10))
         self.log.pack(fill="x")
-        self._log("프로그램 준비 완료.")
+        self._log("DXF는 직접 읽습니다. DWG는 로컬 ODA File Converter를 사용합니다.")
 
     def _row(self, parent, row, label, var, command, optional=False):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=6)
-        ttk.Entry(parent, textvariable=var).grid(row=row, column=1, sticky="ew", pady=6)
-        ttk.Button(parent, text="찾기", command=command).grid(row=row, column=2, padx=(8, 0), pady=6)
+        ttk.Label(parent, text=label).grid(
+            row=row, column=0, sticky="w", padx=(0,8), pady=6
+        )
+        ttk.Entry(parent, textvariable=var).grid(
+            row=row, column=1, sticky="ew", pady=6
+        )
+        ttk.Button(parent, text="찾기", command=command).grid(
+            row=row, column=2, padx=(8,0), pady=6
+        )
         if optional:
-            ttk.Label(parent, text="(DWG일 때만 필요)").grid(row=row, column=3, sticky="w", padx=6)
+            ttk.Label(parent, text="(DWG일 때만 필요)").grid(
+                row=row, column=3, sticky="w", padx=6
+            )
 
     def _pick_input(self):
         p = filedialog.askopenfilename(
             filetypes=[
-                ("CAD 파일", "*.dwg *.dxf"),
-                ("DWG", "*.dwg"),
-                ("DXF", "*.dxf"),
-                ("모든 파일", "*.*"),
+                ("CAD 파일","*.dwg *.dxf"),
+                ("DWG","*.dwg"),
+                ("DXF","*.dxf"),
+                ("모든 파일","*.*"),
             ]
         )
         if p:
             self.input_var.set(p)
-            self.output_var.set(str(Path(p).with_suffix("")) + "_레이어별_지역DB.xlsx")
-            self._load_layers()
+            self.output_var.set(str(Path(p).with_suffix("")) + "_레이어별.xlsx")
+            self._scan()
 
     def _pick_output(self):
         p = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
-            filetypes=[("Excel", "*.xlsx")],
+            filetypes=[("Excel","*.xlsx")],
         )
         if p:
             self.output_var.set(p)
 
     def _pick_oda(self):
         p = filedialog.askopenfilename(
-            filetypes=[("ODA File Converter", "ODAFileConverter.exe"), ("실행 파일", "*.exe")]
+            filetypes=[
+                ("ODA File Converter","ODAFileConverter.exe"),
+                ("실행 파일","*.exe"),
+            ]
         )
         if p:
             self.oda_var.set(p)
 
-    def _load_layers(self):
+    def _scan(self):
         inp = self.input_var.get().strip()
         if not inp or not os.path.isfile(inp):
-            messagebox.showerror(APP_NAME, "먼저 CAD 파일을 선택해주세요.")
+            messagebox.showerror(APP_NAME, "CAD 파일을 선택해주세요.")
             return
-        self.status_var.set("레이어 읽는 중...")
-        self.layer_list.delete(0, tk.END)
-        self.layer_items = []
+        self.scan_btn.config(state="disabled")
+        self.run_btn.config(state="disabled")
+        self.status_var.set("레이어 분석 중...")
+        self.tree.delete(*self.tree.get_children())
+        self.layer_names.clear()
 
         def worker():
             try:
-                layers = list_layers(inp, self.oda_var.get().strip() or None)
-                self.q.put(("layers", layers))
+                layers = scan_layers(
+                    inp,
+                    self.oda_var.get().strip() or None,
+                    log=lambda m: self.q.put(("log",m)),
+                )
+                self.q.put(("layers",layers))
             except Exception as e:
-                self.q.put(("error", str(e)))
+                self.q.put(("error",str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _select_all(self):
-        if self.layer_list.size():
-            self.layer_list.selection_set(0, tk.END)
+        items = self.tree.get_children()
+        self.tree.selection_set(items)
 
-    def _clear_all(self):
-        self.layer_list.selection_clear(0, tk.END)
-
-    def _selected_layers(self):
-        return [self.layer_items[i][0] for i in self.layer_list.curselection()]
+    def _clear_selection(self):
+        self.tree.selection_remove(self.tree.selection())
 
     def _run(self):
-        inp = self.input_var.get().strip()
-        out = self.output_var.get().strip()
-        if not inp or not os.path.isfile(inp):
-            messagebox.showerror(APP_NAME, "CAD 파일을 선택해주세요.")
+        selected = [
+            self.layer_names[item]
+            for item in self.tree.selection()
+            if item in self.layer_names
+        ]
+        if not selected:
+            messagebox.showerror(APP_NAME, "추출할 레이어를 선택해주세요.")
             return
+        out = self.output_var.get().strip()
         if not out:
             messagebox.showerror(APP_NAME, "출력 Excel 경로를 지정해주세요.")
-            return
-        layers = self._selected_layers()
-        if not layers:
-            messagebox.showerror(APP_NAME, "Excel로 만들 레이어를 하나 이상 선택해주세요.")
             return
         try:
             epsg = int(self.epsg_var.get().strip())
@@ -184,22 +210,24 @@ class App(tk.Tk):
             return
 
         self.run_btn.config(state="disabled")
-        self.status_var.set(f"{len(layers)}개 레이어 변환 중")
-        self._log("=" * 70)
-        self._log(f"입력: {inp}")
-        self._log(f"선택 레이어: {len(layers)}개")
+        self.scan_btn.config(state="disabled")
+        self.status_var.set(f"{len(selected)}개 레이어 변환 중...")
+        self._log("="*70)
+        self._log("선택 레이어: " + ", ".join(selected))
 
         def worker():
             try:
-                stats = convert_file(
-                    inp, out, epsg,
+                stats = convert_selected_layers(
+                    self.input_var.get().strip(),
+                    out,
+                    selected,
+                    epsg,
                     self.oda_var.get().strip() or None,
-                    selected_layers=layers,
-                    log=lambda m: self.q.put(("log", m)),
+                    log=lambda m: self.q.put(("log",m)),
                 )
-                self.q.put(("done", stats))
+                self.q.put(("done",stats))
             except Exception as e:
-                self.q.put(("error", str(e)))
+                self.q.put(("error",str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -210,20 +238,34 @@ class App(tk.Tk):
                 if kind == "log":
                     self._log(data)
                 elif kind == "layers":
-                    self.layer_items = data
-                    self.layer_list.delete(0, tk.END)
-                    for layer, count in data:
-                        self.layer_list.insert(tk.END, f"{layer}    [{count} entities]")
-                    self._select_all()
-                    self.status_var.set(f"레이어 {len(data)}개 읽음")
-                    self._log(f"레이어 {len(data)}개를 찾았습니다.")
+                    for i, layer in enumerate(data):
+                        iid = f"L{i}"
+                        self.layer_names[iid] = layer.name
+                        self.tree.insert(
+                            "",
+                            "end",
+                            iid=iid,
+                            text=layer.name,
+                            values=(layer.count, layer.types),
+                        )
+                    self.scan_btn.config(state="normal")
+                    self.run_btn.config(state="normal" if data else "disabled")
+                    self.status_var.set(f"레이어 {len(data)}개 발견")
+                    self._log(f"레이어 {len(data)}개 스캔 완료")
                 elif kind == "done":
+                    self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal")
                     self.status_var.set("완료")
-                    self._log(f"완료: {data.layers}개 레이어 / {data.entities}개 엔티티 / {data.rows}행")
-                    messagebox.showinfo(APP_NAME, "레이어별 Excel 생성이 완료되었습니다.")
+                    self._log(
+                        f"선택레이어 {data.layers} / 객체 {data.entities} / 출력행 {data.rows}"
+                    )
+                    messagebox.showinfo(
+                        APP_NAME,
+                        "선택한 레이어를 Excel 시트로 생성했습니다.",
+                    )
                 elif kind == "error":
-                    self.run_btn.config(state="normal")
+                    self.scan_btn.config(state="normal")
+                    self.run_btn.config(state="normal" if self.layer_names else "disabled")
                     self.status_var.set("오류")
                     self._log("오류: " + data)
                     messagebox.showerror(APP_NAME, data)
