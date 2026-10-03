@@ -45,6 +45,7 @@ public final class KakaoNetworkRenderer {
         equipmentLayer.setClickable(true);
         map.setOnLodLabelClickListener((clickedMap, layer, label) -> {
             if (label.getTag() instanceof PointItem) onClick.onClick((PointItem) label.getTag());
+            return label.getTag() instanceof PointItem;
         });
 
         cellStyle = lm.addLabelStyles(LabelStyles.from(LabelStyle.from(R.drawable.map_cell)));
