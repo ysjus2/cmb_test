@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from converter import convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
 
-APP_NAME = "CMB DXF Viewer + Excel v3.0"
+APP_NAME = "CMB DXF Viewer + Excel v3.1"
 
 class App(tk.Tk):
     def __init__(self):
@@ -74,8 +74,6 @@ class App(tk.Tk):
         self.scan_btn.pack(side="left")
         ttk.Button(toolbar, text="추출 전체 선택", command=self._select_all).pack(side="left", padx=(6, 2))
         ttk.Button(toolbar, text="추출 선택 해제", command=self._clear_selection).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="레이어 전체 보기", command=self._show_all_layers).pack(side="left", padx=(10, 2))
-        ttk.Button(toolbar, text="레이어 전체 숨김", command=self._hide_all_layers).pack(side="left", padx=2)
         self.run_btn = ttk.Button(toolbar, text="선택 레이어 Excel 생성", command=self._run, state="disabled")
         self.run_btn.pack(side="left", padx=(12, 2))
         ttk.Label(toolbar, textvariable=self.status_var).pack(side="right")
@@ -88,17 +86,15 @@ class App(tk.Tk):
 
         self.tree = ttk.Treeview(
             left,
-            columns=("view", "check", "layer", "count", "types"),
+            columns=("check", "layer", "count", "types"),
             show="headings",
             selectmode="extended",
             height=28,
         )
-        self.tree.heading("view", text="보기")
-        self.tree.heading("check", text="추출")
+        self.tree.heading("check", text="선택")
         self.tree.heading("layer", text="레이어명")
         self.tree.heading("count", text="객체수")
         self.tree.heading("types", text="객체종류")
-        self.tree.column("view", width=55, anchor="center", stretch=False)
         self.tree.column("check", width=55, anchor="center", stretch=False)
         self.tree.column("layer", width=260)
         self.tree.column("count", width=75, anchor="center")
@@ -192,7 +188,6 @@ class App(tk.Tk):
     def _row_values(self, iid):
         name, count, types = self.layer_rows[iid]
         return (
-            "●" if name in self.visible_layers else "○",
             "☑" if name in self.checked_layers else "☐",
             name, count, types
         )
@@ -208,26 +203,17 @@ class App(tk.Tk):
         name = row[0]
         if checked:
             self.checked_layers.add(name)
-        else:
-            self.checked_layers.discard(name)
-        self._refresh_row(iid)
-        self._update_status()
-
-    def _set_visible(self, iid, visible):
-        row = self.layer_rows.get(iid)
-        if not row:
-            return
-        name = row[0]
-        if visible:
             self.visible_layers.add(name)
         else:
+            self.checked_layers.discard(name)
             self.visible_layers.discard(name)
         self._refresh_row(iid)
         self.viewer.set_visible_layers(self.visible_layers)
+        self._update_status()
 
     def _update_status(self):
         self.status_var.set(
-            f"레이어 {len(self.layer_rows)}개 · 추출 {len(self.checked_layers)}개 · 표시 {len(self.visible_layers)}개"
+            f"레이어 {len(self.layer_rows)}개 · 선택/표시/추출 {len(self.checked_layers)}개"
         )
 
     def _highlight_items(self, items):
@@ -250,12 +236,6 @@ class App(tk.Tk):
         items = list(self.tree.get_children())
         shift_pressed = bool(event.state & 0x0001)
 
-        # 보기 열은 독립 ON/OFF. 파란 범위 선택/추출 체크와 섞지 않는다.
-        if col == "#1" and not shift_pressed:
-            name = self.layer_names.get(iid)
-            self._set_visible(iid, name not in self.visible_layers)
-            return "break"
-
         # v2.2 CAD식 범위 선택: 일반 클릭 기준점, Shift 클릭 연속 파란 범위.
         if shift_pressed and self.last_checked_iid in items:
             start = items.index(self.last_checked_iid)
@@ -264,23 +244,26 @@ class App(tk.Tk):
             range_items = items[lo:hi + 1]
             self._highlight_items(range_items)
 
-            # Shift+추출 체크 클릭 시 현재 범위 전체 일괄 토글.
-            if col == "#2":
+            # Shift+체크 클릭: 클릭 항목 상태 기준으로 범위 전체 일괄 체크/해제.
+            # 체크 상태는 Viewer 표시 여부와 Excel 추출 대상을 동시에 결정한다.
+            if col == "#1":
                 clicked_name = self.layer_names.get(iid)
                 target = clicked_name not in self.checked_layers
                 for item in range_items:
                     self._set_checked(item, target)
+
             self.last_checked_iid = iid
             return "break"
 
-        # 파란 선택 범위 안 추출 체크 클릭: 선택 그룹 전체 일괄 토글.
-        if col == "#2":
+        # 파란 선택 범위 안 체크 클릭: 선택 그룹 전체 일괄 체크/해제.
+        if col == "#1":
             if iid in self.highlighted_iids and self.highlighted_iids:
                 targets = [item for item in items if item in self.highlighted_iids]
             else:
                 targets = [iid]
                 self._highlight_items(targets)
                 self.last_checked_iid = iid
+
             clicked_name = self.layer_names.get(iid)
             target = clicked_name not in self.checked_layers
             for item in targets:
@@ -303,16 +286,6 @@ class App(tk.Tk):
             self._set_checked(iid, False)
         self._highlight_items([])
         self.last_checked_iid = None
-
-    def _show_all_layers(self):
-        for iid in self.tree.get_children():
-            self._set_visible(iid, True)
-        self.viewer.set_visible_layers(self.visible_layers)
-
-    def _hide_all_layers(self):
-        for iid in self.tree.get_children():
-            self._set_visible(iid, False)
-        self.viewer.set_visible_layers(self.visible_layers)
 
     def _run(self):
         selected = [
@@ -368,6 +341,7 @@ class App(tk.Tk):
                         self.layer_names[iid] = layer.name
                         self.layer_rows[iid] = (layer.name, layer.count, layer.types)
                         self.visible_layers.add(layer.name)
+                        self.checked_layers.add(layer.name)
                         self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
                     self.viewer.load_scene(scene)
                     self.viewer.set_visible_layers(self.visible_layers)
