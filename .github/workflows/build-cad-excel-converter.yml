@@ -31,7 +31,8 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install --no-deps pyproj==3.7.2
-          if (pip show certifi 2>$null) {
+          $installed = pip list --format=json | ConvertFrom-Json
+          if ($installed.name -contains "certifi") {
             throw "certifi must not be installed in the company build"
           }
 
