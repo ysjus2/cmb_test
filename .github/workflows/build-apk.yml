@@ -33,8 +33,8 @@ jobs:
 
       - name: Export public certificate hash for Kakao
         run: |
-          keytool -exportcert -alias androiddebugkey \
-            -keystore "$HOME/.android/debug.keystore" -storepass android \
+          keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk -rfc \
+            | openssl x509 -outform DER \
             | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
 
       - name: Upload APK
