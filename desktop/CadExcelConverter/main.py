@@ -9,7 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import scan_layers, convert_selected_layers
 
-APP_NAME = "CAD → Excel 레이어 변환기 v1.7"
+APP_NAME = "CAD → Excel 레이어 변환기 v1.8"
 
 class App(tk.Tk):
     def __init__(self):
@@ -22,6 +22,8 @@ class App(tk.Tk):
         self.output_var = tk.StringVar()
         self.epsg_var = tk.StringVar(value="5174")
         self.status_var = tk.StringVar(value="CAD 파일을 선택해주세요.")
+        self.progress_value = 0
+        self.progress_text = "0% · 준비"
         self.layer_names = {}
         self.layer_rows = {}
         self.checked_layers = set()
@@ -35,7 +37,7 @@ class App(tk.Tk):
 
         ttk.Label(
             root,
-            text="CAD → Excel 레이어 변환기 v1.7",
+            text="CAD → Excel 레이어 변환기 v1.8",
             font=("Malgun Gothic", 20, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -112,6 +114,18 @@ class App(tk.Tk):
             command=self._open_output,
         ).pack(side="left", padx=8)
 
+        progress_frame = ttk.Frame(root)
+        progress_frame.pack(fill="x", pady=(2, 8))
+        self.progress_canvas = tk.Canvas(
+            progress_frame,
+            height=34,
+            highlightthickness=1,
+            highlightbackground="#9ca3af",
+            bg="#e5e7eb",
+        )
+        self.progress_canvas.pack(fill="x")
+        self.progress_canvas.bind("<Configure>", lambda e: self._draw_progress())
+
         self.log = tk.Text(root, height=9, wrap="word", font=("Consolas", 10))
         self.log.pack(fill="x")
         self._log("DXF는 직접 읽습니다. DWG는 내장 변환 엔진으로 자동 변환합니다.")
@@ -161,6 +175,7 @@ class App(tk.Tk):
         self.scan_btn.config(state="disabled")
         self.run_btn.config(state="disabled")
         self.status_var.set("레이어 분석 중...")
+        self._set_progress(0, "레이어 분석 준비")
         self.tree.delete(*self.tree.get_children())
         self.layer_names.clear()
         self.layer_rows.clear()
@@ -173,6 +188,7 @@ class App(tk.Tk):
                     inp,
                     None,
                     log=lambda m: self.q.put(("log",m)),
+                    progress=lambda p,t: self.q.put(("progress",(p,t))),
                 )
                 self.q.put(("layers",layers))
             except Exception as e:
@@ -249,6 +265,7 @@ class App(tk.Tk):
         self.run_btn.config(state="disabled")
         self.scan_btn.config(state="disabled")
         self.status_var.set(f"{len(selected)}개 레이어 변환 중...")
+        self._set_progress(0, "Excel 변환 준비")
         self._log("="*70)
         self._log("선택 레이어: " + ", ".join(selected))
 
@@ -261,6 +278,7 @@ class App(tk.Tk):
                     epsg,
                     None,
                     log=lambda m: self.q.put(("log",m)),
+                    progress=lambda p,t: self.q.put(("progress",(p,t))),
                 )
                 self.q.put(("done",stats))
             except Exception as e:
@@ -274,6 +292,8 @@ class App(tk.Tk):
                 kind, data = self.q.get_nowait()
                 if kind == "log":
                     self._log(data)
+                elif kind == "progress":
+                    self._set_progress(data[0], data[1])
                 elif kind == "layers":
                     for i, layer in enumerate(data):
                         iid = f"L{i}"
@@ -289,10 +309,12 @@ class App(tk.Tk):
                     self.run_btn.config(state="normal" if data else "disabled")
                     self.status_var.set(f"레이어 {len(data)}개 발견 · 0개 선택")
                     self._log(f"레이어 {len(data)}개 스캔 완료")
+                    self._set_progress(100, f"레이어 {len(data)}개 분석 완료")
                 elif kind == "done":
                     self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal")
                     self.status_var.set("완료")
+                    self._set_progress(100, "Excel 생성 완료")
                     self._log(
                         f"선택레이어 {data.layers} / 객체 {data.entities} / 출력행 {data.rows}"
                     )
@@ -304,11 +326,41 @@ class App(tk.Tk):
                     self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal" if self.layer_names else "disabled")
                     self.status_var.set("오류")
+                    self._set_progress(self.progress_value, "오류 발생")
                     self._log("오류: " + data)
                     messagebox.showerror(APP_NAME, data)
         except queue.Empty:
             pass
         self.after(100, self._drain)
+
+    def _set_progress(self, percent, task):
+        try:
+            value = max(0, min(100, int(percent)))
+        except Exception:
+            value = 0
+        self.progress_value = value
+        self.progress_text = f"{value}% · {task}"
+        self._draw_progress()
+
+    def _draw_progress(self):
+        if not hasattr(self, "progress_canvas"):
+            return
+        canvas = self.progress_canvas
+        canvas.delete("all")
+        width = max(1, canvas.winfo_width())
+        height = max(1, canvas.winfo_height())
+        fill_width = int(width * self.progress_value / 100.0)
+        canvas.create_rectangle(0, 0, width, height, fill="#e5e7eb", outline="")
+        if fill_width > 0:
+            canvas.create_rectangle(0, 0, fill_width, height, fill="#2563eb", outline="")
+        text_color = "white" if self.progress_value >= 45 else "#111827"
+        canvas.create_text(
+            width // 2,
+            height // 2,
+            text=self.progress_text,
+            fill=text_color,
+            font=("Malgun Gothic", 10, "bold"),
+        )
 
     def _log(self, msg):
         self.log.insert("end", str(msg) + "\n")
