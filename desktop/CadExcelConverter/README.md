@@ -34,3 +34,7 @@ CAD entity handle을 시설ID/장비ID/선로ID로 사용하므로 현재 추출
 
 ## Windows 실행 파일
 GitHub Actions의 Build CAD Excel Converter workflow가 Windows x64 단일 EXE를 생성합니다.
+
+## 빌드 산출물
+- CAD_Excel_Converter.exe
+- README.txt
