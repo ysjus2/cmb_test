@@ -36,6 +36,9 @@ jobs:
             throw "DWG/LibreDWG/ODA reference detected in company DXF-only build"
           }
 
+      - name: Audit runtime licenses
+        run: python license_audit.py
+
       - name: Run self-test
         run: python selftest.py
 
