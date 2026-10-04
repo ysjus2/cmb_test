@@ -54,6 +54,9 @@ jobs:
       - name: Apply v3.14 layout
         run: python apply_layout_v314.py
 
+      - name: Apply v3.15 layout
+        run: python apply_layout_v315.py
+
       - name: Verify no DWG GPL engine
         shell: powershell
         run: |
