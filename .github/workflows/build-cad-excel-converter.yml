@@ -51,6 +51,9 @@ jobs:
       - name: Apply Escape policy
         run: python apply_escape_policy.py
 
+      - name: Apply v3.14 layout
+        run: python apply_layout_v314.py
+
       - name: Verify no DWG GPL engine
         shell: powershell
         run: |
