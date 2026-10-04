@@ -24,6 +24,7 @@ public class MainActivity extends Activity {
     private final java.util.concurrent.ExecutorService worker=java.util.concurrent.Executors.newSingleThreadExecutor();
     private boolean destroyed;
     private Button importBtn;
+    private int refreshGeneration;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -263,7 +264,14 @@ public class MainActivity extends Activity {
 
     private void refresh(){
         if(listBox==null) return;
-        ArrayList<CadRecord> all=db.loadAll();
+        final int generation=++refreshGeneration;
+        worker.execute(()->{
+            ArrayList<CadRecord> all=db.loadAll();
+            runOnUiThread(()->{if(!destroyed && generation==refreshGeneration)renderList(all);});
+        });
+    }
+
+    private void renderList(ArrayList<CadRecord> all){
         LinkedHashMap<String,Integer> counts=new LinkedHashMap<>();
         for(String c:categories) counts.put(c,0);
         for(CadRecord r:all) counts.put(r.category,(counts.containsKey(r.category)?counts.get(r.category):0)+1);

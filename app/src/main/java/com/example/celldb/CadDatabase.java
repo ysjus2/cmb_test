@@ -1,7 +1,6 @@
 package com.example.celldb;
 
 import android.content.Context;
-import org.json.JSONArray;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -9,36 +8,61 @@ import java.util.*;
 final class CadDatabase {
     private static final String FILE_NAME = "cad_records.json";
     private final Context context;
+    private ArrayList<CadRecord> cached;
+    private long cachedTime=-1, cachedLength=-1;
 
     CadDatabase(Context context) { this.context = context.getApplicationContext(); }
 
     synchronized ArrayList<CadRecord> loadAll() {
         ArrayList<CadRecord> out = new ArrayList<>();
         File file = new File(context.getFilesDir(), FILE_NAME);
-        if (!file.exists()) return out;
+        boolean backup=new File(file.getPath()+".bak").exists();
+        if (!file.exists() && !backup) return out;
+        if(!backup && cached!=null && cachedTime==file.lastModified() && cachedLength==file.length())return new ArrayList<>(cached);
         try {
-            byte[] bytes = new byte[(int) file.length()];
-            try (InputStream in = new FileInputStream(file)) {
-                int off = 0, n;
-                while (off < bytes.length && (n = in.read(bytes, off, bytes.length - off)) > 0) off += n;
+            try (android.util.JsonReader reader=new android.util.JsonReader(new InputStreamReader(new android.util.AtomicFile(file).openRead(),StandardCharsets.UTF_8))) {
+                reader.beginArray();
+                while(reader.hasNext()) {
+                    CadRecord r=new CadRecord();reader.beginObject();
+                    while(reader.hasNext()) {
+                        String key=reader.nextName();
+                        switch(key) {
+                            case "category":r.category=reader.nextString();break;
+                            case "id":r.id=reader.nextString();break;
+                            case "subtype":r.subtype=reader.nextString();break;
+                            case "name":r.name=reader.nextString();break;
+                            case "layer":r.layer=reader.nextString();break;
+                            case "longitude":r.longitude=reader.nextDouble();break;
+                            case "latitude":r.latitude=reader.nextDouble();break;
+                            case "sequence":r.sequence=reader.nextInt();break;
+                            case "source":r.source=reader.nextString();break;
+                            case "fields":
+                                reader.beginObject();while(reader.hasNext()){String name=reader.nextName();r.fields.put(name,reader.nextString());}reader.endObject();break;
+                            default:reader.skipValue();
+                        }
+                    }
+                    reader.endObject();out.add(r);
+                }
+                reader.endArray();
             }
-            JSONArray a = new JSONArray(new String(bytes, StandardCharsets.UTF_8));
-            for (int i=0; i<a.length(); i++) out.add(CadRecord.fromJson(a.getJSONObject(i)));
-        } catch (Exception ignored) { }
+            cached=new ArrayList<>(out);cachedTime=file.lastModified();cachedLength=file.length();
+        } catch (Exception ignored) { out.clear(); }
         return out;
     }
 
     synchronized void saveAll(List<CadRecord> records) throws Exception {
-        JSONArray a = new JSONArray();
-        for (CadRecord r : records) a.put(r.toJson());
-        File temp = new File(context.getFilesDir(), FILE_NAME + ".tmp");
-        try (OutputStream out = new FileOutputStream(temp)) {
-            out.write(a.toString().getBytes(StandardCharsets.UTF_8));
-            out.flush();
+        File dest=new File(context.getFilesDir(),FILE_NAME);
+        android.util.AtomicFile atomic=new android.util.AtomicFile(dest);
+        FileOutputStream stream=atomic.startWrite();
+        try {
+            Writer writer=new BufferedWriter(new OutputStreamWriter(stream,StandardCharsets.UTF_8));
+            writer.write('[');boolean first=true;
+            for(CadRecord r:records){if(!first)writer.write(',');writer.write(r.toJson().toString());first=false;}
+            writer.write(']');writer.flush();atomic.finishWrite(stream);
+        } catch(Exception e) {
+            atomic.failWrite(stream);throw e;
         }
-        File dest = new File(context.getFilesDir(), FILE_NAME);
-        if (dest.exists() && !dest.delete()) throw new IOException("기존 DB를 교체할 수 없습니다.");
-        if (!temp.renameTo(dest)) throw new IOException("DB 저장을 완료할 수 없습니다.");
+        cached=new ArrayList<>(records);cachedTime=dest.lastModified();cachedLength=dest.length();
     }
 
     synchronized void replaceCadRows(List<CadRecord> imported) throws Exception {

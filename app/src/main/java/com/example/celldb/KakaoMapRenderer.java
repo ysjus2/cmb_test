@@ -45,6 +45,9 @@ final class KakaoMapRenderer implements MapRenderer {
     private boolean destroyed;
     private int nextId;
     private int nextLineId;
+    private PointClick mapClick;
+    private RouteLineLayer measurementLayer;
+    private RouteLineStylesSet measurementStyles;
 
     KakaoMapRenderer(Context context, String key) {
         KakaoMapSdk.init(context.getApplicationContext(), key);
@@ -87,6 +90,12 @@ final class KakaoMapRenderer implements MapRenderer {
                             RouteLineStyles.from(RouteLineStyle.from(5f, Color.rgb(30, 136, 229)))));
                     coaxStyles = map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
                             RouteLineStyles.from(RouteLineStyle.from(5f, Color.rgb(245, 124, 0)))));
+                    measurementLayer=map.getRouteLineManager().addLayer("user-measurements",6000);
+                    measurementStyles=map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
+                            RouteLineStyles.from(RouteLineStyle.from(7f,Color.rgb(170,40,210)))));
+                    map.setOnMapClickListener((clickedMap,position,screenPoint,poi)->{
+                        if(mapClick!=null)view.post(()->mapClick.accept(new MapPoint(position.latitude,position.longitude)));
+                    });
 
                     map.setOnLabelClickListener((clickedMap, layer, label) -> {
                         Runnable action = clickActions.get(label.getLabelId());
@@ -138,6 +147,22 @@ final class KakaoMapRenderer implements MapRenderer {
         if (current == null) current = locationLayer.addLabel(LabelOptions.from("my-location", point(p))
                 .setStyles(locationStyle).setClickable(false));
         else current.moveTo(point(p));
+    }
+
+    public void setMapClick(PointClick click){mapClick=click;}
+    public android.graphics.Point screenPoint(MapPoint p){return map==null?null:map.toScreenPoint(point(p));}
+    public void showMeasurements(List<DistanceMeasurement.Line> lines,List<DistanceMeasurement.Point> current){
+        if(measurementLayer==null)return;
+        measurementLayer.removeAll();
+        for(DistanceMeasurement.Line line:lines)addMeasurement("measurement-"+line.id,line.points);
+        addMeasurement("measurement-current",current);
+    }
+    private void addMeasurement(String id,List<DistanceMeasurement.Point> points){
+        if(points.size()<2)return;
+        ArrayList<LatLng> converted=new ArrayList<>();
+        for(DistanceMeasurement.Point point:points)converted.add(LatLng.from(point.lat,point.lon));
+        measurementLayer.addRouteLine(RouteLineOptions.from(id,RouteLineSegment.from(converted,measurementStyles.getStyles(0)))
+                .setStylesSet(measurementStyles));
     }
 
     public void center(MapPoint p, boolean zoomIn) {

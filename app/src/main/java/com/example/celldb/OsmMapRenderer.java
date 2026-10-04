@@ -22,6 +22,8 @@ final class OsmMapRenderer implements MapRenderer {
     private final MapView map;
     private final ArrayList<Polyline> networkLines = new ArrayList<>();
     private Marker current;
+    private final ArrayList<Polyline> measurementLines=new ArrayList<>();
+    private PointClick mapClick;
 
     OsmMapRenderer(Context context) {
         this.context = context;
@@ -34,6 +36,12 @@ final class OsmMapRenderer implements MapRenderer {
         map.setMultiTouchControls(true);
         map.getController().setZoom(16.0);
         map.getController().setCenter(new GeoPoint(36.5, 127.5));
+        map.getOverlays().add(new org.osmdroid.views.overlay.MapEventsOverlay(new org.osmdroid.events.MapEventsReceiver(){
+            public boolean singleTapConfirmedHelper(GeoPoint p){
+                if(mapClick==null)return false;mapClick.accept(new MapPoint(p.getLatitude(),p.getLongitude()));return true;
+            }
+            public boolean longPressHelper(GeoPoint p){return false;}
+        }));
     }
 
     public View getView() { return map; }
@@ -80,6 +88,9 @@ final class OsmMapRenderer implements MapRenderer {
         line.setPoints(converted);
         line.getOutlinePaint().setStrokeWidth(5f * context.getResources().getDisplayMetrics().density);
         line.getOutlinePaint().setColor(fiber ? Color.rgb(30, 136, 229) : Color.rgb(245, 124, 0));
+        line.setOnClickListener((selected,view,point)->{
+            if(mapClick!=null)mapClick.accept(new MapPoint(point.getLatitude(),point.getLongitude()));return true;
+        });
         networkLines.add(line);
         map.getOverlays().add(line);
         map.invalidate();
@@ -96,6 +107,26 @@ final class OsmMapRenderer implements MapRenderer {
         current.setPosition(point(p));
         current.setSnippet(accuracy);
         map.invalidate();
+    }
+
+    public void setMapClick(PointClick click){mapClick=click;}
+    public android.graphics.Point screenPoint(MapPoint p){return map.getProjection().toPixels(point(p),null);}
+    public void showMeasurements(List<DistanceMeasurement.Line> lines,List<DistanceMeasurement.Point> current){
+        map.getOverlays().removeAll(measurementLines);measurementLines.clear();
+        for(DistanceMeasurement.Line line:lines)addMeasurement(line.points);
+        addMeasurement(current);map.invalidate();
+    }
+    private void addMeasurement(List<DistanceMeasurement.Point> points){
+        if(points.size()<2)return;
+        Polyline line=new Polyline();ArrayList<GeoPoint> converted=new ArrayList<>();
+        for(DistanceMeasurement.Point point:points)converted.add(new GeoPoint(point.lat,point.lon));
+        line.setPoints(converted);line.getOutlinePaint().setColor(Color.rgb(170,40,210));
+        line.getOutlinePaint().setStrokeWidth(7f*context.getResources().getDisplayMetrics().density);
+        // Propagate taps to the map handler, which selects only this measurement.
+        line.setOnClickListener((selected,view,point)->{
+            if(mapClick!=null)mapClick.accept(new MapPoint(point.getLatitude(),point.getLongitude()));return true;
+        });
+        measurementLines.add(line);map.getOverlays().add(line);
     }
 
     public void center(MapPoint p, boolean zoomIn) {

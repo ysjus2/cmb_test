@@ -41,12 +41,24 @@ public class MapActivity extends Activity {
     private boolean centerOnFix;
     private KakaoNetworkRenderer networkRenderer;
     private NetworkData networkData;
-    private final boolean[] layers = {true,true,true,true,true};
-    private final String[] categories = {"CELL","FACILITY","EQUIPMENT","FIBER","COAX"};
+    private final boolean[] layers = {true,true,true};
+    private ArrayList<CadRecord> allRecords = new ArrayList<>();
+    private int loadGeneration;
+    private boolean pendingShowAll;
+    private final String[] categories = LayerGroups.IDS;
     private final Map<String,CadRecord> networkRecords = new HashMap<>();
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private Button importButton;
     private TextView regionStatus;
+    private TextView selectionStatus;
+    private Button measureButton;
+    private final DistanceMeasurement measurements=new DistanceMeasurement();
+    private CadRecord selectedRecord;
+    private DistanceMeasurement.Line selectedMeasurement;
+    private final ArrayList<ArrayList<CadRecord>> displayedLines=new ArrayList<>();
+    private long ignoreTapUntil;
+    private boolean escapeConsumed;
+
 
     private final LocationListener listener = new LocationListener() {
         @Override public void onLocationChanged(Location location) { updateLocation(location); }
@@ -86,6 +98,17 @@ public class MapActivity extends Activity {
         addButton(actions, "전체 보기", this::showAll);
         addButton(actions, "가까운 시설", this::showNearest);
         root.addView(actions);
+        LinearLayout tools=new LinearLayout(this);
+        measureButton=new Button(this);measureButton.setText("거리 측정");measureButton.setTextSize(13);
+        measureButton.setOnClickListener(v->{
+            if(measurements.active())finishMeasurement();
+            else {measurements.start();selectedRecord=null;selectedMeasurement=null;measureButton.setText("측정 종료");
+                selectionStatus.setText("지도를 눌러 측정점을 추가하세요 · Esc 또는 측정 종료로 완료");drawMeasurements();}
+        });
+        tools.addView(measureButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
+        addButton(tools,"선택 메뉴",this::showSelectionMenu);root.addView(tools);
+        selectionStatus=new TextView(this);selectionStatus.setText("객체 선택 후 길게 누르기 / 우클릭 → 속성");
+        selectionStatus.setPadding(dp(12),dp(4),dp(12),dp(4));root.addView(selectionStatus);
         importButton = new Button(this);
         importButton.setText("지역 DB 불러오기 (.xlsx)");
         importButton.setTextSize(13);
@@ -103,25 +126,32 @@ public class MapActivity extends Activity {
         root.addView(regionStatus);
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         LinearLayout toggles = new LinearLayout(this);
-        String[] names = {"셀","시설","장비","광","동축"};
+        String[] names = LayerGroups.NAMES;
         for (int i=0;i<names.length;i++) {
             final int index=i;
             CheckBox check = new CheckBox(this);
             check.setText(names[i]); check.setTextSize(12);
-            layers[i]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("layer_"+i,true);
+            layers[i]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("group_"+categories[i],true);
             check.setChecked(layers[i]);
             check.setOnCheckedChangeListener((button,checked) -> {
                 layers[index]=checked;
-                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putBoolean("layer_"+index,checked).apply();
-                if (networkRenderer != null) applyVisibility(); else loadMarkers();
+                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putBoolean("group_"+categories[index],checked).apply();
+                loadMarkers();
             });
             toggles.addView(check);
         }
         scroll.addView(toggles); root.addView(scroll);
+        Button settings = new Button(this);
+        settings.setText("설정 · 레이어 편집");
+        settings.setOnClickListener(v -> showLayerSettings());
+        root.addView(settings);
 
         map = BuildConfig.KAKAO_NATIVE_APP_KEY.isEmpty() ? new OsmMapRenderer(this)
                 : new KakaoMapRenderer(this, BuildConfig.KAKAO_NATIVE_APP_KEY);
-        root.addView(map.getView(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        map.setMapClick(this::onMapTap);
+        MapInteractionView interaction=new MapInteractionView(this,()->{ignoreTapUntil=android.os.SystemClock.uptimeMillis()+600;showSelectionMenu();});
+        interaction.addView(map.getView(),new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(interaction,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f));
 
         TextView attribution = new TextView(this);
         attribution.setText((map instanceof OsmMapRenderer ? "© OpenStreetMap contributors" : "카카오맵")
@@ -130,11 +160,6 @@ public class MapActivity extends Activity {
         attribution.setGravity(Gravity.CENTER);
         attribution.setPadding(dp(4), dp(6), dp(4), dp(6));
         root.addView(attribution);
-
-        Button manage = new Button(this);
-        manage.setText("CAD Excel / 시설·장비·선로 등록·수정");
-        manage.setOnClickListener(v -> startActivity(new Intent(this, MainActivity.class)));
-        root.addView(manage);
 
         setContentView(root);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -147,11 +172,10 @@ public class MapActivity extends Activity {
                 networkRenderer = new KakaoNetworkRenderer(((KakaoMapRenderer)map).getKakaoMap(), p ->
                     runOnUiThread(() -> {
                         CadRecord record=networkRecords.get(p.id);
-                        if (!destroyed && record!=null) showDetails(record,new MapPoint(p.lat,p.lon));
+                        if (!destroyed && record!=null) selectRecord(record,new MapPoint(p.lat,p.lon));
                     }));
             }
-            loadMarkers();
-            if (!boundsPoints.isEmpty()) map.getView().post(() -> { if (!destroyed) showAll(); });
+            pendingShowAll=true;loadMarkers();
         }, message -> {
             mapError = message;
             status.setText(message);
@@ -208,7 +232,8 @@ public class MapActivity extends Activity {
                 runOnUiThread(() -> {
                     if(destroyed) return;
                     importButton.setEnabled(true); regionStatus.setText(displayName);
-                    loadMarkers(); showAll();
+                    pendingShowAll=true;
+                    loadMarkers();
                     Toast.makeText(this,"지역 DB "+imported.size()+"행 저장 완료",Toast.LENGTH_LONG).show();
                 });
             } catch(Exception error) {
@@ -221,46 +246,120 @@ public class MapActivity extends Activity {
         });
     }
 
-    private boolean categoryVisible(String category) {
-        for(int i=0;i<categories.length;i++) if(categories[i].equals(category)) return layers[i];
+    private android.content.SharedPreferences layerPrefs() {
+        return getSharedPreferences("network_prefs",MODE_PRIVATE);
+    }
+
+    private String group(CadRecord r) {
+        if(LayerGroups.excluded(r.layer)) return "";
+        return layerPrefs().getString("assignment_"+LayerGroups.key(r),LayerGroups.defaultGroup(r.layer,r.category));
+    }
+
+    private boolean recordVisible(CadRecord r) {
+        String group=group(r);
+        for(int i=0;i<categories.length;i++) if(categories[i].equals(group))
+            return layers[i] && layerPrefs().getBoolean("sublayer_"+LayerGroups.key(r),true);
         return false;
     }
 
+    private void showLayerSettings() {
+        new AlertDialog.Builder(this).setTitle("설정 · 레이어 편집")
+            .setItems(LayerGroups.NAMES,(dialog,which)->editGroupLayers(categories[which],LayerGroups.NAMES[which]))
+            .setNegativeButton("닫기",null).show();
+    }
+
+    private void editGroupLayers(String selectedGroup,String title) {
+        TreeMap<String,CadRecord> representatives=new TreeMap<>();
+        Map<String,Integer> counts=new HashMap<>();
+        for(CadRecord r:allRecords) {
+            if(!selectedGroup.equals(group(r)))continue;
+            String key=LayerGroups.key(r); representatives.put(key,r);
+            counts.put(key,counts.containsKey(key)?counts.get(key)+1:1);
+        }
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(12),dp(8),dp(12),dp(8));scroll.addView(body);
+        TextView help=new TextView(this);
+        help.setText("체크한 레이어만 표시합니다. 그룹을 껐다 켜도 선택 상태가 유지됩니다. 아래 목록에서 소속 그룹을 변경할 수 있습니다.");
+        body.addView(help);
+        if(representatives.isEmpty()){TextView empty=new TextView(this);empty.setText("불러온 레이어가 없습니다.");body.addView(empty);}
+        for(Map.Entry<String,CadRecord> entry:representatives.entrySet()) {
+            String key=entry.getKey();
+            CheckBox check=new CheckBox(this);check.setText(key+" · "+counts.get(key)+"행");
+            check.setChecked(layerPrefs().getBoolean("sublayer_"+key,true));
+            check.setOnCheckedChangeListener((button,checked)->layerPrefs().edit().putBoolean("sublayer_"+key,checked).apply());
+            body.addView(check);
+            android.widget.Spinner assignment=new android.widget.Spinner(this);
+            assignment.setAdapter(new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,LayerGroups.NAMES));
+            int initial=Arrays.asList(categories).indexOf(selectedGroup);assignment.setSelection(initial);
+            assignment.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                public void onItemSelected(android.widget.AdapterView<?> parent,android.view.View view,int position,long id){
+                    layerPrefs().edit().putString("assignment_"+key,categories[position]).apply();
+                }
+                public void onNothingSelected(android.widget.AdapterView<?> parent){}
+            });
+            body.addView(assignment);
+        }
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title+" · 레이어 편집").setView(scroll)
+            .setPositiveButton("완료",null).create();
+        dialog.setOnDismissListener(d->loadMarkers());dialog.show();
+    }
+
     private void applyVisibility() {
-        if(networkRenderer==null) return;
-        networkRenderer.setCellVisible(layers[0]); networkRenderer.setFacilityVisible(layers[1]);
-        networkRenderer.setEquipmentVisible(layers[2]); networkRenderer.setFiberVisible(layers[3]);
-        networkRenderer.setCoaxVisible(layers[4]);
+        // Data is filtered by group AND sublayer before either renderer receives it.
+        if(networkRenderer==null)return;
+        networkRenderer.setCellVisible(true);networkRenderer.setFacilityVisible(true);
+        networkRenderer.setEquipmentVisible(true);networkRenderer.setFiberVisible(true);networkRenderer.setCoaxVisible(true);
     }
 
     private void loadMarkers() {
+        final int generation=++loadGeneration;
+        worker.execute(()->{
+            ArrayList<CadRecord> loaded=db.loadAll();
+            runOnUiThread(()->{
+                if(destroyed || generation!=loadGeneration)return;
+                allRecords=loaded;renderMarkers();
+                if(pendingShowAll){pendingShowAll=false;showAll();}
+            });
+        });
+    }
+
+    private void renderMarkers() {
+        if(selectedRecord!=null){
+            String key=selectedRecord.stableKey();selectedRecord=null;
+            for(CadRecord r:allRecords)if(r.stableKey().equals(key)){selectedRecord=r;break;}
+            if(selectedRecord==null)selectionStatus.setText("객체를 선택하세요.");
+        }
         visibleRecords.clear(); visiblePoints.clear(); boundsPoints.clear(); networkRecords.clear();
         if(mapReady) { map.clearOnuMarkers(); map.clearNetworkLines(); }
-        networkData=new NetworkData();
+        networkData=new NetworkData();displayedLines.clear();
+        if(selectedRecord!=null && !recordVisible(selectedRecord)){selectedRecord=null;selectionStatus.setText("선택한 객체가 숨겨졌습니다.");}
         LinkedHashMap<String,ArrayList<CadRecord>> fiber=new LinkedHashMap<>(), coax=new LinkedHashMap<>();
-        for(CadRecord r:db.loadAll()) {
+        for(CadRecord r:allRecords) {
+            if(!recordVisible(r))continue;
             if(!r.hasCoordinates()) { networkData.skippedRows++; continue; }
             MapPoint point=new MapPoint(r.latitude,r.longitude);
-            if(categoryVisible(r.category)) boundsPoints.add(point);
+            boundsPoints.add(point);
             if("FIBER".equals(r.category) || "COAX".equals(r.category)) {
                 LinkedHashMap<String,ArrayList<CadRecord>> lines="FIBER".equals(r.category)?fiber:coax;
-                if(!lines.containsKey(r.id)) lines.put(r.id,new ArrayList<>());
-                lines.get(r.id).add(r); continue;
+                if(!lines.containsKey(r.layer+"|"+r.id)) lines.put(r.layer+"|"+r.id,new ArrayList<>());
+                lines.get(r.layer+"|"+r.id).add(r); continue;
             }
             visibleRecords.add(r); visiblePoints.add(point); networkRecords.put(r.stableKey(),r);
             PointItem item=new PointItem(r.category,r.stableKey(),r.title(),r.latitude,r.longitude,"");
             if("CELL".equals(r.category)) networkData.cells.add(item);
             else if("FACILITY".equals(r.category)) networkData.facilities.add(item);
             else if("EQUIPMENT".equals(r.category)) networkData.equipment.add(item);
-            if(mapReady && networkRenderer==null && categoryVisible(r.category)) map.addOnuMarker(point,r.title(),()->showDetails(r,point));
+            if(mapReady && networkRenderer==null && recordVisible(r)) map.addOnuMarker(point,r.title(),()->selectRecord(r,point));
         }
         addLines(fiber,true); addLines(coax,false);
         if(networkRenderer!=null) { networkRenderer.render(networkData); applyVisibility(); }
-        status.setText("셀 "+networkData.cells.size()+" · 시설 "+networkData.facilities.size()+" · 장비 "+networkData.equipment.size()
-            +" · 광 "+networkData.fiber.size()+" · 동축 "+networkData.coax.size()
+        status.setText("표시 중: 시설 "+networkData.facilities.size()+" · 장비/주석 "+(networkData.cells.size()+networkData.equipment.size())
+            +" · 광 선형 "+networkData.fiber.size()+" · 동축 선형 "+networkData.coax.size()
             +(networkData.skippedRows>0?" · 좌표 오류 "+networkData.skippedRows+"행":""));
         android.util.Log.i("OnuNetwork","Loaded cells="+networkData.cells.size()+" facilities="+networkData.facilities.size()
             +" equipment="+networkData.equipment.size()+" fiber="+networkData.fiber.size()+" coax="+networkData.coax.size());
+        drawMeasurements();
         if(currentLocation!=null) updateLocation(currentLocation);
         if(mapError!=null) status.setText(mapError);
     }
@@ -269,18 +368,19 @@ public class MapActivity extends Activity {
         for(ArrayList<CadRecord> records:grouped.values()) {
             Collections.sort(records,(a,b)->Integer.compare(a.sequence,b.sequence));
             if(records.size()<2) continue;
+            displayedLines.add(records);
             CadRecord first=records.get(0);
             LineItem line=new LineItem(first.id,first.name,first.subtype,first.fields.get("연결정보"),first.fields.get("길이"));
             ArrayList<MapPoint> points=new ArrayList<>();
             for(CadRecord r:records) { line.points.add(new GeoPoint(r.latitude,r.longitude)); points.add(new MapPoint(r.latitude,r.longitude)); }
             (isFiber?networkData.fiber:networkData.coax).add(line);
-            if(mapReady && networkRenderer==null && layers[isFiber?3:4]) map.addNetworkLine(points,isFiber);
+            if(mapReady && networkRenderer==null) map.addNetworkLine(points,isFiber);
         }
     }
 
     private void showAll() {
         ArrayList<MapPoint> points=new ArrayList<>();
-        for(CadRecord r:db.loadAll()) if(r.hasCoordinates() && categoryVisible(r.category)) points.add(new MapPoint(r.latitude,r.longitude));
+        for(CadRecord r:allRecords) if(r.hasCoordinates() && recordVisible(r)) points.add(new MapPoint(r.latitude,r.longitude));
         if(points.isEmpty()) { Toast.makeText(this,"표시할 데이터가 없습니다. 지역 DB와 레이어 설정을 확인해주세요.",Toast.LENGTH_LONG).show(); return; }
         double south=90,north=-90,west=180,east=-180;
         for(MapPoint p:points) { south=Math.min(south,p.getLatitude()); north=Math.max(north,p.getLatitude()); west=Math.min(west,p.getLongitude()); east=Math.max(east,p.getLongitude()); }
@@ -300,7 +400,11 @@ public class MapActivity extends Activity {
     private void showDetails(CadRecord r, MapPoint point) {
         if (mapReady) map.center(point, false);
         StringBuilder details = new StringBuilder();
-        details.append("분류: ").append(r.category)
+        String pole=CadObjectInfo.pole(r),address=CadObjectInfo.address(r);
+        details.append("속성\n레이어: ").append(r.layer.isEmpty()?r.category:r.layer)
+                .append("\n전주정보: ").append(pole.isEmpty()?"자료 없음":pole)
+                .append("\n주소: ").append(address.isEmpty()?"자료 없음":address)
+                .append("\n\n상세 정보\n분류: ").append(r.category)
                 .append("\nID: ").append(r.id)
                 .append("\n구분/이름: ").append(r.name)
                 .append("\n세부유형: ").append(r.subtype)
@@ -320,8 +424,83 @@ public class MapActivity extends Activity {
                 .setTitle(r.title())
                 .setMessage(details.toString())
                 .setPositiveButton("확인", null)
-                .setNeutralButton("수정", (d,w) -> startActivity(new Intent(this, MainActivity.class)))
                 .show();
+    }
+
+    private void selectRecord(CadRecord record,MapPoint point) {
+        if(android.os.SystemClock.uptimeMillis()<ignoreTapUntil)return;
+        if(measurements.active()){addMeasurementPoint(point);return;}
+        selectedRecord=record;selectedMeasurement=null;
+        String pole=CadObjectInfo.pole(record);
+        selectionStatus.setText("선택: "+record.title()+(pole.isEmpty()?"":" · 전주 "+pole)+" · 길게 누르기/우클릭으로 속성");
+    }
+
+    private void addMeasurementPoint(MapPoint point){
+        measurements.add(point.getLatitude(),point.getLongitude());drawMeasurements();
+        List<DistanceMeasurement.Point> points=measurements.current();double meters=0;
+        for(int i=1;i<points.size();i++)meters+=DistanceMeasurement.distance(points.get(i-1),points.get(i));
+        selectionStatus.setText("측정 중 · "+points.size()+"점 · "+formatMeters(meters));
+    }
+
+    private String formatMeters(double meters){return meters<1000?String.format(Locale.KOREA,"%.1f m",meters):String.format(Locale.KOREA,"%.3f km",meters/1000);}
+
+    private void finishMeasurement(){
+        DistanceMeasurement.Line line=measurements.finish();measureButton.setText("거리 측정");drawMeasurements();
+        selectedRecord=null;selectedMeasurement=line;
+        selectionStatus.setText(line==null?"측정 종료 · 두 점 이상을 선택해야 선이 생성됩니다.":"측정 완료 · "+formatMeters(line.meters)+" · 선 선택 후 메뉴에서 삭제");
+    }
+
+    private void drawMeasurements(){if(mapReady)map.showMeasurements(measurements.lines(),measurements.current());}
+
+    private double segmentDistance(android.graphics.Point tap,android.graphics.Point a,android.graphics.Point b){
+        if(tap==null||a==null||b==null)return Double.POSITIVE_INFINITY;
+        double dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+        double t=length==0?0:Math.max(0,Math.min(1,((tap.x-a.x)*dx+(tap.y-a.y)*dy)/length));
+        return Math.hypot(tap.x-a.x-t*dx,tap.y-a.y-t*dy);
+    }
+
+    private void onMapTap(MapPoint point){
+        if(android.os.SystemClock.uptimeMillis()<ignoreTapUntil)return;
+        if(measurements.active()){addMeasurementPoint(point);return;}
+        android.graphics.Point tap=map.screenPoint(point);
+        double best=dp(20);DistanceMeasurement.Line chosen=null;
+        for(DistanceMeasurement.Line line:measurements.lines())for(int i=1;i<line.points.size();i++){
+            DistanceMeasurement.Point a=line.points.get(i-1),b=line.points.get(i);
+            double distance=segmentDistance(tap,map.screenPoint(new MapPoint(a.lat,a.lon)),map.screenPoint(new MapPoint(b.lat,b.lon)));
+            if(distance<best){best=distance;chosen=line;}
+        }
+        if(chosen!=null){selectedMeasurement=chosen;selectedRecord=null;selectionStatus.setText("측정선 선택 · "+formatMeters(chosen.meters)+" · 길게 누르기/우클릭으로 삭제");return;}
+        CadRecord candidate=null;best=dp(18);
+        for(ArrayList<CadRecord> line:displayedLines)for(int i=1;i<line.size();i++){
+            CadRecord a=line.get(i-1),b=line.get(i);
+            double distance=segmentDistance(tap,map.screenPoint(new MapPoint(a.latitude,a.longitude)),map.screenPoint(new MapPoint(b.latitude,b.longitude)));
+            if(distance<best){best=distance;candidate=line.get(0);}
+        }
+        if(candidate!=null)selectRecord(candidate,point);
+        else {selectedRecord=null;selectedMeasurement=null;selectionStatus.setText("객체를 선택하세요.");}
+    }
+
+    private void showSelectionMenu(){
+        if(measurements.active()){Toast.makeText(this,"Esc 또는 측정 종료로 먼저 측정을 완료하세요.",Toast.LENGTH_SHORT).show();return;}
+        if(selectedMeasurement!=null){
+            final long id=selectedMeasurement.id;
+            new AlertDialog.Builder(this).setTitle("거리 측정선 · "+formatMeters(selectedMeasurement.meters))
+                .setItems(new String[]{"삭제"},(dialog,which)->{
+                    measurements.delete(id);selectedMeasurement=null;drawMeasurements();selectionStatus.setText("측정선을 삭제했습니다.");
+                }).setNegativeButton("닫기",null).show();return;
+        }
+        if(selectedRecord!=null){showDetails(selectedRecord,new MapPoint(selectedRecord.latitude,selectedRecord.longitude));return;}
+        Toast.makeText(this,"먼저 객체 또는 측정선을 선택하세요.",Toast.LENGTH_SHORT).show();
+    }
+
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
+        if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_ESCAPE){
+            if(event.getAction()==android.view.KeyEvent.ACTION_DOWN && measurements.active()){
+                escapeConsumed=true;finishMeasurement();return true;
+            }
+            if(escapeConsumed){if(event.getAction()==android.view.KeyEvent.ACTION_UP)escapeConsumed=false;return true;}
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void showNearest() {
@@ -335,7 +514,7 @@ public class MapActivity extends Activity {
 
         ArrayList<Integer> order = new ArrayList<>();
         MapPoint current = new MapPoint(currentLocation);
-        for (int i=0; i<visiblePoints.size(); i++) if(categoryVisible(visibleRecords.get(i).category)) order.add(i);
+        for (int i=0; i<visiblePoints.size(); i++) if(recordVisible(visibleRecords.get(i))) order.add(i);
         Collections.sort(order, (a,b) -> Double.compare(
                 visiblePoints.get(a).distanceToAsDouble(current),
                 visiblePoints.get(b).distanceToAsDouble(current)));
