@@ -42,6 +42,9 @@ jobs:
       - name: Apply direct ESSENPOLY Excel fix
         run: python apply_excel_cable_fix.py
 
+      - name: Apply viewer-first shell
+        run: python apply_viewer_shell.py
+
       - name: Verify no DWG GPL engine
         shell: powershell
         run: |
