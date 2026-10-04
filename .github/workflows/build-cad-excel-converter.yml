@@ -1,0 +1,111 @@
+name: Build CMB DXF Viewer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/CadExcelConverter/**'
+      - '.github/workflows/build-cad-excel-converter.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop/CadExcelConverter
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: desktop/CadExcelConverter/requirements.txt
+
+      - name: Install permissive dependencies
+        shell: powershell
+        run: |
+          pip install -r requirements.txt
+          pip install --no-deps pyproj==3.7.2
+          $installed = pip list --format=json | ConvertFrom-Json
+          if ($installed.name -contains "certifi") {
+            throw "certifi must not be installed in the company build"
+          }
+
+      - name: Apply UI policy
+        run: python apply_ui_policy.py
+
+      - name: Apply direct ESSENPOLY Excel fix
+        run: python apply_excel_cable_fix.py
+
+      - name: Apply viewer-first shell
+        run: python apply_viewer_shell.py
+
+      - name: Apply interaction policy
+        run: python apply_interaction_policy.py
+
+      - name: Apply Escape policy
+        run: python apply_escape_policy.py
+
+      - name: Apply v3.14 layout
+        run: python apply_layout_v314.py
+
+      - name: Apply v3.15 layout
+        run: python apply_layout_v315.py
+
+      - name: Apply v3.16 layout
+        run: python apply_layout_v316.py
+
+      - name: Apply v3.17 layout
+        run: python apply_layout_v317.py
+
+      - name: Apply v3.18 layout
+        run: python apply_layout_v318.py
+
+      - name: Apply v3.19 layout
+        run: python apply_layout_v319.py
+
+      - name: Verify no DWG GPL engine
+        shell: powershell
+        run: |
+          if (Select-String -Path "*.py" -Pattern "LibreDWG|ODAFileConverter|dwgread.exe|dwg2dxf.exe" -Quiet) {
+            throw "DWG/LibreDWG/ODA reference detected in company DXF-only build"
+          }
+
+      - name: Audit runtime licenses
+        run: python license_audit.py
+
+      - name: Test ESSENPOLY recovery
+        run: python essenpoly_selftest.py
+
+      - name: Run self-test
+        run: python selftest.py
+
+      - name: Build Windows EXE
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name "CMB_DXF_Viewer" `
+            --collect-all pyproj `
+            --collect-all ezdxf `
+            main.py
+
+      - name: Package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item "dist\CMB_DXF_Viewer.exe" "package\CMB_DXF_Viewer.exe"
+          Copy-Item "README.md" "package\README.txt"
+          Copy-Item "THIRD_PARTY_LICENSES.txt" "package\THIRD_PARTY_LICENSES.txt"
+          Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: CMB-DXF-Viewer-Windows-x64
+          path: desktop/CadExcelConverter/CMB_DXF_Viewer_Windows_x64.zip
+          if-no-files-found: error
