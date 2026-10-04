@@ -19,6 +19,26 @@ def _parse_int(value):
         return None
 
 
+def _collect_xdata(pairs, start_index=0):
+    """Collect XDATA groups as APPID -> readable tag strings."""
+    result = {}
+    current = None
+    for code, value in pairs[start_index:]:
+        if code == "1001":
+            current = value.strip()
+            if current:
+                result.setdefault(current, [])
+            continue
+        if current is None:
+            continue
+        if code == "1002":
+            # Structure braces add no useful field value to Excel.
+            continue
+        if code.startswith("10") and value.strip():
+            result[current].append(f"{code}:{value.strip()}")
+    return {k: v for k, v in result.items() if v}
+
+
 def recover_essenpoly_polylines(input_path):
     """Recover embedded AcDbPolyline geometry from ESSENPOLY custom entities.
 
@@ -27,9 +47,8 @@ def recover_essenpoly_polylines(input_path):
     Malformed binary 310 groups are ignored because the usable polyline is
     stored again as ordinary 10/20 coordinate tags in the Embedded Object.
 
-    The original entity color is also retained when it is explicitly stored
-    as ACI (group 62) or true-color (group 420). If no explicit color exists,
-    the Viewer can fall back to the DXF layer color.
+    Original entity color, custom 300-309 fields and XDATA are retained so the
+    same recovered cable can be rendered in the Viewer and exported to Excel.
     """
     path = Path(input_path)
     if path.suffix.lower() != ".dxf" or not path.is_file():
@@ -62,7 +81,12 @@ def recover_essenpoly_polylines(input_path):
             elif code == "8" and not layer:
                 layer = value
             elif code in {str(n) for n in range(300, 310)} and value:
-                metadata[f"ESSEN_{code}"] = value
+                # Preserve every custom ESSEN field. Repeated codes are joined.
+                key = f"ESSEN_{code}"
+                if key in metadata and metadata[key] != value:
+                    metadata[key] = f"{metadata[key]} | {value}"
+                else:
+                    metadata[key] = value
 
         embedded = -1
         for idx, (code, value) in enumerate(pairs):
@@ -106,9 +130,14 @@ def recover_essenpoly_polylines(input_path):
                         break
 
         points = []
+        xdata_start = len(pairs)
         if polyline >= 0:
             pending_x = None
-            for code, value in pairs[polyline + 1:]:
+            for idx in range(polyline + 1, len(pairs)):
+                code, value = pairs[idx]
+                if code == "1001":
+                    xdata_start = idx
+                    break
                 if code == "10":
                     try:
                         pending_x = float(value)
@@ -121,12 +150,15 @@ def recover_essenpoly_polylines(input_path):
                         pass
                     pending_x = None
 
+        xdata = _collect_xdata(pairs, xdata_start)
+
         if layer and len(points) >= 2:
             recovered.append({
                 "handle": handle,
                 "layer": layer,
                 "points": points,
                 "attributes": metadata,
+                "xdata": xdata,
                 "color_aci": color_aci,
                 "true_color": true_color,
             })
