@@ -45,6 +45,9 @@ jobs:
       - name: Apply viewer-first shell
         run: python apply_viewer_shell.py
 
+      - name: Apply interaction policy
+        run: python apply_interaction_policy.py
+
       - name: Verify no DWG GPL engine
         shell: powershell
         run: |
