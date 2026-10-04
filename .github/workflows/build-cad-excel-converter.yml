@@ -39,6 +39,9 @@ jobs:
       - name: Apply UI policy
         run: python apply_ui_policy.py
 
+      - name: Apply direct ESSENPOLY Excel fix
+        run: python apply_excel_cable_fix.py
+
       - name: Verify no DWG GPL engine
         shell: powershell
         run: |
