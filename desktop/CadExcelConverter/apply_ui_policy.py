@@ -18,7 +18,7 @@ main = replace_once(
 main = replace_once(
     main,
     'APP_NAME = "CMB DXF Viewer + Excel v3.6"',
-    'APP_NAME = "CMB DXF Viewer + Excel v3.9"',
+    'APP_NAME = "CMB DXF Viewer + Excel v3.10"',
     "version",
 )
 main = replace_once(
@@ -34,6 +34,31 @@ main = replace_once(
     "scene recovered layers in UI",
 )
 main_path.write_text(main, encoding="utf-8")
+
+converter_path = Path("converter.py")
+converter = converter_path.read_text(encoding="utf-8")
+converter = replace_once(
+    converter,
+    'from pyproj import Transformer\n',
+    'from pyproj import Transformer\n\nfrom essenpoly_recovery import recover_essenpoly_polylines\n',
+    "ESSENPOLY Excel recovery import",
+)
+converter = replace_once(
+    converter,
+    '''    transformer = Transformer.from_crs(f"EPSG:{source_epsg}", "EPSG:4326", always_xy=True)\n    grouped = {name: [] for name in selected}\n''',
+    '''    transformer = Transformer.from_crs(f"EPSG:{source_epsg}", "EPSG:4326", always_xy=True)\n\n    # Viewer와 동일한 ESSENPOLY 복구 데이터를 Excel 추출에도 사용한다.\n    # 같은 handle의 사용자 객체는 빈 행 대신 실제 Embedded AcDbPolyline 좌표/XDATA로 대체한다.\n    recovered_items = recover_essenpoly_polylines(input_path)\n    recovered_by_handle = {\n        item.get("handle", ""): item\n        for item in recovered_items\n        if item.get("handle")\n    }\n    recovered_seen = set()\n\n    grouped = {name: [] for name in selected}\n''',
+    "ESSENPOLY Excel recovery setup",
+)
+old_loop = '''        if layer in grouped:\n            entity_counts[layer] += 1\n            stats.entities += 1\n            typ = ent.dxftype()\n            handle = _norm(getattr(ent.dxf, "handle", ""))\n            block = _norm(getattr(ent.dxf, "name", "")) if typ == "INSERT" else ""\n            attrs = _joined_attrs(_attributes(ent))\n            xdata = _xdata_text(doc, ent)\n            text = _entity_text(ent)\n            points = entity_points(ent)\n            length = _length(points)\n            if points:\n                for seq, (x, y) in enumerate(points, 1):\n                    try:\n                        lon, lat = transformer.transform(x, y)\n                    except Exception:\n                        lon, lat = None, None\n                    grouped[layer].append([\n                        typ, handle, block, seq, x, y, lon, lat,\n                        length, text, attrs, xdata,\n                    ])\n                    stats.rows += 1\n            else:\n                grouped[layer].append([\n                    typ, handle, block, 0, None, None, None, None,\n                    0, text, attrs, xdata,\n                ])\n                stats.rows += 1\n                stats.skipped += 1\n'''
+new_loop = '''        if layer in grouped:\n            typ = ent.dxftype()\n            handle = _norm(getattr(ent.dxf, "handle", ""))\n            recovered = recovered_by_handle.get(handle) if typ == "ESSENPOLY" else None\n\n            entity_counts[layer] += 1\n            stats.entities += 1\n            block = _norm(getattr(ent.dxf, "name", "")) if typ == "INSERT" else ""\n            text = _entity_text(ent)\n\n            if recovered is not None:\n                recovered_seen.add(handle)\n                points = recovered.get("points", [])\n                meta = dict(recovered.get("attributes", {}))\n                if recovered.get("color_aci") is not None:\n                    meta["CAD_COLOR_ACI"] = recovered.get("color_aci")\n                if recovered.get("true_color") is not None:\n                    meta["CAD_TRUE_COLOR"] = recovered.get("true_color")\n                meta["RECOVERED_TYPE"] = "ESSENPOLY/Embedded AcDbPolyline"\n                attrs = _joined_attrs(meta)\n                xmap = recovered.get("xdata", {})\n                xdata = " | ".join(\n                    f"{appid}: " + " ; ".join(values)\n                    for appid, values in xmap.items()\n                    if values\n                )\n            else:\n                attrs = _joined_attrs(_attributes(ent))\n                xdata = _xdata_text(doc, ent)\n                points = entity_points(ent)\n\n            length = _length(points)\n            if points:\n                for seq, (x, y) in enumerate(points, 1):\n                    try:\n                        lon, lat = transformer.transform(x, y)\n                    except Exception:\n                        lon, lat = None, None\n                    grouped[layer].append([\n                        typ, handle, block, seq, x, y, lon, lat,\n                        length, text, attrs, xdata,\n                    ])\n                    stats.rows += 1\n            else:\n                grouped[layer].append([\n                    typ, handle, block, 0, None, None, None, None,\n                    0, text, attrs, xdata,\n                ])\n                stats.rows += 1\n                stats.skipped += 1\n'''
+converter = replace_once(converter, old_loop, new_loop, "ESSENPOLY Excel row replacement")
+converter = replace_once(
+    converter,
+    '''    progress(78, "Excel 시트 생성")\n''',
+    '''    # recover/explore 과정에서 표준 modelspace에 남지 않은 ESSENPOLY도 원문 복구본에서 추가한다.\n    for recovered in recovered_items:\n        handle = recovered.get("handle", "")\n        layer = recovered.get("layer", "")\n        if layer not in grouped or (handle and handle in recovered_seen):\n            continue\n        points = recovered.get("points", [])\n        if not points:\n            continue\n        meta = dict(recovered.get("attributes", {}))\n        if recovered.get("color_aci") is not None:\n            meta["CAD_COLOR_ACI"] = recovered.get("color_aci")\n        if recovered.get("true_color") is not None:\n            meta["CAD_TRUE_COLOR"] = recovered.get("true_color")\n        meta["RECOVERED_TYPE"] = "ESSENPOLY/Embedded AcDbPolyline"\n        attrs = _joined_attrs(meta)\n        xmap = recovered.get("xdata", {})\n        xdata = " | ".join(\n            f"{appid}: " + " ; ".join(values)\n            for appid, values in xmap.items()\n            if values\n        )\n        length = _length(points)\n        entity_counts[layer] += 1\n        stats.entities += 1\n        for seq, (x, y) in enumerate(points, 1):\n            try:\n                lon, lat = transformer.transform(x, y)\n            except Exception:\n                lon, lat = None, None\n            grouped[layer].append([\n                "ESSENPOLY", handle, "", seq, x, y, lon, lat,\n                length, "", attrs, xdata,\n            ])\n            stats.rows += 1\n        if handle:\n            recovered_seen.add(handle)\n\n    recovered_exported = len(recovered_seen)\n    if recovered_exported:\n        log(f"ESSENPOLY 케이블/선로 {recovered_exported}개 Excel 데이터 복구")\n\n    progress(78, "Excel 시트 생성")\n''',
+    "ESSENPOLY unmatched Excel export",
+)
+converter_path.write_text(converter, encoding="utf-8")
 
 viewer_path = Path("viewer.py")
 viewer = viewer_path.read_text(encoding="utf-8")
@@ -93,4 +118,4 @@ viewer = replace_once(
 )
 viewer_path.write_text(viewer, encoding="utf-8")
 
-print("UI policy patches applied: v3.9 / original cable colors / fiber IN arrows")
+print("UI policy patches applied: v3.10 / ESSENPOLY Excel export / cable colors / fiber IN arrows")
