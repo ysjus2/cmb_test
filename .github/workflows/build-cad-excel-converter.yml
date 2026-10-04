@@ -60,6 +60,9 @@ jobs:
       - name: Apply v3.16 layout
         run: python apply_layout_v316.py
 
+      - name: Apply v3.17 layout
+        run: python apply_layout_v317.py
+
       - name: Verify no DWG GPL engine
         shell: powershell
         run: |
