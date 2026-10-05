@@ -44,13 +44,14 @@ if ($subject -notmatch 'Microsoft') {
 }
 
 Write-Host "Verified Microsoft signature: $subject"
-Write-Host 'Installing Microsoft Visual C++ x64 Runtime...'
-$proc = Start-Process -FilePath $tempFile -ArgumentList '/install','/quiet','/norestart' -Wait -PassThru
+Write-Host 'Launching Microsoft Visual C++ x64 Runtime installer...'
+# Run the official installer interactively. The bootstrap waits for this process.
+$proc = Start-Process -FilePath $tempFile -Wait -PassThru
 $exitCode = $proc.ExitCode
 Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
 
 if ($exitCode -notin @(0, 1638, 3010)) {
-    throw "VC++ Runtime installer failed. Exit code: $exitCode"
+    throw "VC++ Runtime installer did not complete successfully. Exit code: $exitCode"
 }
 
 if (-not (Test-VCRuntime)) {
