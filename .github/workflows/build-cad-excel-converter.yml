@@ -95,25 +95,35 @@ jobs:
       - name: Run functional regression
         run: python functional_regression.py
 
-      - name: Build Windows EXE
+      - name: Verify VC++ x64 prerequisite on build runner
         shell: powershell
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed `
-            --name "CMB_DXF_Viewer" `
-            --collect-all pyproj `
-            --collect-all ezdxf `
-            main.py
+          powershell -ExecutionPolicy Bypass -File .\ensure_vcredist.ps1 -CheckOnly
+
+      - name: Build Windows EXE using system runtime policy
+        shell: powershell
+        run: |
+          pyinstaller --noconfirm --clean CMB_DXF_Viewer.spec
 
       - name: Inspect final EXE dependency contents
         shell: powershell
         run: |
           pyi-archive_viewer -r -b "dist\CMB_DXF_Viewer.exe" | Out-File -Encoding utf8 exe-contents.txt
-          $bad = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
-          if ($bad) {
-            $bad | ForEach-Object { Write-Host $_.Line }
+
+          $badOpen = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
+          if ($badOpen) {
+            $badOpen | ForEach-Object { Write-Host $_.Line }
             throw "Blocked NumPy/fontTools/OpenBLAS content found in final EXE"
           }
+
+          $badMsRuntime = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])(ucrtbase\.dll|api-ms-win-[^\\/]*\.dll|vcruntime140[^\\/]*\.dll|msvcp140[^\\/]*\.dll)$" -CaseSensitive:$false
+          if ($badMsRuntime) {
+            $badMsRuntime | ForEach-Object { Write-Host $_.Line }
+            throw "Bundled Microsoft system/VC runtime DLL found in final EXE"
+          }
+
           Write-Host "PASS: final EXE has no NumPy/fontTools/OpenBLAS archive entries"
+          Write-Host "PASS: Windows UCRT/API-set and VC++ runtime DLLs are not bundled"
           Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256 | Format-List
 
       - name: Launch final EXE smoke test
@@ -125,7 +135,7 @@ jobs:
             throw "CMB_DXF_Viewer.exe exited during launch smoke test. ExitCode=$($proc.ExitCode)"
           }
           Stop-Process -Id $proc.Id -Force
-          Write-Host "PASS: final EXE launched and remained alive for 8 seconds"
+          Write-Host "PASS: final EXE launched with Windows/installed VC runtime and remained alive for 8 seconds"
 
       - name: Package with exact build identity
         shell: powershell
@@ -134,10 +144,11 @@ jobs:
           Copy-Item "dist\CMB_DXF_Viewer.exe" "package\CMB_DXF_Viewer.exe"
           Copy-Item "README.md" "package\README.txt"
           Copy-Item "exe-contents.txt" "package\EXE_CONTENTS.txt"
+          Copy-Item "ensure_vcredist.ps1" "package\ensure_vcredist.ps1"
 
           $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
           $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
-          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nEXE SHA-256: $exeHash`r`n`r`nThe hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.`r`n"
+          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nEXE SHA-256: $exeHash`r`nRuntime policy: Windows 10/11 UCRT/API-set DLLs use OS copies; VC++ v14 x64 Runtime uses the installed Microsoft Redistributable and is not bundled in the EXE.`r`n`r`nThe hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.`r`n"
           Set-Content -Path "package\THIRD_PARTY_LICENSES.txt" -Value ($notice + $identity) -Encoding UTF8
 
           Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
