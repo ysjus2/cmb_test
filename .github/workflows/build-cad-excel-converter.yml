@@ -137,16 +137,7 @@ jobs:
 
           $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
           $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
-          $identity = @"
-
-FINAL BUILD IDENTITY
-====================
-Git commit: $env:GITHUB_SHA
-GitHub Actions run: $env:GITHUB_RUN_ID
-EXE SHA-256: $exeHash
-
-The hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.
-"@
+          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nEXE SHA-256: $exeHash`r`n`r`nThe hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.`r`n"
           Set-Content -Path "package\THIRD_PARTY_LICENSES.txt" -Value ($notice + $identity) -Encoding UTF8
 
           Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
