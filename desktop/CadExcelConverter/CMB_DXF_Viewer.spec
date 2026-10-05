@@ -28,7 +28,7 @@ a = Analysis(
 # 1) UCRT/API-set DLLs are provided by Windows itself.
 # 2) VC++ v14 x64 Runtime is a machine prerequisite and is installed from the
 #    official Microsoft VC Redistributable when missing (see ensure_vcredist.ps1).
-# Therefore none of these Microsoft runtime DLLs are embedded in the EXE.
+# Therefore none of these Microsoft runtime DLLs are embedded in the app EXE.
 def _is_system_or_prereq_runtime(entry):
     dest_name = str(entry[0])
     base = PurePath(dest_name).name.lower()
@@ -54,7 +54,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="CMB_DXF_Viewer",
+    name="CMB_DXF_Viewer_App",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
