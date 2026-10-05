@@ -24,19 +24,26 @@ a = Analysis(
     optimize=0,
 )
 
-# Windows 10/11 inbox system runtime policy:
-# Do not embed UCRT/API-set forwarder DLLs that are supplied by Windows itself.
-# Keep VC runtime DLLs (VCRUNTIME/MSVCP) unless separately proven unnecessary,
-# because they are not treated here as Windows-inbox components.
-def _is_windows_inbox_binary(entry):
+# Runtime policy for company Windows 10/11 PCs:
+# 1) UCRT/API-set DLLs are provided by Windows itself.
+# 2) VC++ v14 x64 Runtime is a machine prerequisite and is installed from the
+#    official Microsoft VC Redistributable when missing (see ensure_vcredist.ps1).
+# Therefore none of these Microsoft runtime DLLs are embedded in the EXE.
+def _is_system_or_prereq_runtime(entry):
     dest_name = str(entry[0])
     base = PurePath(dest_name).name.lower()
-    return base == "ucrtbase.dll" or base.startswith("api-ms-win-")
+    if base == "ucrtbase.dll" or base.startswith("api-ms-win-"):
+        return True
+    if base.startswith("vcruntime140") and base.endswith(".dll"):
+        return True
+    if base.startswith("msvcp140") and base.endswith(".dll"):
+        return True
+    return False
 
-removed_windows_inbox = [entry[0] for entry in a.binaries if _is_windows_inbox_binary(entry)]
-a.binaries = [entry for entry in a.binaries if not _is_windows_inbox_binary(entry)]
-print("Excluded Windows 10/11 inbox DLLs from bundle:")
-for name in sorted(removed_windows_inbox, key=str.lower):
+removed_runtime = [entry[0] for entry in a.binaries if _is_system_or_prereq_runtime(entry)]
+a.binaries = [entry for entry in a.binaries if not _is_system_or_prereq_runtime(entry)]
+print("Excluded Windows/VC prerequisite runtime DLLs from bundle:")
+for name in sorted(removed_runtime, key=str.lower):
     print("  ", name)
 
 pyz = PYZ(a.pure)
