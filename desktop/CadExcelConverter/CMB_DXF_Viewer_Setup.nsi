@@ -17,6 +17,8 @@ ShowInstDetails show
 !insertmacro MUI_LANGUAGE "Korean"
 
 Function CheckVCRuntime
+  IfSilent silentSkip 0
+
   ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Installed"
   ${If} $0 == 1
     DetailPrint "Microsoft Visual C++ x64 Runtime detected."
@@ -45,6 +47,10 @@ Function CheckVCRuntime
   ${EndIf}
 
   DetailPrint "Microsoft Visual C++ x64 Runtime 설치 확인 완료."
+  Return
+
+silentSkip:
+  DetailPrint "Silent validation mode: VC Runtime prerequisite UI skipped."
 FunctionEnd
 
 Section "CMB DXF Viewer" SEC_MAIN
@@ -88,5 +94,7 @@ Section "Uninstall"
 SectionEnd
 
 Function .onInstSuccess
+  IfSilent done 0
   Exec '"$INSTDIR\CMB_DXF_Viewer.exe"'
+done:
 FunctionEnd
