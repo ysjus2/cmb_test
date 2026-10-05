@@ -32,47 +32,33 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install --no-deps pyproj==3.7.2
-
           $installed = pip list --format=json | ConvertFrom-Json
           $blocked = @("numpy", "fonttools", "certifi")
           foreach ($name in $blocked) {
-            if ($installed.name -contains $name) {
-              throw "$name must not be installed in the v3.20-clean build"
-            }
+            if ($installed.name -contains $name) { throw "$name must not be installed in the v3.20-clean build" }
           }
-
-          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__); print('pyparsing', pyparsing.__version__); print('typing_extensions imported')"
+          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__)"
 
       - name: Apply UI policy
         run: python apply_ui_policy.py
-
       - name: Apply direct ESSENPOLY Excel fix
         run: python apply_excel_cable_fix.py
-
       - name: Apply viewer-first shell
         run: python apply_viewer_shell.py
-
       - name: Apply interaction policy
         run: python apply_interaction_policy.py
-
       - name: Apply Escape policy
         run: python apply_escape_policy.py
-
       - name: Apply v3.14 layout
         run: python apply_layout_v314.py
-
       - name: Apply v3.15 layout
         run: python apply_layout_v315.py
-
       - name: Apply v3.16 layout
         run: python apply_layout_v316.py
-
       - name: Apply v3.17 layout
         run: python apply_layout_v317.py
-
       - name: Apply v3.18 layout
         run: python apply_layout_v318.py
-
       - name: Apply v3.19 layout
         run: python apply_layout_v319.py
 
@@ -85,77 +71,83 @@ jobs:
 
       - name: Audit runtime package licenses
         run: python license_audit.py
-
       - name: Test ESSENPOLY recovery
         run: python essenpoly_selftest.py
-
       - name: Run core self-test
         run: python selftest.py
-
       - name: Run functional regression
         run: python functional_regression.py
 
-      - name: Verify VC++ x64 prerequisite on build runner
+      - name: Build Windows app using system runtime policy
         shell: powershell
-        run: |
-          powershell -ExecutionPolicy Bypass -File .\ensure_vcredist.ps1 -CheckOnly
+        run: pyinstaller --noconfirm --clean CMB_DXF_Viewer.spec
 
-      - name: Build Windows EXE using system runtime policy
-        shell: powershell
-        run: |
-          pyinstaller --noconfirm --clean CMB_DXF_Viewer.spec
-
-      - name: Inspect final EXE dependency contents
+      - name: Inspect final app dependency contents
         shell: powershell
         run: |
           pyi-archive_viewer -r -b "dist\CMB_DXF_Viewer.exe" | Out-File -Encoding utf8 exe-contents.txt
-
           $badOpen = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
-          if ($badOpen) {
-            $badOpen | ForEach-Object { Write-Host $_.Line }
-            throw "Blocked NumPy/fontTools/OpenBLAS content found in final EXE"
-          }
-
+          if ($badOpen) { $badOpen | ForEach-Object { Write-Host $_.Line }; throw "Blocked NumPy/fontTools/OpenBLAS content found" }
           $badMsRuntime = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])(ucrtbase\.dll|api-ms-win-[^\\/]*\.dll|vcruntime140[^\\/]*\.dll|msvcp140[^\\/]*\.dll)$" -CaseSensitive:$false
-          if ($badMsRuntime) {
-            $badMsRuntime | ForEach-Object { Write-Host $_.Line }
-            throw "Bundled Microsoft system/VC runtime DLL found in final EXE"
-          }
+          if ($badMsRuntime) { $badMsRuntime | ForEach-Object { Write-Host $_.Line }; throw "Bundled Microsoft system/VC runtime DLL found" }
+          Write-Host "PASS: app does not bundle Windows UCRT/API-set or VC++ runtime DLLs"
 
-          Write-Host "PASS: final EXE has no NumPy/fontTools/OpenBLAS archive entries"
-          Write-Host "PASS: Windows UCRT/API-set and VC++ runtime DLLs are not bundled"
-          Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256 | Format-List
-
-      - name: Launch final EXE smoke test
+      - name: Launch app smoke test
         shell: powershell
         run: |
           $proc = Start-Process -FilePath "dist\CMB_DXF_Viewer.exe" -PassThru
           Start-Sleep -Seconds 8
-          if ($proc.HasExited) {
-            throw "CMB_DXF_Viewer.exe exited during launch smoke test. ExitCode=$($proc.ExitCode)"
-          }
+          if ($proc.HasExited) { throw "CMB_DXF_Viewer.exe exited during smoke test. ExitCode=$($proc.ExitCode)" }
           Stop-Process -Id $proc.Id -Force
-          Write-Host "PASS: final EXE launched with Windows/installed VC runtime and remained alive for 8 seconds"
+          Write-Host "PASS: app launched and remained alive for 8 seconds"
 
-      - name: Package with exact build identity
+      - name: Prepare exact license notice for installer
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path package | Out-Null
-          Copy-Item "dist\CMB_DXF_Viewer.exe" "package\CMB_DXF_Viewer.exe"
-          Copy-Item "README.md" "package\README.txt"
-          Copy-Item "exe-contents.txt" "package\EXE_CONTENTS.txt"
-          Copy-Item "ensure_vcredist.ps1" "package\ensure_vcredist.ps1"
-
           $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
           $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
-          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nEXE SHA-256: $exeHash`r`nRuntime policy: Windows 10/11 UCRT/API-set DLLs use OS copies; VC++ v14 x64 Runtime uses the installed Microsoft Redistributable and is not bundled in the EXE.`r`n`r`nThe hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.`r`n"
-          Set-Content -Path "package\THIRD_PARTY_LICENSES.txt" -Value ($notice + $identity) -Encoding UTF8
+          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nApp EXE SHA-256: $exeHash`r`nRuntime policy: Windows 10/11 UCRT/API-set DLLs use OS copies; VC++ v14 x64 Runtime is checked by Setup and installed from Microsoft's official Redistributable when missing.`r`n"
+          Set-Content -Path "THIRD_PARTY_LICENSES_BUILD.txt" -Value ($notice + $identity) -Encoding UTF8
+          Copy-Item "THIRD_PARTY_LICENSES_BUILD.txt" "THIRD_PARTY_LICENSES.txt" -Force
 
-          Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
+      - name: Install NSIS
+        shell: powershell
+        run: choco install nsis -y --no-progress
 
-      - name: Upload
+      - name: Build single installer EXE
+        shell: powershell
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "CMB_DXF_Viewer_Setup.nsi"
+          if (-not (Test-Path "CMB_DXF_Viewer_Setup.exe")) { throw "Setup EXE was not created" }
+          Get-FileHash "CMB_DXF_Viewer_Setup.exe" -Algorithm SHA256 | Format-List
+
+      - name: Validate installer registration and shortcuts
+        shell: powershell
+        run: |
+          $p = Start-Process -FilePath ".\CMB_DXF_Viewer_Setup.exe" -ArgumentList '/S' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Silent installer failed: $($p.ExitCode)" }
+          $installDir = "$env:ProgramFiles\CMB_DXF_Viewer"
+          if (-not (Test-Path "$installDir\CMB_DXF_Viewer.exe")) { throw "Installed EXE missing" }
+          if (-not (Test-Path "$installDir\Uninstall.exe")) { throw "Uninstall.exe missing" }
+          if (-not (Test-Path "$installDir\THIRD_PARTY_LICENSES.txt")) { throw "License notice missing" }
+          if (-not (Test-Path "$env:PUBLIC\Desktop\CMB DXF Viewer.lnk") -and -not (Test-Path "$env:USERPROFILE\Desktop\CMB DXF Viewer.lnk")) { throw "Desktop shortcut missing" }
+          $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\CMB DXF Viewer\CMB DXF Viewer.lnk'
+          if (-not (Test-Path $startMenu)) { throw "Start menu shortcut missing" }
+          $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer'
+          if (-not (Test-Path $uninstallKey)) { throw "Windows uninstall registration missing" }
+          $u = Get-ItemProperty $uninstallKey
+          if ($u.DisplayName -ne 'CMB DXF Viewer') { throw "Unexpected uninstall DisplayName" }
+          Write-Host "PASS: installer, shortcuts and Windows uninstall registration verified"
+
+      - name: Uninstall validation install
+        shell: powershell
+        run: |
+          $uninstaller = "$env:ProgramFiles\CMB_DXF_Viewer\Uninstall.exe"
+          if (Test-Path $uninstaller) { Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait }
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-Windows-x64
-          path: desktop/CadExcelConverter/CMB_DXF_Viewer_Windows_x64.zip
+          name: CMB-DXF-Viewer-Setup-Windows-x64
+          path: desktop/CadExcelConverter/CMB_DXF_Viewer_Setup.exe
           if-no-files-found: error
