@@ -1,59 +1,125 @@
-CMB DXF Viewer + Excel - Third Party License Notice
+CMB DXF Viewer + Excel v3.20-clean
+THIRD-PARTY LICENSE NOTICE / INTERNAL BUILD RECORD
 
-This product is designed for company/internal commercial use with no DWG engine.
-No ODA File Converter, ODA SDK, LibreDWG, or other DWG conversion component is bundled.
+Scope
+=====
+This notice applies to the v3.20-clean Windows build of CMB_DXF_Viewer.exe.
+The application is intended for company-internal editing/use. External users
+access the separate server/mobile service and do not receive this EXE.
 
-RUNTIME COMPONENTS
-==================
+Verified clean-build result
+===========================
+The frozen EXE was inspected after PyInstaller packaging. The v3.20-clean
+build contains no NumPy, fontTools, OpenBLAS, or libscipy_openblas archive
+entries. The NumPy -> OpenBLAS/LAPACK -> GCC Runtime Library chain present in
+v3.19 is therefore not present in this build.
 
-1. ezdxf
-   Purpose: DXF read/parse/recovery and read-only geometry access
-   License: MIT License
-   Project: https://github.com/mozman/ezdxf
+No ODA File Converter, ODA SDK, LibreDWG, dwgread.exe, or dwg2dxf.exe is
+bundled. The application is DXF-only.
 
-2. openpyxl
-   Purpose: XLSX generation
-   License: MIT/Expat
-   Project: https://foss.heptapod.net/openpyxl/openpyxl
-
-3. pyproj
-   Purpose: coordinate transformation for Excel export
+Primary runtime components
+==========================
+1. ezdxf 1.0.3
+   Purpose: DXF parsing/recovery/geometry access
    License: MIT
-   Project: https://github.com/pyproj4/pyproj
+   Copyright: Manfred Moitzi and contributors
 
-4. PROJ
-   Purpose: coordinate transformation engine used by pyproj
+2. openpyxl 3.1.5
+   Purpose: XLSX generation
+   License: MIT
+   Copyright: openpyxl contributors
+
+3. et_xmlfile 2.0.0
+   Purpose: XML support used by openpyxl
+   License: MIT
+
+4. pyparsing 3.3.3
+   Purpose: parser support used by ezdxf
+   License: MIT
+   Copyright: Paul McGuire and contributors
+
+5. typing_extensions 4.16.0
+   Purpose: Python typing compatibility
+   License: PSF-2.0
+
+6. pyproj 3.7.2
+   Purpose: coordinate transformation
+   License: MIT
+   Copyright: Jeffrey Whitaker and open-source contributors
+
+7. PROJ 9.5.1
+   Purpose: geodetic coordinate transformation engine used by pyproj
    License: MIT-style permissive license
-   Project: https://github.com/OSGeo/PROJ
 
-5. Python / CPython
+8. CPython 3.11.9
    Purpose: application runtime
-   License: Python Software Foundation License
-   Project: https://www.python.org/
+   License: Python Software Foundation License Version 2 and component notices
 
-6. Tcl/Tk
-   Purpose: Tkinter Windows GUI runtime
-   License: Tcl/Tk permissive BSD-style license
-   Project: https://www.tcl.tk/
+9. Tcl/Tk
+   Purpose: Tkinter GUI runtime
+   License: Tcl/Tk permissive terms
 
-7. Transitive Python packages included by the above packages, when present
-   (for example pyparsing, typing_extensions, et_xmlfile)
-   are retained only when required by the frozen application and their
-   original license notices remain applicable.
+Native components present through Python/pyproj
+===============================================
+10. OpenSSL 3.0.x
+    License: Apache License 2.0
 
-BUILD TOOL
-==========
+11. libffi
+    License: MIT-style permissive terms
 
-PyInstaller is used only to create the Windows executable.
-PyInstaller's official license contains an exception permitting commercial
-applications to be bundled and permitting the generated executable bundle
-to be shipped under the application's chosen license, subject to dependency
-licenses. PyInstaller itself is not provided as an end-user development tool
-inside this package.
+12. Expat
+    License: MIT
 
-MIT LICENSE TEXT
-================
+13. bzip2/libbzip2
+    License: permissive bzip2 license
 
+14. liblzma/XZ
+    License: 0BSD
+
+15. zlib
+    License: zlib License
+
+16. libcurl 8.12.1-DEV (pyproj wheel)
+    License: curl license
+    Note: exact upstream source commit for the wheel binary was not independently traced.
+
+17. libjpeg-turbo / IJG libjpeg API (pyproj wheel)
+    License: IJG + BSD-style terms
+    Required acknowledgement:
+    This software is based in part on the work of the Independent JPEG Group.
+
+18. libtiff (pyproj wheel)
+    License: permissive libtiff license
+
+19. SQLite (pyproj wheel)
+    License status: Public Domain for SQLite core
+
+Build/frozen-runtime tooling
+============================
+20. PyInstaller 6.16.0
+    License: GPL-2.0-or-later WITH PyInstaller Bootloader Exception.
+    The Bootloader Exception permits generated executables to be distributed
+    under the application's chosen license, subject to licenses of bundled
+    dependencies. PyInstaller is used as build tooling; its bootloader is
+    included in the frozen EXE.
+
+21. pyinstaller-hooks-contrib 2026.8
+    Standard hooks are build-time GPL-2.0-or-later tooling. Runtime hooks that
+    are bundled into frozen applications are Apache-2.0 licensed. The pyproj
+    runtime hook is included in this build.
+
+Microsoft Windows runtime components
+====================================
+The frozen EXE contains Microsoft Visual C++ / Universal CRT components such
+as MSVCP140.dll, VCRUNTIME140.dll, VCRUNTIME140_1.dll, ucrtbase.dll and
+api-ms-win-*.dll. These are Microsoft proprietary runtime components, not
+open-source dependencies. This internal-build record does not independently
+reproduce Microsoft's redistribution agreement. If this EXE is ever provided
+to an external party, Microsoft redistribution terms must be re-checked at
+that time.
+
+MIT License
+===========
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -69,13 +135,18 @@ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
-IMPORTANT
-=========
+Operational policy
+==================
+- Company EXE build is blocked if NumPy, fontTools, certifi, GPL, LGPL, AGPL,
+  MPL, non-commercial, source-available, or unknown runtime packages enter the
+  audited Python dependency closure.
+- The final EXE is additionally scanned for NumPy/fontTools/OpenBLAS entries.
+- Keep this notice, the exact requirements lock, build logs, and EXE hash with
+  each approved internal build.
+- A separate comprehensive audit file containing the retained full third-party
+  license texts should be kept with the compliance archive.
 
-This notice is a packaging record, not legal advice. For corporate release,
-retain this file with the executable and keep the dependency versions pinned
-in requirements.txt. The application deliberately does not include a DWG
-engine or DXF write/edit capability.
+This is a technical license record, not legal advice.
