@@ -2,6 +2,7 @@ Unicode True
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
+!include "FileFunc.nsh"
 
 Name "CMB DXF Viewer"
 OutFile "CMB_DXF_Viewer_Setup.exe"
@@ -21,6 +22,8 @@ Var InstallerConsent
 Var NameField
 Var DeptField
 Var ConsentCheckbox
+Var ComputerName
+Var WindowsUser
 
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
@@ -132,18 +135,22 @@ silentSkip:
 FunctionEnd
 
 Function WriteAcknowledgement
+  ReadEnvStr $ComputerName "COMPUTERNAME"
+  ReadEnvStr $WindowsUser "USERNAME"
+  ${GetTime} "" "L" $0 $1 $2 $3 $4 $5 $6
+
   CreateDirectory "${ACK_DIR}"
-  FileOpen $0 "${ACK_LOG}" a
-  FileWrite $0 "----------------------------------------$\r$\n"
-  FileWrite $0 "Installer name: $InstallerName$\r$\n"
-  FileWrite $0 "Department: $InstallerDept$\r$\n"
-  FileWrite $0 "Computer: $COMPUTERNAME$\r$\n"
-  FileWrite $0 "Windows user: $USERNAME$\r$\n"
-  FileWrite $0 "Installed at: ${__DATE__} ${__TIME__}$\r$\n"
-  FileWrite $0 "Application version: ${APP_VERSION}$\r$\n"
-  FileWrite $0 "Notice version: ${NOTICE_VERSION}$\r$\n"
-  FileWrite $0 "Internal-use consent: YES$\r$\n"
-  FileClose $0
+  FileOpen $7 "${ACK_LOG}" a
+  FileWrite $7 "----------------------------------------$\r$\n"
+  FileWrite $7 "Installer name: $InstallerName$\r$\n"
+  FileWrite $7 "Department: $InstallerDept$\r$\n"
+  FileWrite $7 "Computer: $ComputerName$\r$\n"
+  FileWrite $7 "Windows user: $WindowsUser$\r$\n"
+  FileWrite $7 "Installed at: $2-$1-$0 $4:$5:$6$\r$\n"
+  FileWrite $7 "Application version: ${APP_VERSION}$\r$\n"
+  FileWrite $7 "Notice version: ${NOTICE_VERSION}$\r$\n"
+  FileWrite $7 "Internal-use consent: YES$\r$\n"
+  FileClose $7
 FunctionEnd
 
 Section "CMB DXF Viewer" SEC_MAIN
@@ -186,7 +193,7 @@ Section "Uninstall"
   RMDir "$INSTDIR"
 
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer"
-  ; Deliberately keep ${ACK_LOG} for audit/history even after uninstall.
+  ; Keep ${ACK_LOG} for audit/history even after uninstall.
 SectionEnd
 
 Function .onInstSuccess
