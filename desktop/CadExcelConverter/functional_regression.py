@@ -40,7 +40,7 @@ def main():
         pole = doc.blocks.new("Pole-Joint")
         pole.add_circle((0, 0), 1)
         pole.add_line((-2, 0), (2, 0))
-        ins = msp.add_blockref(
+        msp.add_blockref(
             "Pole-Joint", (156215.0863507305, 174095.3802128593),
             dxfattribs={"layer": "CN_L_Pole_Pole-Joint"},
         )
@@ -71,7 +71,7 @@ def main():
         stats = convert_selected_layers(str(dxf), str(xlsx), selected, 5174)
         assert stats.layers == 3
         assert stats.entities == 4  # pole + cable + TEXT + MTEXT
-        assert stats.rows == 7      # 1 + 3 + 1 + 1 plus one annotation point each
+        assert stats.rows == 6      # pole 1 + cable vertices 3 + TEXT 1 + MTEXT 1
 
         wb = load_workbook(xlsx, data_only=True)
         assert wb.sheetnames[0] == "LAYER_INDEX"
