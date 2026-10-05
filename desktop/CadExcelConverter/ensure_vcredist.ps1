@@ -24,7 +24,8 @@ if ($CheckOnly) {
     exit 2
 }
 
-$downloadUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+# Microsoft official permalink for the latest supported Visual C++ v14 x64 Redistributable.
+$downloadUrl = 'https://aka.ms/vc14/vc_redist.x64.exe'
 $tempFile = Join-Path $env:TEMP 'vc_redist.x64.exe'
 
 Write-Host 'Microsoft Visual C++ x64 Runtime is required.'
@@ -45,7 +46,6 @@ if ($subject -notmatch 'Microsoft') {
 
 Write-Host "Verified Microsoft signature: $subject"
 Write-Host 'Launching Microsoft Visual C++ x64 Runtime installer...'
-# Run the official installer interactively. The bootstrap waits for this process.
 $proc = Start-Process -FilePath $tempFile -Wait -PassThru
 $exitCode = $proc.ExitCode
 Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
