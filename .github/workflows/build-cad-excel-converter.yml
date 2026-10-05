@@ -89,8 +89,11 @@ jobs:
       - name: Test ESSENPOLY recovery
         run: python essenpoly_selftest.py
 
-      - name: Run self-test
+      - name: Run core self-test
         run: python selftest.py
+
+      - name: Run functional regression
+        run: python functional_regression.py
 
       - name: Build Windows EXE
         shell: powershell
@@ -113,14 +116,39 @@ jobs:
           Write-Host "PASS: final EXE has no NumPy/fontTools/OpenBLAS archive entries"
           Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256 | Format-List
 
-      - name: Package
+      - name: Launch final EXE smoke test
+        shell: powershell
+        run: |
+          $proc = Start-Process -FilePath "dist\CMB_DXF_Viewer.exe" -PassThru
+          Start-Sleep -Seconds 8
+          if ($proc.HasExited) {
+            throw "CMB_DXF_Viewer.exe exited during launch smoke test. ExitCode=$($proc.ExitCode)"
+          }
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "PASS: final EXE launched and remained alive for 8 seconds"
+
+      - name: Package with exact build identity
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path package | Out-Null
           Copy-Item "dist\CMB_DXF_Viewer.exe" "package\CMB_DXF_Viewer.exe"
           Copy-Item "README.md" "package\README.txt"
-          Copy-Item "THIRD_PARTY_LICENSES.txt" "package\THIRD_PARTY_LICENSES.txt"
           Copy-Item "exe-contents.txt" "package\EXE_CONTENTS.txt"
+
+          $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
+          $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
+          $identity = @"
+
+FINAL BUILD IDENTITY
+====================
+Git commit: $env:GITHUB_SHA
+GitHub Actions run: $env:GITHUB_RUN_ID
+EXE SHA-256: $exeHash
+
+The hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.
+"@
+          Set-Content -Path "package\THIRD_PARTY_LICENSES.txt" -Value ($notice + $identity) -Encoding UTF8
+
           Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
 
       - name: Upload
