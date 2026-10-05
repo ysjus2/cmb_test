@@ -56,25 +56,34 @@ Section "CMB DXF Viewer" SEC_MAIN
   File /oname=README.txt "README.md"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
+
   CreateDirectory "$SMPROGRAMS\CMB DXF Viewer"
-  CreateShortCut "$SMPROGRAMS\CMB DXF Viewer\CMB DXF Viewer.lnk" "$INSTDIR\CMB_DXF_Viewer.exe"
-  CreateShortCut "$DESKTOP\CMB DXF Viewer.lnk" "$INSTDIR\CMB_DXF_Viewer.exe"
+  CreateShortCut "$SMPROGRAMS\CMB DXF Viewer\CMB DXF Viewer.lnk" "$INSTDIR\CMB_DXF_Viewer.exe" "" "$INSTDIR\CMB_DXF_Viewer.exe" 0
+  CreateShortCut "$SMPROGRAMS\CMB DXF Viewer\Uninstall CMB DXF Viewer.lnk" "$INSTDIR\Uninstall.exe"
+  CreateShortCut "$DESKTOP\CMB DXF Viewer.lnk" "$INSTDIR\CMB_DXF_Viewer.exe" "" "$INSTDIR\CMB_DXF_Viewer.exe" 0
 
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "DisplayName" "CMB DXF Viewer"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "DisplayVersion" "3.20"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "Publisher" "CMB"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "DisplayIcon" "$INSTDIR\CMB_DXF_Viewer.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "NoModify" 1
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "NoRepair" 1
 SectionEnd
 
 Section "Uninstall"
+  Delete "$DESKTOP\CMB DXF Viewer.lnk"
+  Delete "$SMPROGRAMS\CMB DXF Viewer\CMB DXF Viewer.lnk"
+  Delete "$SMPROGRAMS\CMB DXF Viewer\Uninstall CMB DXF Viewer.lnk"
+  RMDir "$SMPROGRAMS\CMB DXF Viewer"
+
   Delete "$INSTDIR\CMB_DXF_Viewer.exe"
   Delete "$INSTDIR\THIRD_PARTY_LICENSES.txt"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
 
-  Delete "$SMPROGRAMS\CMB DXF Viewer\CMB DXF Viewer.lnk"
-  RMDir "$SMPROGRAMS\CMB DXF Viewer"
-  Delete "$DESKTOP\CMB DXF Viewer.lnk"
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer"
 SectionEnd
 
