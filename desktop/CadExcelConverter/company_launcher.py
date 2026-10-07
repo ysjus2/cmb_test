@@ -109,6 +109,7 @@ class ServerBrowser(tk.Toplevel):
         self.geometry("1100x720")
         self.regions_data = []
         self.datasets_data = []
+        self.object_rows = {}
         self._build()
         self._load_regions()
 
@@ -211,6 +212,7 @@ class ServerBrowser(tk.Toplevel):
                     count=x.get("count",x.get("object_count",""))
                 self.layers.insert("","end",values=(self._name(x),count))
             self.objects.delete(*self.objects.get_children())
+            self.object_rows.clear()
             for idx,x in enumerate(objects):
                 if isinstance(x,dict):
                     typ=str(x.get("type",x.get("category",x.get("layer",""))))
@@ -218,7 +220,9 @@ class ServerBrowser(tk.Toplevel):
                     detail=", ".join(f"{k}={v}" for k,v in list(x.items())[:6] if v not in (None,""))
                 else:
                     typ="";name=str(x);detail=""
-                self.objects.insert("","end",iid=f"O{idx}",values=(typ,name,detail),tags=(json.dumps(x,ensure_ascii=False,default=str),))
+                iid=f"O{idx}"
+                self.object_rows[iid]=x
+                self.objects.insert("","end",iid=iid,values=(typ,name,detail))
             self.status.set(f"레이어 {len(layers)}개 · 객체 {len(objects)}개")
         except Exception as exc:
             messagebox.showerror(APP_NAME,str(exc),parent=self)
@@ -226,11 +230,13 @@ class ServerBrowser(tk.Toplevel):
     def _show_object(self,event=None):
         sel=self.objects.selection()
         if not sel:return
-        tags=self.objects.item(sel[0],"tags")
-        text=tags[0] if tags else ""
+        obj=self.object_rows.get(sel[0])
+        if obj is None:
+            return
         try:
-            obj=json.loads(text); text=json.dumps(obj,ensure_ascii=False,indent=2)
-        except Exception: pass
+            text=json.dumps(obj,ensure_ascii=False,indent=2,default=str)
+        except Exception:
+            text=str(obj)
         messagebox.showinfo("객체 상세",text,parent=self)
 
 class Portal(tk.Tk):
