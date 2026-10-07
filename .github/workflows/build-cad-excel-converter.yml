@@ -80,7 +80,7 @@ jobs:
 
       - name: Build Windows app using system runtime policy
         shell: powershell
-        run: pyinstaller --noconfirm --clean CMB_Network.spec
+        run: pyinstaller --noconfirm --clean CMB_DXF_Viewer.spec
 
       - name: Inspect final app dependency contents
         shell: powershell
@@ -117,7 +117,7 @@ jobs:
       - name: Build single installer EXE
         shell: powershell
         run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" "CMB_Network_Setup.nsi"
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "CMB_DXF_Viewer_Setup.nsi"
           if (-not (Test-Path "CMB_Network_Setup.exe")) { throw "Setup EXE was not created" }
           Get-FileHash "CMB_Network_Setup.exe" -Algorithm SHA256 | Format-List
 
@@ -135,7 +135,7 @@ jobs:
           $root = Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $cert.Thumbprint
           if (-not $root) { throw "CMB Development CA was not installed in LocalMachine Root" }
           if (-not (Test-Path "$env:PUBLIC\Desktop\CMB Network PC.lnk") -and -not (Test-Path "$env:USERPROFILE\Desktop\CMB Network PC.lnk")) { throw "Desktop shortcut missing" }
-          $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\CMB DXF Viewer\CMB Network PC.lnk'
+          $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\CMB Network PC\CMB Network PC.lnk'
           if (-not (Test-Path $startMenu)) { throw "Start menu shortcut missing" }
           $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network'
           if (-not (Test-Path $uninstallKey)) { throw "Windows uninstall registration missing" }
