@@ -87,3 +87,14 @@ class CMBServerClient:
 
     def dataset_objects(self, dataset_id):
         return self._request("GET", f"/datasets/{dataset_id}/objects")
+
+
+    def create_user(self, name: str, username: str, department: str, level=None):
+        payload = {
+            "name": name,
+            "username": username,
+            "department": department,
+        }
+        if level is not None:
+            payload["level"] = int(level)
+        return self._request("POST", "/admin/users", payload)
