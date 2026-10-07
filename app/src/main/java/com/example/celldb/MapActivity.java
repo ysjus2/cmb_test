@@ -30,7 +30,18 @@ public class MapActivity extends Activity {
     private final ArrayList<MapPoint> visiblePoints = new ArrayList<>();
     private final ArrayList<MapPoint> boundsPoints = new ArrayList<>();
     private MapRenderer map;
-    private CadDatabase db;
+    private android.widget.FrameLayout screen;
+    private LinearLayout mapScreen;
+    private android.widget.ScrollView loginScreen;
+    private TextView loginMessage;
+    private boolean mapStarted;
+    private android.widget.ScrollView settingsPanel;
+    private TextView header;
+    private float headerTouchY,headerTouchX;
+    private LinearLayout settingsContent;
+    private android.view.View mapArea;
+    private TextView mapAttribution,connectionBadge;
+
     private boolean mapReady;
     private boolean destroyed;
     private String mapError;
@@ -43,12 +54,12 @@ public class MapActivity extends Activity {
     private NetworkData networkData;
     private final boolean[] layers = {true,true,true};
     private ArrayList<CadRecord> allRecords = new ArrayList<>();
-    private int loadGeneration;
-    private boolean pendingShowAll;
+
+
     private final String[] categories = LayerGroups.IDS;
     private final Map<String,CadRecord> networkRecords = new HashMap<>();
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private Button importButton;
+
+
     private TextView regionStatus;
     private TextView selectionStatus;
     private Button measureButton;
@@ -58,6 +69,26 @@ public class MapActivity extends Activity {
     private final ArrayList<ArrayList<CadRecord>> displayedLines=new ArrayList<>();
     private long ignoreTapUntil;
     private boolean escapeConsumed;
+    private ServerApiClient server;
+    private String serverDataset="",serverRegion="";
+    private org.json.JSONArray serverLayers=new org.json.JSONArray();
+    private Button serverButton, logoutButton;
+    private TextView connectionStatus;
+    private long lastVerified, lastConnectionCheck;
+    private final ExecutorService serverWorker=Executors.newSingleThreadExecutor();
+    private java.util.concurrent.Future<?> serverTask;
+    private final android.os.Handler serverHandler=new android.os.Handler(android.os.Looper.getMainLooper());
+    private int serverGeneration;
+    private String viewportKey="",pendingViewportKey="";
+    private String drawingLevel="overview";
+    private long viewportChangedAt;
+    private boolean foreground;
+    private long lastServerFetch;
+    private final ArrayList<MapPoint> serverBounds=new ArrayList<>();
+    private final Runnable serverPoll=new Runnable(){public void run(){
+        if(!foreground||destroyed)return;
+        checkServerConnection();pollServerViewport();serverHandler.postDelayed(this,400);
+    }};
 
 
     private final LocationListener listener = new LocationListener() {
@@ -71,7 +102,8 @@ public class MapActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        db = new CadDatabase(this);
+        new android.util.AtomicFile(new java.io.File(getFilesDir(), "cad_records.json")).delete();
+
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -82,22 +114,31 @@ public class MapActivity extends Activity {
         });
 
         TextView title = new TextView(this);
-        title.setText("CAD 네트워크 지도");
+        title.setText("CAD 서버 지도 · 설정 ▼");header=title;
         title.setTextSize(21);
         title.setTextColor(Color.WHITE);
         title.setBackgroundColor(Color.rgb(15, 23, 42));
         title.setPadding(dp(16), dp(12), dp(16), dp(12));
         root.addView(title);
+        LinearLayout menu=new LinearLayout(this);settingsContent=menu;menu.setOrientation(LinearLayout.VERTICAL);
+        settingsPanel=new android.widget.ScrollView(this);settingsPanel.addView(menu);
+        settingsPanel.setVisibility(android.view.View.GONE);root.addView(settingsPanel,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(200)));
+        title.setOnClickListener(v->toggleSettingsPanel());
+        title.setOnTouchListener((v,event)->{
+            if(event.getAction()==android.view.MotionEvent.ACTION_DOWN){headerTouchY=event.getY();headerTouchX=event.getX();}
+            if(event.getAction()==android.view.MotionEvent.ACTION_UP&&(landscape()?event.getX()-headerTouchX:event.getY()-headerTouchY)>dp(24)){toggleSettingsPanel();return true;}
+            return false;
+        });
 
         status = new TextView(this);
-        status.setPadding(dp(12), dp(8), dp(12), dp(8));
+        status.setPadding(dp(12), dp(2), dp(12), dp(2));status.setTextSize(11);status.setMaxLines(1);
         root.addView(status);
 
         LinearLayout actions = new LinearLayout(this);
         addButton(actions, "내 위치", () -> { centerOnFix = true; requestLocation(); });
         addButton(actions, "전체 보기", this::showAll);
         addButton(actions, "가까운 시설", this::showNearest);
-        root.addView(actions);
+        menu.addView(actions);
         LinearLayout tools=new LinearLayout(this);
         measureButton=new Button(this);measureButton.setText("거리 측정");measureButton.setTextSize(13);
         measureButton.setOnClickListener(v->{
@@ -106,21 +147,17 @@ public class MapActivity extends Activity {
                 selectionStatus.setText("지도를 눌러 측정점을 추가하세요 · Esc 또는 측정 종료로 완료");drawMeasurements();}
         });
         tools.addView(measureButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
-        addButton(tools,"선택 메뉴",this::showSelectionMenu);root.addView(tools);
+        addButton(tools,"선택 메뉴",this::showSelectionMenu);menu.addView(tools);
         selectionStatus=new TextView(this);selectionStatus.setText("객체 선택 후 길게 누르기 / 우클릭 → 속성");
-        selectionStatus.setPadding(dp(12),dp(4),dp(12),dp(4));root.addView(selectionStatus);
-        importButton = new Button(this);
-        importButton.setText("지역 DB 불러오기 (.xlsx)");
-        importButton.setTextSize(13);
-        importButton.setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-            startActivityForResult(intent,3001);
-        });
-        root.addView(importButton);
+        selectionStatus.setPadding(dp(12),dp(4),dp(12),dp(4));menu.addView(selectionStatus);
+        serverButton=new Button(this);serverButton.setText("서버 로그인");
+        serverButton.setOnClickListener(v->showServerLogin());menu.addView(serverButton);
+        logoutButton=new Button(this);logoutButton.setText("로그아웃");logoutButton.setEnabled(false);
+        logoutButton.setOnClickListener(v->disconnectServer());menu.addView(logoutButton);
+        connectionStatus=new TextView(this);connectionStatus.setPadding(dp(12),dp(2),dp(12),dp(2));connectionStatus.setTextSize(11);connectionStatus.setMaxLines(1);
+        connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");root.addView(connectionStatus);
         regionStatus = new TextView(this);
-        regionStatus.setText(getSharedPreferences("network_prefs",MODE_PRIVATE).getString("region_name","지역 Excel을 선택하세요 · 광: 파랑 / 동축: 주황"));
+        regionStatus.setText("서버 로그인 후 시설 도면을 조회합니다");
         regionStatus.setTextSize(11);
         regionStatus.setPadding(dp(12),dp(2),dp(12),dp(2));
         root.addView(regionStatus);
@@ -140,18 +177,18 @@ public class MapActivity extends Activity {
             });
             toggles.addView(check);
         }
-        scroll.addView(toggles); root.addView(scroll);
+        scroll.addView(toggles); menu.addView(scroll);
         Button settings = new Button(this);
         settings.setText("설정 · 레이어 편집");
         settings.setOnClickListener(v -> showLayerSettings());
-        root.addView(settings);
+        menu.addView(settings);
 
         map = BuildConfig.KAKAO_NATIVE_APP_KEY.isEmpty() ? new OsmMapRenderer(this)
                 : new KakaoMapRenderer(this, BuildConfig.KAKAO_NATIVE_APP_KEY);
         map.setMapClick(this::onMapTap);
         MapInteractionView interaction=new MapInteractionView(this,()->{ignoreTapUntil=android.os.SystemClock.uptimeMillis()+600;showSelectionMenu();});
         interaction.addView(map.getView(),new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
-        root.addView(interaction,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f));
+        mapArea=interaction;root.addView(interaction,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f));
 
         TextView attribution = new TextView(this);
         attribution.setText((map instanceof OsmMapRenderer ? "© OpenStreetMap contributors" : "카카오맵")
@@ -159,27 +196,74 @@ public class MapActivity extends Activity {
         attribution.setTextSize(11);
         attribution.setGravity(Gravity.CENTER);
         attribution.setPadding(dp(4), dp(6), dp(4), dp(6));
-        root.addView(attribution);
+        mapAttribution=attribution;root.addView(attribution);
 
-        setContentView(root);
+        mapScreen=root;connectionBadge=new TextView(this);connectionBadge.setText("●");connectionBadge.setTextSize(18);connectionBadge.setGravity(Gravity.CENTER);
+        layoutMapScreen();mapScreen.setVisibility(android.view.View.GONE);
+        screen=new android.widget.FrameLayout(this);screen.addView(mapScreen);setContentView(screen);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
+        showLoginScreen();
+    }
+
+    private void startMap(){
+        if(mapStarted)return;mapStarted=true;
         map.start(() -> {
             if (destroyed) return;
             mapReady = true;
             mapError = null;
-            if (map instanceof KakaoMapRenderer) {
-                networkRenderer = new KakaoNetworkRenderer(((KakaoMapRenderer)map).getKakaoMap(), p ->
-                    runOnUiThread(() -> {
-                        CadRecord record=networkRecords.get(p.id);
-                        if (!destroyed && record!=null) selectRecord(record,new MapPoint(p.lat,p.lon));
-                    }));
-            }
-            pendingShowAll=true;loadMarkers();
+            networkRenderer=null;
+            loadMarkers();if(!serverBounds.isEmpty())map.showAll(serverBounds);
         }, message -> {
             mapError = message;
             status.setText(message);
         });
+    }
+
+    private boolean landscape(){return getResources().getConfiguration().orientation==android.content.res.Configuration.ORIENTATION_LANDSCAPE;}
+
+    private void detach(android.view.View view){
+        if(view.getParent() instanceof ViewGroup)((ViewGroup)view.getParent()).removeView(view);
+    }
+
+    private void layoutMapScreen(){
+        for(android.view.View view:new android.view.View[]{header,settingsPanel,status,connectionStatus,regionStatus,mapArea,mapAttribution,connectionBadge})detach(view);
+        mapScreen.removeAllViews();settingsPanel.setVisibility(android.view.View.GONE);
+        if(landscape()){
+            mapScreen.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout rail=new LinearLayout(this);rail.setOrientation(LinearLayout.VERTICAL);
+            header.setText("설정\n▶");header.setTextSize(13);header.setGravity(Gravity.CENTER);header.setPadding(dp(4),dp(12),dp(4),dp(12));
+            rail.addView(header,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));
+            connectionBadge.setTextColor(connectionStatus.getCurrentTextColor());rail.addView(connectionBadge);
+            mapScreen.addView(rail,new LinearLayout.LayoutParams(dp(48),ViewGroup.LayoutParams.MATCH_PARENT));
+            settingsContent.addView(connectionStatus,0);settingsContent.addView(status,1);settingsContent.addView(regionStatus,2);
+            mapScreen.addView(settingsPanel,new LinearLayout.LayoutParams(Math.min(dp(300),(int)(getResources().getDisplayMetrics().widthPixels*0.4)),ViewGroup.LayoutParams.MATCH_PARENT));
+            LinearLayout drawing=new LinearLayout(this);drawing.setOrientation(LinearLayout.VERTICAL);
+            drawing.addView(mapArea,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));drawing.addView(mapAttribution);
+            mapScreen.addView(drawing,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.MATCH_PARENT,1));
+        }else{
+            mapScreen.setOrientation(LinearLayout.VERTICAL);
+            header.setText("CAD 서버 지도 · 설정 ▼");header.setTextSize(21);header.setGravity(Gravity.START);header.setPadding(dp(16),dp(12),dp(16),dp(12));
+            mapScreen.addView(header,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));mapScreen.addView(settingsPanel,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(250)));
+            mapScreen.addView(status);mapScreen.addView(connectionStatus);mapScreen.addView(regionStatus);
+            mapScreen.addView(mapArea,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));mapScreen.addView(mapAttribution);
+        }
+    }
+
+    private void toggleSettingsPanel(){
+        boolean opening=settingsPanel.getVisibility()!=android.view.View.VISIBLE;
+        if(!landscape())settingsPanel.getLayoutParams().height=Math.min(dp(300),(int)(getResources().getDisplayMetrics().heightPixels*0.45));
+        settingsPanel.setVisibility(opening?android.view.View.VISIBLE:android.view.View.GONE);
+        header.setText(landscape()?(opening?"설정\n◀":"설정\n▶"):(opening?"CAD 서버 지도 · 설정 ▲":"CAD 서버 지도 · 설정 ▼"));
+        settingsPanel.requestLayout();
+    }
+
+    @Override public void onConfigurationChanged(android.content.res.Configuration configuration){
+        super.onConfigurationChanged(configuration);layoutMapScreen();
+        if(server!=null&&mapReady){
+            viewportKey="";pendingViewportKey="";
+            map.getView().postDelayed(()->{if(!destroyed&&server!=null)showAll();},250);
+        }
     }
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
@@ -194,56 +278,27 @@ public class MapActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        map.resume();
+        if(mapStarted)map.resume();
         loadMarkers();
-        requestLocation();
+        if(server!=null)requestLocation();
+        foreground=true;serverHandler.removeCallbacks(serverPoll);serverHandler.post(serverPoll);
+        if(server==null){serverButton.setEnabled(true);showLoginScreen();}
     }
 
     @Override protected void onPause() {
+        foreground=false;serverHandler.removeCallbacks(serverPoll);cancelServerRequest();viewportKey="";
         stopLocation();
-        map.pause();
+        if(mapStarted)map.pause();
         super.onPause();
     }
 
     @Override protected void onDestroy() {
         destroyed = true;
-        worker.shutdownNow();
-        map.destroy();
-        super.onDestroy();
-    }
 
-    @Override protected void onActivityResult(int requestCode,int resultCode,Intent result) {
-        super.onActivityResult(requestCode,resultCode,result);
-        if (requestCode!=3001 || resultCode!=RESULT_OK || result==null || result.getData()==null) return;
-        Uri uri=result.getData();
-        importButton.setEnabled(false);
-        regionStatus.setText("지역 Excel을 읽는 중…");
-        worker.execute(() -> {
-            try {
-                ArrayList<CadRecord> imported=XlsxCadImporter.read(this,uri);
-                if (destroyed) return;
-                db.replaceCadRows(imported);
-                String name="지역 DB";
-                try (android.database.Cursor c=getContentResolver().query(uri,new String[]{android.provider.OpenableColumns.DISPLAY_NAME},null,null,null)) {
-                    if(c!=null && c.moveToFirst()) name=c.getString(0);
-                }
-                final String displayName=name;
-                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putString("region_name",name).apply();
-                runOnUiThread(() -> {
-                    if(destroyed) return;
-                    importButton.setEnabled(true); regionStatus.setText(displayName);
-                    pendingShowAll=true;
-                    loadMarkers();
-                    Toast.makeText(this,"지역 DB "+imported.size()+"행 저장 완료",Toast.LENGTH_LONG).show();
-                });
-            } catch(Exception error) {
-                runOnUiThread(() -> {
-                    if(destroyed) return;
-                    importButton.setEnabled(true);
-                    regionStatus.setText("Excel 읽기 실패: "+error.getMessage());
-                });
-            }
-        });
+        serverHandler.removeCallbacksAndMessages(null);cancelServerRequest();
+        if(server!=null)server.clear();serverWorker.shutdownNow();
+        if(mapStarted)map.destroy();
+        super.onDestroy();
     }
 
     private android.content.SharedPreferences layerPrefs() {
@@ -257,6 +312,7 @@ public class MapActivity extends Activity {
 
     private boolean recordVisible(CadRecord r) {
         String group=group(r);
+        if(!DrawingLevel.groupVisible(drawingLevel,group)||!DrawingLevel.recordVisible(drawingLevel,r))return false;
         for(int i=0;i<categories.length;i++) if(categories[i].equals(group))
             return layers[i] && layerPrefs().getBoolean("sublayer_"+LayerGroups.key(r),true);
         return false;
@@ -275,6 +331,15 @@ public class MapActivity extends Activity {
             if(!selectedGroup.equals(group(r)))continue;
             String key=LayerGroups.key(r); representatives.put(key,r);
             counts.put(key,counts.containsKey(key)?counts.get(key)+1:1);
+        }
+        if(server!=null){
+            representatives.clear();counts.clear();
+            for(int i=0;i<serverLayers.length();i++){
+                org.json.JSONObject info=serverLayers.optJSONObject(i);if(info==null)continue;
+                CadRecord r=new CadRecord();r.layer=info.optString("layer");
+                String sourceGroup=info.optString("group_id");r.category=sourceGroup.equals("POLE")?"FACILITY":sourceGroup;
+                if(selectedGroup.equals(group(r))){representatives.put(r.layer,r);counts.put(r.layer,info.optInt("object_count"));}
+            }
         }
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
@@ -313,15 +378,9 @@ public class MapActivity extends Activity {
     }
 
     private void loadMarkers() {
-        final int generation=++loadGeneration;
-        worker.execute(()->{
-            ArrayList<CadRecord> loaded=db.loadAll();
-            runOnUiThread(()->{
-                if(destroyed || generation!=loadGeneration)return;
-                allRecords=loaded;renderMarkers();
-                if(pendingShowAll){pendingShowAll=false;showAll();}
-            });
-        });
+        viewportKey="";
+        if(server==null) allRecords.clear();
+        renderMarkers();
     }
 
     private void renderMarkers() {
@@ -335,6 +394,9 @@ public class MapActivity extends Activity {
         networkData=new NetworkData();displayedLines.clear();
         if(selectedRecord!=null && !recordVisible(selectedRecord)){selectedRecord=null;selectionStatus.setText("선택한 객체가 숨겨졌습니다.");}
         LinkedHashMap<String,ArrayList<CadRecord>> fiber=new LinkedHashMap<>(), coax=new LinkedHashMap<>();
+        java.util.HashSet<String> visibleCables=new java.util.HashSet<>();
+        for(CadRecord r:allRecords)if(recordVisible(r)&&("FIBER".equals(r.category)||"COAX".equals(r.category)))
+            visibleCables.add(r.layer+"|"+r.fields.get("__serverEntity"));
         for(CadRecord r:allRecords) {
             if(!recordVisible(r))continue;
             if(!r.hasCoordinates()) { networkData.skippedRows++; continue; }
@@ -350,9 +412,13 @@ public class MapActivity extends Activity {
             if("CELL".equals(r.category)) networkData.cells.add(item);
             else if("FACILITY".equals(r.category)) networkData.facilities.add(item);
             else if("EQUIPMENT".equals(r.category)) networkData.equipment.add(item);
-            if(mapReady && networkRenderer==null && recordVisible(r)) map.addOnuMarker(point,r.title(),()->selectRecord(r,point));
+            if(mapReady && networkRenderer==null && recordVisible(r)) {
+                boolean geographic=map instanceof OsmMapRenderer && ((OsmMapRenderer)map).addGeoCadSymbol(point,r.fields.get("__cmbLayout"),visibleCables,()->selectRecord(r,point));
+                if(!geographic)map.addCadSymbol(point,r.title(),r.fields.get("__symbol"),()->selectRecord(r,point));
+            }
         }
         addLines(fiber,true); addLines(coax,false);
+        if(map instanceof OsmMapRenderer)((OsmMapRenderer)map).bringCadSymbolsToFront();
         if(networkRenderer!=null) { networkRenderer.render(networkData); applyVisibility(); }
         status.setText("표시 중: 시설 "+networkData.facilities.size()+" · 장비/주석 "+(networkData.cells.size()+networkData.equipment.size())
             +" · 광 선형 "+networkData.fiber.size()+" · 동축 선형 "+networkData.coax.size()
@@ -379,6 +445,7 @@ public class MapActivity extends Activity {
     }
 
     private void showAll() {
+        if(server!=null&&!serverBounds.isEmpty()){if(mapReady)map.showAll(serverBounds);return;}
         ArrayList<MapPoint> points=new ArrayList<>();
         for(CadRecord r:allRecords) if(r.hasCoordinates() && recordVisible(r)) points.add(new MapPoint(r.latitude,r.longitude));
         if(points.isEmpty()) { Toast.makeText(this,"표시할 데이터가 없습니다. 지역 DB와 레이어 설정을 확인해주세요.",Toast.LENGTH_LONG).show(); return; }
@@ -398,6 +465,9 @@ public class MapActivity extends Activity {
     }
 
     private void showDetails(CadRecord r, MapPoint point) {
+        if("SERVER".equals(r.source)&&!r.fields.containsKey("__detail")){
+            loadServerDetails(r,point);return;
+        }
         if (mapReady) map.center(point, false);
         StringBuilder details = new StringBuilder();
         String pole=CadObjectInfo.pole(r),address=CadObjectInfo.address(r);
@@ -415,6 +485,7 @@ public class MapActivity extends Activity {
         for (Map.Entry<String,String> e : r.fields.entrySet()) {
             String v = e.getValue();
             if (v != null && !v.trim().isEmpty()
+                    && !e.getKey().startsWith("__")
                     && !"경도".equals(e.getKey()) && !"위도".equals(e.getKey())) {
                 details.append("\n").append(e.getKey()).append(": ").append(v);
             }
@@ -425,6 +496,206 @@ public class MapActivity extends Activity {
                 .setMessage(details.toString())
                 .setPositiveButton("확인", null)
                 .show();
+    }
+
+    private void cancelServerRequest(){
+        ++serverGeneration;if(serverTask!=null)serverTask.cancel(true);
+        if(server!=null)server.cancel();
+    }
+
+    private void showServerLogin(){
+        if(server!=null){
+            new AlertDialog.Builder(this).setTitle("서버 연결")
+                .setItems(new String[]{"다른 허용 지역 선택","로그아웃"},(d,index)->{
+                    if(index==0)chooseServerDataset();else disconnectServer();
+                }).setNegativeButton("닫기",null).show();return;
+        }
+        showLoginScreen();
+    }
+
+    private void showLoginScreen(){
+        if(loginScreen!=null)screen.removeView(loginScreen);
+        mapScreen.setVisibility(android.view.View.GONE);
+        loginScreen=new android.widget.ScrollView(this);loginScreen.setFillViewport(true);
+        loginScreen.setOnApplyWindowInsetsListener((view,insets)->{view.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(18),dp(8),dp(18),dp(8));
+        body.setGravity(Gravity.CENTER_VERTICAL);body.setBackgroundColor(Color.rgb(246,248,251));
+        TextView heading=new TextView(this);heading.setText("CMB 시설 조회");heading.setTextSize(28);heading.setTextColor(Color.rgb(15,23,42));body.addView(heading);
+        TextView description=new TextView(this);description.setText("서버에 로그인하면 허용된 지역의 도면을 조회할 수 있습니다.");description.setPadding(0,dp(12),0,dp(24));body.addView(description);
+        TextView address=new TextView(this);address.setText(ServerApiClient.BASE_URL);body.addView(address);
+        getSharedPreferences("server_prefs",MODE_PRIVATE).edit().remove("url").apply();
+        android.widget.EditText username=new android.widget.EditText(this);username.setSingleLine(true);username.setHint("앱 계정");username.setText("ysjus");body.addView(username);
+        android.widget.EditText password=new android.widget.EditText(this);password.setSingleLine(true);password.setHint("앱 비밀번호");
+        password.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        password.setSaveEnabled(false);if(android.os.Build.VERSION.SDK_INT>=26)password.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);body.addView(password);
+        loginMessage=new TextView(this);loginMessage.setPadding(0,dp(12),0,dp(12));body.addView(loginMessage);
+        Button login=new Button(this);login.setText("로그인");body.addView(login);
+        loginScreen.addView(body);screen.addView(loginScreen);
+        login.setOnClickListener(v->{
+            final String user=username.getText().toString().trim(),secret=password.getText().toString();
+            if(user.isEmpty()||secret.isEmpty()){password.setError("계정과 비밀번호를 입력하세요.");return;}
+            final ServerApiClient candidate=new ServerApiClient();
+            password.setText("");login.setEnabled(false);loginMessage.setText("로그인 중…");serverButton.setEnabled(false);connectionStatus.setText("● 서버 로그인 중…");status.setText("서버 로그인 중…");
+            final int generation=++serverGeneration;
+            serverTask=serverWorker.submit(()->{
+                try{
+                    candidate.login(user,secret);
+                    runOnUiThread(()->{
+                        if(destroyed||generation!=serverGeneration){candidate.clear();return;}
+                        server=candidate;allRecords.clear();renderMarkers();markServerOnline();logoutButton.setEnabled(true);
+                        serverButton.setEnabled(true);serverButton.setText("서버 · "+user);
+                        screen.removeView(loginScreen);loginScreen=null;mapScreen.setVisibility(android.view.View.VISIBLE);
+                        startMap();if(foreground){map.resume();requestLocation();}chooseServerDataset();
+                    });
+                }catch(Exception error){candidate.clear();runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration)return;
+                    login.setEnabled(true);loginMessage.setText("로그인 실패: "+serverMessage(error));
+                    connectionStatus.setText("● 로그인 실패 · 연결 안 됨");serverButton.setEnabled(true);status.setText("로그인 실패: "+serverMessage(error));
+                });}
+            });
+        });
+    }
+
+    private String serverMessage(Exception error){
+        String category=ServerError.category(error);
+        if(BuildConfig.DEBUG)android.util.Log.w("CmbServer",category);
+        return ServerError.userMessage(error);
+    }
+
+    private void disconnectServer(){
+        ServerApiClient previous=server;cancelServerRequest();server=null;serverDataset="";serverLayers=new org.json.JSONArray();
+        serverBounds.clear();lastVerified=0;lastConnectionCheck=0;
+        logoutButton.setEnabled(false);connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");
+        allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
+        regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
+        if(previous!=null)serverWorker.execute(previous::logout);
+        loadMarkers();stopLocation();showLoginScreen();
+    }
+
+    private void chooseServerDataset(){
+        cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
+        final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
+        status.setText("허용 지역을 조회하는 중…");
+        serverTask=serverWorker.submit(()->{
+            try{
+                org.json.JSONArray regions=client.regions();ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
+                for(int i=0;i<regions.length();i++){
+                    org.json.JSONObject region=regions.getJSONObject(i);org.json.JSONArray datasets=client.datasets(region.getString("id"));
+                    for(int j=0;j<datasets.length();j++){org.json.JSONObject dataset=datasets.getJSONObject(j);titles.add(region.getString("name")+" · "+dataset.getString("id"));ids.add(dataset.getString("id"));}
+                }
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration)return;
+                    if(ids.isEmpty()){status.setText("허용 지역에 게시된 자료가 없습니다.");return;}
+                    if(ids.size()==1)selectServerDataset(client,ids.get(0),titles.get(0));
+                    else new AlertDialog.Builder(this).setTitle("허용 지역 선택").setItems(titles.toArray(new String[0]),(d,i)->selectServerDataset(client,ids.get(i),titles.get(i))).setNegativeButton("닫기",null).show();
+                });
+            }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
+        });
+    }
+
+    private void selectServerDataset(ServerApiClient client,String dataset,String title){
+        cancelServerRequest();final int generation=serverGeneration;
+        serverTask=serverWorker.submit(()->{
+            try{
+                org.json.JSONObject metadata=client.layers(dataset);
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration||client!=server)return;
+                    markServerOnline();serverDataset=dataset;serverRegion=title;serverLayers=metadata.optJSONArray("layers");
+                    if(serverLayers==null)serverLayers=new org.json.JSONArray();
+                    regionStatus.setText(title+" · 서버 조회");viewportKey="";pendingViewportKey="";
+                    org.json.JSONObject box=metadata.optJSONObject("bounds");
+                    if(box!=null){
+                        serverBounds.clear();serverBounds.add(new MapPoint(box.optDouble("south"),box.optDouble("west")));serverBounds.add(new MapPoint(box.optDouble("north"),box.optDouble("east")));if(mapReady)map.showAll(serverBounds);
+                    }else if(mapReady&&currentLocation!=null)map.center(new MapPoint(currentLocation),true);
+                });
+            }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
+        });
+    }
+
+    private String serverLayerFilter(){
+        ArrayList<String> selected=new ArrayList<>();
+        for(int i=0;i<serverLayers.length();i++){
+            org.json.JSONObject info=serverLayers.optJSONObject(i);if(info==null)continue;
+            CadRecord r=new CadRecord();r.layer=info.optString("layer");r.category=info.optString("group_id").equals("POLE")?"FACILITY":info.optString("group_id");
+            String assigned=group(r);
+            for(int j=0;j<categories.length;j++)if(categories[j].equals(assigned)&&layers[j]&&DrawingLevel.groupVisible(drawingLevel,assigned)&&layerPrefs().getBoolean("sublayer_"+LayerGroups.key(r),true))selected.add(r.layer);
+        }
+        return android.text.TextUtils.join(",",selected);
+    }
+
+    private void markServerOnline(){
+        lastVerified=android.os.SystemClock.uptimeMillis();
+        connectionStatus.setText("● 온라인 · 서버 응답 확인 " + new java.text.SimpleDateFormat("HH:mm:ss",Locale.KOREA).format(new Date()));
+        connectionStatus.setTextColor(Color.rgb(0,120,60));connectionBadge.setTextColor(Color.rgb(0,120,60));
+    }
+
+    private void markServerOffline(){
+        lastVerified=0;
+        connectionStatus.setText("● 연결 확인 실패 · 재연결 중");
+        connectionStatus.setTextColor(Color.RED);connectionBadge.setTextColor(Color.RED);
+        allRecords.clear();selectedRecord=null;renderMarkers();viewportKey="";
+    }
+
+    private void checkServerConnection(){
+        if(server==null)return;
+        long now=android.os.SystemClock.uptimeMillis();
+        if(lastVerified>0 && now-lastVerified>15000)markServerOffline();
+        if(now-lastConnectionCheck<5000 || (serverTask!=null&&!serverTask.isDone()))return;
+        lastConnectionCheck=now;
+        final ServerApiClient client=server;final int generation=serverGeneration;
+        serverTask=serverWorker.submit(()->{
+            try{
+                client.regions();
+                runOnUiThread(()->{if(!destroyed&&foreground&&server==client&&generation==serverGeneration)markServerOnline();});
+            }catch(Exception error){
+                runOnUiThread(()->{if(!destroyed&&foreground&&server==client&&generation==serverGeneration)markServerOffline();});
+            }
+        });
+    }
+
+    private void pollServerViewport(){
+        if(server==null||serverDataset.isEmpty()||!mapReady)return;
+        MapViewport viewport=map.viewport();if(viewport==null)return;
+        String level=DrawingLevel.forViewport(viewport);
+        if(!level.equals(drawingLevel)){drawingLevel=level;renderMarkers();}
+        regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));
+        String filter=serverLayerFilter(),key=serverDataset+":"+viewport.key()+":"+filter;
+        long now=android.os.SystemClock.uptimeMillis();
+        if(!key.equals(pendingViewportKey)){pendingViewportKey=key;viewportChangedAt=now;cancelServerRequest();return;}
+        if(key.equals(viewportKey)&&now-lastServerFetch>60000)viewportKey="";
+        if(key.equals(viewportKey)||now-viewportChangedAt<400)return;
+        viewportKey=key;
+        lastServerFetch=now;
+        if(!viewport.queryable("overview".equals(drawingLevel)?2:.2)){allRecords.clear();renderMarkers();status.setText("자료를 보려면 지도를 확대하세요.");return;}
+        if(filter.isEmpty()){allRecords.clear();renderMarkers();return;}
+        cancelServerRequest();final int generation=serverGeneration;final ServerApiClient client=server;final String dataset=serverDataset;
+        status.setText("지도 영역의 서버 자료를 조회하는 중…");
+        serverTask=serverWorker.submit(()->{
+            try{
+                ArrayList<CadRecord> rows=client.objects(dataset,viewport,filter);
+                runOnUiThread(()->{if(destroyed||generation!=serverGeneration)return;markServerOnline();lastServerFetch=android.os.SystemClock.uptimeMillis();allRecords=rows;renderMarkers();regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));});
+            }catch(Exception error){runOnUiThread(()->{
+                if(destroyed||generation!=serverGeneration)return;
+                markServerOffline();status.setText("서버 조회 실패: "+serverMessage(error));
+                serverHandler.postDelayed(()->{if(!destroyed&&generation==serverGeneration)viewportKey="";},5000);
+            });}
+        });
+    }
+
+    private void loadServerDetails(CadRecord record,MapPoint point){
+        if(server==null)return;cancelServerRequest();final int generation=serverGeneration;final ServerApiClient client=server;
+        status.setText("서버에서 객체 속성을 조회하는 중…");
+        serverTask=serverWorker.submit(()->{
+            try{
+                org.json.JSONObject detail=client.detail(record.fields.get("__serverDataset"),record.layer,record.fields.get("__serverEntity"),record.fields.get("__serverVersion"));
+                org.json.JSONObject fields=detail.getJSONObject("feature").getJSONObject("properties").getJSONObject("attributes").getJSONObject("fields");
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration)return;
+                    markServerOnline();for(Iterator<String> keys=fields.keys();keys.hasNext();){String key=keys.next();record.fields.put(key,fields.optString(key,""));}
+                    record.fields.put("__detail","yes");showDetails(record,point);
+                });
+            }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
+        });
     }
 
     private void selectRecord(CadRecord record,MapPoint point) {
@@ -587,7 +858,7 @@ public class MapActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == 2001) {
             if (hasLocationPermission()) requestLocation();
-            else status.setText("위치 권한 없이 CAD 네트워크 지도를 표시합니다.");
+            else status.setText("위치 권한 없이 CAD 서버 지도를 표시합니다.");
         }
     }
 }

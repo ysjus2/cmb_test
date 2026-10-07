@@ -21,13 +21,15 @@ def fixedSigningReady = signingStoreFile && signingStorePassword && signingKeyAl
 android {
     namespace 'com.example.celldb'
     compileSdk 35
+    compileSdkExtension 15
+    buildToolsVersion '35.0.0'
 
     defaultConfig {
         applicationId "com.ysjus2.cadnetwork"
         minSdk 23
         targetSdk 35
-        versionCode 8
-        versionName "2.4"
+        versionCode 23
+        versionName "2.19"
         buildConfigField 'String', 'KAKAO_NATIVE_APP_KEY', '"' + kakaoKey + '"'
     }
 
@@ -43,6 +45,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix '.servertest'
+            versionNameSuffix '-server-test'
+        }
         release {
             minifyEnabled false
             shrinkResources false
@@ -65,6 +71,12 @@ tasks.whenTaskAdded { task ->
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
     implementation 'org.osmdroid:osmdroid-android:6.1.20'
     implementation 'com.kakao.maps.open:android:2.15.2'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
 }

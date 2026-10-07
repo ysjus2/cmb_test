@@ -21,6 +21,7 @@ final class OsmMapRenderer implements MapRenderer {
     private final Context context;
     private final MapView map;
     private final ArrayList<Polyline> networkLines = new ArrayList<>();
+    private final ArrayList<CmbGeoSymbolOverlay> cadSymbols = new ArrayList<>();
     private Marker current;
     private final ArrayList<Polyline> measurementLines=new ArrayList<>();
     private PointClick mapClick;
@@ -32,6 +33,9 @@ final class OsmMapRenderer implements MapRenderer {
         config.setOsmdroidBasePath(new File(context.getFilesDir(), "maps"));
         config.setOsmdroidTileCache(new File(context.getCacheDir(), "map-tiles"));
         map = new MapView(context);
+        // Rotation reparents this view. Release map resources only in destroy(),
+        // not during the temporary detach from its portrait/landscape container.
+        map.setDestroyMode(false);
         map.setTileSource(TileSourceFactory.MAPNIK);
         map.setMultiTouchControls(true);
         map.getController().setZoom(16.0);
@@ -49,6 +53,7 @@ final class OsmMapRenderer implements MapRenderer {
     public void start(Runnable onReady, ErrorCallback onError) { onReady.run(); }
 
     public void clearOnuMarkers() {
+        map.getOverlays().removeAll(cadSymbols);cadSymbols.clear();
         map.getOverlays().removeIf(o -> o instanceof Marker && o != current);
         map.invalidate();
     }
@@ -70,14 +75,35 @@ final class OsmMapRenderer implements MapRenderer {
     }
 
     public void addOnuMarker(MapPoint p, String title, Runnable onClick) {
+        addCadSymbol(p,title,null,onClick);
+    }
+
+    public void addCadSymbol(MapPoint p, String title, String symbol, Runnable onClick) {
         Marker marker = new Marker(map);
         marker.setPosition(point(p));
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM);
-        marker.setIcon(icon(Color.rgb(220, 65, 45), "CAD", false));
+        Bitmap shape=CadSymbolIcon.create(symbol);
+        if(shape!=null){
+            float density=context.getResources().getDisplayMetrics().density;
+            marker.setIcon(new BitmapDrawable(context.getResources(),Bitmap.createScaledBitmap(shape,Math.round(64*density),Math.round(64*density),true)));
+            marker.setAnchor(Marker.ANCHOR_CENTER,Marker.ANCHOR_CENTER);
+        }else marker.setIcon(icon(Color.rgb(220, 65, 45), "CAD", false));
         marker.setTitle(title);
         marker.setOnMarkerClickListener((selected, view) -> { onClick.run(); return true; });
         map.getOverlays().add(marker);
         map.invalidate();
+    }
+
+    boolean addGeoCadSymbol(MapPoint p,String layout,java.util.Set<String> visibleCables,Runnable onClick){
+        if(layout==null)return false;
+        try{
+            CmbGeoSymbolOverlay overlay=new CmbGeoSymbolOverlay(p,new org.json.JSONObject(layout),visibleCables,
+                    context.getResources().getDisplayMetrics().density,onClick);
+            cadSymbols.add(overlay);map.getOverlays().add(overlay);return true;
+        }catch(Exception error){android.util.Log.w("CmbSymbol","Invalid geographic symbol layout",error);return false;}
+    }
+    void bringCadSymbolsToFront(){
+        map.getOverlays().removeAll(cadSymbols);map.getOverlays().addAll(cadSymbols);map.invalidate();
     }
 
     public void addNetworkLine(List<MapPoint> points, boolean fiber) {
@@ -111,6 +137,11 @@ final class OsmMapRenderer implements MapRenderer {
 
     public void setMapClick(PointClick click){mapClick=click;}
     public android.graphics.Point screenPoint(MapPoint p){return map.getProjection().toPixels(point(p),null);}
+    public MapViewport viewport(){
+        if(map.getWidth()==0||map.getHeight()==0)return null;
+        BoundingBox box=map.getBoundingBox();
+        return new MapViewport(box.getLonWest(),box.getLatSouth(),box.getLonEast(),box.getLatNorth());
+    }
     public void showMeasurements(List<DistanceMeasurement.Line> lines,List<DistanceMeasurement.Point> current){
         map.getOverlays().removeAll(measurementLines);measurementLines.clear();
         for(DistanceMeasurement.Line line:lines)addMeasurement(line.points);

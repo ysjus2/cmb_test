@@ -55,6 +55,16 @@ final class KakaoMapRenderer implements MapRenderer {
     }
 
     public View getView() { return view; }
+    public MapViewport viewport(){
+        if(map==null||view.getWidth()==0||view.getHeight()==0)return null;
+        double west=180,south=90,east=-180,north=-90;
+        for(int x:new int[]{0,view.getWidth()-1})for(int y:new int[]{0,view.getHeight()-1}){
+            LatLng p=map.fromScreenPoint(x,y);if(p==null)return null;
+            west=Math.min(west,p.longitude);east=Math.max(east,p.longitude);
+            south=Math.min(south,p.latitude);north=Math.max(north,p.latitude);
+        }
+        return new MapViewport(west,south,east,north);
+    }
     KakaoMap getKakaoMap() { return map; }
     public String getName() { return "카카오맵"; }
     private LatLng point(MapPoint p) { return LatLng.from(p.getLatitude(), p.getLongitude()); }
@@ -123,9 +133,15 @@ final class KakaoMapRenderer implements MapRenderer {
     }
 
     public void addOnuMarker(MapPoint p, String title, Runnable onClick) {
+        addCadSymbol(p,title,null,onClick);
+    }
+
+    public void addCadSymbol(MapPoint p, String title, String symbol, Runnable onClick) {
         if (map == null) return;
         String id = "cad-" + nextId++;
-        onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(onuStyle)
+        android.graphics.Bitmap shape=CadSymbolIcon.create(symbol);
+        LabelStyles style=shape==null?onuStyle:map.getLabelManager().addLabelStyles(LabelStyles.from(id+"-symbol",LabelStyle.from(shape).setAnchorPoint(0.5f,0.5f)));
+        onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(style)
                 .setTexts(new LabelTextBuilder().setTexts(title)).setClickable(true));
         clickActions.put(id, onClick);
     }
