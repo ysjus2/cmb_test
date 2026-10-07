@@ -1,4 +1,4 @@
-name: Build CMB DXF Viewer
+name: Build CMB Network PC
 
 on:
   workflow_dispatch:
@@ -80,12 +80,12 @@ jobs:
 
       - name: Build Windows app using system runtime policy
         shell: powershell
-        run: pyinstaller --noconfirm --clean CMB_DXF_Viewer.spec
+        run: pyinstaller --noconfirm --clean CMB_Network.spec
 
       - name: Inspect final app dependency contents
         shell: powershell
         run: |
-          pyi-archive_viewer -r -b "dist\CMB_DXF_Viewer.exe" | Out-File -Encoding utf8 exe-contents.txt
+          pyi-archive_viewer -r -b "dist\CMB_Network.exe" | Out-File -Encoding utf8 exe-contents.txt
           $badOpen = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
           if ($badOpen) { $badOpen | ForEach-Object { Write-Host $_.Line }; throw "Blocked NumPy/fontTools/OpenBLAS content found" }
           $badMsRuntime = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])(ucrtbase\.dll|api-ms-win-[^\\/]*\.dll|vcruntime140[^\\/]*\.dll|msvcp140[^\\/]*\.dll)$" -CaseSensitive:$false
@@ -95,16 +95,16 @@ jobs:
       - name: Launch app smoke test
         shell: powershell
         run: |
-          $proc = Start-Process -FilePath "dist\CMB_DXF_Viewer.exe" -PassThru
+          $proc = Start-Process -FilePath "dist\CMB_Network.exe" -PassThru
           Start-Sleep -Seconds 8
-          if ($proc.HasExited) { throw "CMB_DXF_Viewer.exe exited during smoke test. ExitCode=$($proc.ExitCode)" }
+          if ($proc.HasExited) { throw "CMB_Network.exe exited during smoke test. ExitCode=$($proc.ExitCode)" }
           Stop-Process -Id $proc.Id -Force
           Write-Host "PASS: app launched and remained alive for 8 seconds"
 
       - name: Prepare exact license notice for installer
         shell: powershell
         run: |
-          $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
+          $exeHash = (Get-FileHash "dist\CMB_Network.exe" -Algorithm SHA256).Hash
           $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
           $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nApp EXE SHA-256: $exeHash`r`nRuntime policy: Windows 10/11 UCRT/API-set DLLs use OS copies; VC++ v14 x64 Runtime is checked by Setup and installed from Microsoft's official Redistributable when missing.`r`n"
           Set-Content -Path "THIRD_PARTY_LICENSES_BUILD.txt" -Value ($notice + $identity) -Encoding UTF8
@@ -117,37 +117,41 @@ jobs:
       - name: Build single installer EXE
         shell: powershell
         run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" "CMB_DXF_Viewer_Setup.nsi"
-          if (-not (Test-Path "CMB_DXF_Viewer_Setup.exe")) { throw "Setup EXE was not created" }
-          Get-FileHash "CMB_DXF_Viewer_Setup.exe" -Algorithm SHA256 | Format-List
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "CMB_Network_Setup.nsi"
+          if (-not (Test-Path "CMB_Network_Setup.exe")) { throw "Setup EXE was not created" }
+          Get-FileHash "CMB_Network_Setup.exe" -Algorithm SHA256 | Format-List
 
       - name: Validate installer registration and shortcuts
         shell: powershell
         run: |
-          $p = Start-Process -FilePath ".\CMB_DXF_Viewer_Setup.exe" -ArgumentList '/S' -Wait -PassThru
+          $p = Start-Process -FilePath ".\CMB_Network_Setup.exe" -ArgumentList '/S' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Silent installer failed: $($p.ExitCode)" }
-          $installDir = "$env:ProgramFiles\CMB_DXF_Viewer"
-          if (-not (Test-Path "$installDir\CMB_DXF_Viewer.exe")) { throw "Installed EXE missing" }
+          $installDir = "$env:ProgramFiles\CMB_Network"
+          if (-not (Test-Path "$installDir\CMB_Network.exe")) { throw "Installed EXE missing" }
           if (-not (Test-Path "$installDir\Uninstall.exe")) { throw "Uninstall.exe missing" }
           if (-not (Test-Path "$installDir\THIRD_PARTY_LICENSES.txt")) { throw "License notice missing" }
-          if (-not (Test-Path "$env:PUBLIC\Desktop\CMB DXF Viewer.lnk") -and -not (Test-Path "$env:USERPROFILE\Desktop\CMB DXF Viewer.lnk")) { throw "Desktop shortcut missing" }
-          $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\CMB DXF Viewer\CMB DXF Viewer.lnk'
+          if (-not (Test-Path "$installDir\cmb_dev_ca.crt")) { throw "CMB CA certificate missing" }
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2("$installDir\cmb_dev_ca.crt")
+          $root = Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $cert.Thumbprint
+          if (-not $root) { throw "CMB Development CA was not installed in LocalMachine Root" }
+          if (-not (Test-Path "$env:PUBLIC\Desktop\CMB Network PC.lnk") -and -not (Test-Path "$env:USERPROFILE\Desktop\CMB Network PC.lnk")) { throw "Desktop shortcut missing" }
+          $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\CMB DXF Viewer\CMB Network PC.lnk'
           if (-not (Test-Path $startMenu)) { throw "Start menu shortcut missing" }
-          $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer'
+          $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network'
           if (-not (Test-Path $uninstallKey)) { throw "Windows uninstall registration missing" }
           $u = Get-ItemProperty $uninstallKey
-          if ($u.DisplayName -ne 'CMB DXF Viewer') { throw "Unexpected uninstall DisplayName" }
+          if ($u.DisplayName -ne 'CMB Network PC') { throw "Unexpected uninstall DisplayName" }
           Write-Host "PASS: installer, shortcuts and Windows uninstall registration verified"
 
       - name: Uninstall validation install
         shell: powershell
         run: |
-          $uninstaller = "$env:ProgramFiles\CMB_DXF_Viewer\Uninstall.exe"
+          $uninstaller = "$env:ProgramFiles\CMB_Network\Uninstall.exe"
           if (Test-Path $uninstaller) { Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-Setup-Windows-x64
-          path: desktop/CadExcelConverter/CMB_DXF_Viewer_Setup.exe
+          name: CMB-Network-PC-Setup-Windows-x64
+          path: desktop/CadExcelConverter/CMB_Network_Setup.exe
           if-no-files-found: error
