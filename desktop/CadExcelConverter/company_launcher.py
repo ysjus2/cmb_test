@@ -186,11 +186,31 @@ class UserRegistrationDialog(tk.Toplevel):
         self.update_idletasks()
         try:
             result = self.client.create_user(name, username, department, level)
-            messagebox.showinfo(
-                APP_NAME,
-                "사용자 등록 요청이 완료되었습니다.",
-                parent=self
-            )
+            temporary_password = ""
+            if isinstance(result, dict):
+                temporary_password = str(result.get("temporary_password") or "")
+
+            if temporary_password:
+                self.clipboard_clear()
+                self.clipboard_append(temporary_password)
+                messagebox.showinfo(
+                    APP_NAME,
+                    "사용자 등록이 완료되었습니다.\n\n"
+                    f"이름: {name}\n"
+                    f"아이디: {username}\n"
+                    f"부서: {department}\n"
+                    f"등급: {result.get('level', level or 5)}\n\n"
+                    f"임시 비밀번호: {temporary_password}\n\n"
+                    "임시 비밀번호를 클립보드에 복사했습니다. "
+                    "이 창을 닫기 전에 사용자에게 전달해 주세요.",
+                    parent=self
+                )
+            else:
+                messagebox.showwarning(
+                    APP_NAME,
+                    "사용자는 등록되었지만 서버가 임시 비밀번호를 반환하지 않았습니다.",
+                    parent=self
+                )
             self.destroy()
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc), parent=self)
