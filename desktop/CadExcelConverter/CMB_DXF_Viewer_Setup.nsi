@@ -13,8 +13,8 @@ ShowInstDetails show
 
 !define APP_VERSION "4.00"
 !define NOTICE_VERSION "CMB-INTERNAL-USE-2026-10-05-v1"
-!define ACK_DIR "$COMMONAPPDATA\CMB\CMB_Network"
-!define ACK_LOG "$COMMONAPPDATA\CMB\CMB_Network\install_acknowledgement.log"
+!define ACK_DIR "$APPDATA\CMB\CMB_Network"
+!define ACK_LOG "$APPDATA\CMB\CMB_Network\install_acknowledgement.log"
 
 Var InstallerName
 Var InstallerDept
@@ -154,6 +154,7 @@ Function WriteAcknowledgement
 FunctionEnd
 
 Section "CMB Network PC" SEC_MAIN
+  SetShellVarContext all
   Call CheckVCRuntime
 
   SetOutPath "$INSTDIR"
@@ -189,6 +190,7 @@ Section "CMB Network PC" SEC_MAIN
 SectionEnd
 
 Section "Uninstall"
+  SetShellVarContext all
   Delete "$DESKTOP\CMB Network PC.lnk"
   Delete "$SMPROGRAMS\CMB Network PC\CMB Network PC.lnk"
   Delete "$SMPROGRAMS\CMB Network PC\Uninstall CMB Network PC.lnk"
