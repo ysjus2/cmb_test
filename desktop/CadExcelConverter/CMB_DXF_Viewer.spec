@@ -11,10 +11,10 @@ all_binaries = pyproj_binaries + ezdxf_binaries
 all_hidden = pyproj_hidden + ezdxf_hidden
 
 a = Analysis(
-    ["main.py"],
+    ["company_launcher.py"],
     pathex=[],
     binaries=all_binaries,
-    datas=all_datas,
+    datas=all_datas + [("cmb_dev_ca.crt", ".")],
     hiddenimports=all_hidden,
     hookspath=[],
     hooksconfig={},
@@ -53,7 +53,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="CMB_DXF_Viewer",
+    name="CMB_Network",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
