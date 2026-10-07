@@ -4,17 +4,17 @@ Unicode True
 !include "nsDialogs.nsh"
 !include "FileFunc.nsh"
 
-Name "CMB DXF Viewer"
-OutFile "CMB_DXF_Viewer_Setup.exe"
-InstallDir "$PROGRAMFILES64\CMB_DXF_Viewer"
+Name "CMB Network PC"
+OutFile "CMB_Network_Setup.exe"
+InstallDir "$PROGRAMFILES64\CMB_Network"
 RequestExecutionLevel admin
 SetCompressor zlib
 ShowInstDetails show
 
-!define APP_VERSION "3.20"
+!define APP_VERSION "4.00"
 !define NOTICE_VERSION "CMB-INTERNAL-USE-2026-10-05-v1"
-!define ACK_DIR "$COMMONAPPDATA\CMB\CMB_DXF_Viewer"
-!define ACK_LOG "$COMMONAPPDATA\CMB\CMB_DXF_Viewer\install_acknowledgement.log"
+!define ACK_DIR "$COMMONAPPDATA\CMB\CMB_Network"
+!define ACK_LOG "$COMMONAPPDATA\CMB\CMB_Network\install_acknowledgement.log"
 
 Var InstallerName
 Var InstallerDept
@@ -107,7 +107,7 @@ Function CheckVCRuntime
   ${EndIf}
 
   MessageBox MB_OKCANCEL|MB_ICONINFORMATION \
-    "Microsoft Visual C++ x64 Runtime이 필요합니다.$\r$\n$\r$\n확인을 누르면 Microsoft 공식 설치 프로그램이 실행됩니다.$\r$\n설치가 끝나면 CMB DXF Viewer 설치가 자동으로 계속됩니다." \
+    "Microsoft Visual C++ x64 Runtime이 필요합니다.$\r$\n$\r$\n확인을 누르면 Microsoft 공식 설치 프로그램이 실행됩니다.$\r$\n설치가 끝나면 CMB Network PC 설치가 자동으로 계속됩니다." \
     IDOK +2
   Abort
 
@@ -153,51 +153,60 @@ Function WriteAcknowledgement
   FileClose $7
 FunctionEnd
 
-Section "CMB DXF Viewer" SEC_MAIN
+Section "CMB Network PC" SEC_MAIN
   Call CheckVCRuntime
 
   SetOutPath "$INSTDIR"
-  File "dist\CMB_DXF_Viewer.exe"
+  File "dist\CMB_Network.exe"
+  File /oname=cmb_dev_ca.crt "cmb_dev_ca.crt"
+  DetailPrint "CMB Development CA를 Windows 신뢰 루트에 설치합니다."
+  nsExec::ExecToLog 'certutil.exe -addstore -f "Root" "$INSTDIR\cmb_dev_ca.crt"'
+  Pop $0
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP|MB_OK "CMB 개발 인증서 설치에 실패했습니다. (코드: $0)"
+    Abort
+  ${EndIf}
   File /oname=THIRD_PARTY_LICENSES.txt "THIRD_PARTY_LICENSES.txt"
   File /oname=README.txt "README.md"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
-  CreateDirectory "$SMPROGRAMS\CMB DXF Viewer"
-  CreateShortCut "$SMPROGRAMS\CMB DXF Viewer\CMB DXF Viewer.lnk" "$INSTDIR\CMB_DXF_Viewer.exe" "" "$INSTDIR\CMB_DXF_Viewer.exe" 0
-  CreateShortCut "$SMPROGRAMS\CMB DXF Viewer\Uninstall CMB DXF Viewer.lnk" "$INSTDIR\Uninstall.exe"
-  CreateShortCut "$DESKTOP\CMB DXF Viewer.lnk" "$INSTDIR\CMB_DXF_Viewer.exe" "" "$INSTDIR\CMB_DXF_Viewer.exe" 0
+  CreateDirectory "$SMPROGRAMS\CMB Network PC"
+  CreateShortCut "$SMPROGRAMS\CMB Network PC\CMB Network PC.lnk" "$INSTDIR\CMB_Network.exe" "" "$INSTDIR\CMB_Network.exe" 0
+  CreateShortCut "$SMPROGRAMS\CMB Network PC\Uninstall CMB Network PC.lnk" "$INSTDIR\Uninstall.exe"
+  CreateShortCut "$DESKTOP\CMB Network PC.lnk" "$INSTDIR\CMB_Network.exe" "" "$INSTDIR\CMB_Network.exe" 0
 
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "DisplayName" "CMB DXF Viewer"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "DisplayVersion" "${APP_VERSION}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "Publisher" "CMB"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "DisplayIcon" "$INSTDIR\CMB_DXF_Viewer.exe"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "NoModify" 1
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer" "NoRepair" 1
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "DisplayName" "CMB Network PC"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "DisplayVersion" "${APP_VERSION}"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "Publisher" "CMB"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "InstallLocation" "$INSTDIR"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "DisplayIcon" "$INSTDIR\CMB_Network.exe"
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "UninstallString" '"$INSTDIR\Uninstall.exe"'
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "NoModify" 1
+  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network" "NoRepair" 1
 
   Call WriteAcknowledgement
 SectionEnd
 
 Section "Uninstall"
-  Delete "$DESKTOP\CMB DXF Viewer.lnk"
-  Delete "$SMPROGRAMS\CMB DXF Viewer\CMB DXF Viewer.lnk"
-  Delete "$SMPROGRAMS\CMB DXF Viewer\Uninstall CMB DXF Viewer.lnk"
-  RMDir "$SMPROGRAMS\CMB DXF Viewer"
+  Delete "$DESKTOP\CMB Network PC.lnk"
+  Delete "$SMPROGRAMS\CMB Network PC\CMB Network PC.lnk"
+  Delete "$SMPROGRAMS\CMB Network PC\Uninstall CMB Network PC.lnk"
+  RMDir "$SMPROGRAMS\CMB Network PC"
 
-  Delete "$INSTDIR\CMB_DXF_Viewer.exe"
+  Delete "$INSTDIR\CMB_Network.exe"
+  Delete "$INSTDIR\cmb_dev_ca.crt"
   Delete "$INSTDIR\THIRD_PARTY_LICENSES.txt"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
 
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_DXF_Viewer"
+  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network"
   ; Keep ${ACK_LOG} for audit/history even after uninstall.
 SectionEnd
 
 Function .onInstSuccess
   IfSilent done 0
-  Exec '"$INSTDIR\CMB_DXF_Viewer.exe"'
+  Exec '"$INSTDIR\CMB_Network.exe"'
 done:
 FunctionEnd
