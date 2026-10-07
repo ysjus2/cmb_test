@@ -155,6 +155,7 @@ FunctionEnd
 
 Section "CMB Network PC" SEC_MAIN
   SetShellVarContext all
+  SetRegView 64
   Call CheckVCRuntime
 
   SetOutPath "$INSTDIR"
@@ -191,6 +192,7 @@ SectionEnd
 
 Section "Uninstall"
   SetShellVarContext all
+  SetRegView 64
   Delete "$DESKTOP\CMB Network PC.lnk"
   Delete "$SMPROGRAMS\CMB Network PC\CMB Network PC.lnk"
   Delete "$SMPROGRAMS\CMB Network PC\Uninstall CMB Network PC.lnk"
