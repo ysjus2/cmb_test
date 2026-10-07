@@ -101,6 +101,102 @@ class LoginDialog(tk.Tk):
             messagebox.showerror(APP_NAME, str(exc), parent=self)
             self.login_btn.config(state="normal")
 
+
+class UserRegistrationDialog(tk.Toplevel):
+    def __init__(self, master, client):
+        super().__init__(master)
+        self.client = client
+        self.title("사용자 등록")
+        self.geometry("470x360")
+        self.resizable(False, False)
+        self.transient(master)
+        self.grab_set()
+        self._build()
+
+    def _build(self):
+        root = ttk.Frame(self, padding=22)
+        root.pack(fill="both", expand=True)
+        ttk.Label(root, text="사용자 등록", font=("Malgun Gothic", 17, "bold")).pack(anchor="w")
+        ttk.Label(root, text="1등급 관리자 전용", foreground="#666").pack(anchor="w", pady=(0, 16))
+
+        form = ttk.Frame(root)
+        form.pack(fill="x")
+
+        ttk.Label(form, text="이름 *", width=12).grid(row=0, column=0, sticky="w", pady=7)
+        self.name = ttk.Entry(form)
+        self.name.grid(row=0, column=1, sticky="ew", pady=7)
+
+        ttk.Label(form, text="아이디 *", width=12).grid(row=1, column=0, sticky="w", pady=7)
+        self.username = ttk.Entry(form)
+        self.username.grid(row=1, column=1, sticky="ew", pady=7)
+
+        ttk.Label(form, text="부서 *", width=12).grid(row=2, column=0, sticky="w", pady=7)
+        self.department = ttk.Entry(form)
+        self.department.grid(row=2, column=1, sticky="ew", pady=7)
+
+        ttk.Label(form, text="등급", width=12).grid(row=3, column=0, sticky="w", pady=7)
+        self.level = ttk.Combobox(form, state="readonly", values=["", "1", "2", "3", "4", "5"])
+        self.level.grid(row=3, column=1, sticky="ew", pady=7)
+        self.level.current(0)
+
+        form.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            root,
+            text="등급을 지정하지 않으면 서버 기본값을 사용합니다.",
+            foreground="#666"
+        ).pack(anchor="w", pady=(8, 14))
+
+        row = ttk.Frame(root)
+        row.pack(fill="x")
+        ttk.Button(row, text="취소", command=self.destroy).pack(side="right")
+        self.save_btn = ttk.Button(row, text="등록", command=self._save)
+        self.save_btn.pack(side="right", padx=(0, 8))
+
+        self.name.focus_set()
+
+    def _save(self):
+        name = self.name.get().strip()
+        username = self.username.get().strip()
+        department = self.department.get().strip()
+        level_text = self.level.get().strip()
+
+        if not name:
+            messagebox.showwarning(APP_NAME, "이름을 입력해 주세요.", parent=self)
+            return
+        if not username:
+            messagebox.showwarning(APP_NAME, "아이디를 입력해 주세요.", parent=self)
+            return
+        if not department:
+            messagebox.showwarning(APP_NAME, "부서를 입력해 주세요.", parent=self)
+            return
+
+        level = None
+        if level_text:
+            try:
+                level = int(level_text)
+            except ValueError:
+                messagebox.showwarning(APP_NAME, "등급은 1~5만 사용할 수 있습니다.", parent=self)
+                return
+            if level < 1 or level > 5:
+                messagebox.showwarning(APP_NAME, "등급은 1~5만 사용할 수 있습니다.", parent=self)
+                return
+
+        self.save_btn.config(state="disabled")
+        self.update_idletasks()
+        try:
+            result = self.client.create_user(name, username, department, level)
+            messagebox.showinfo(
+                APP_NAME,
+                "사용자 등록 요청이 완료되었습니다.",
+                parent=self
+            )
+            self.destroy()
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, str(exc), parent=self)
+            self.save_btn.config(state="normal")
+
+
 class ServerBrowser(tk.Toplevel):
     def __init__(self, master, client):
         super().__init__(master)
@@ -264,7 +360,16 @@ class Portal(tk.Tk):
         if self.level == 1:
             ttk.Separator(root).pack(fill="x",pady=16)
             ttk.Label(root,text="관리자 기능",font=("Malgun Gothic",12,"bold")).pack(anchor="w")
-            ttk.Label(root,text="서버 업로드/사용자 관리는 서버 API가 활성화되면 이 영역에만 표시됩니다.",foreground="#555").pack(anchor="w",pady=(4,0))
+            ttk.Button(
+                root,
+                text="사용자 등록",
+                command=lambda: UserRegistrationDialog(self, self.client)
+            ).pack(fill="x", ipady=7, pady=(8, 4))
+            ttk.Label(
+                root,
+                text="서버 업로드/수정 기능은 서버 API 준비 후 이 영역에만 추가됩니다.",
+                foreground="#555"
+            ).pack(anchor="w",pady=(4,0))
 
         ttk.Label(root,text="권한이 없는 기능은 화면에 표시되지 않습니다.",foreground="#666").pack(side="bottom",anchor="w")
 
