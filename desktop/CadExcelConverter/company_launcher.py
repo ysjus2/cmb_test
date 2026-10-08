@@ -429,26 +429,21 @@ class ServerBrowser(tk.Toplevel):
         did=self._id(self.datasets_data[i])
         try:
             layers=self._items(self.client.dataset_layers(did))
-            objects=self._items(self.client.dataset_objects(did))
             self.layers.delete(*self.layers.get_children())
             for x in layers:
                 count=""
                 if isinstance(x,dict):
                     count=x.get("count",x.get("object_count",""))
                 self.layers.insert("","end",values=(self._item_name(x),count))
+
+            # The server intentionally restricts object queries to a small
+            # viewport bbox. This legacy browser has no map viewport, so do
+            # not request a world-sized object list here.
             self.objects.delete(*self.objects.get_children())
             self.object_rows.clear()
-            for idx,x in enumerate(objects):
-                if isinstance(x,dict):
-                    typ=str(x.get("type",x.get("category",x.get("layer",""))))
-                    name=str(x.get("name",x.get("id",x.get("object_id",""))))
-                    detail=", ".join(f"{k}={v}" for k,v in list(x.items())[:6] if v not in (None,""))
-                else:
-                    typ="";name=str(x);detail=""
-                iid=f"O{idx}"
-                self.object_rows[iid]=x
-                self.objects.insert("","end",iid=iid,values=(typ,name,detail))
-            self.status.set(f"레이어 {len(layers)}개 · 객체 {len(objects)}개")
+            self.status.set(
+                f"레이어 {len(layers)}개 · 객체는 통합 도면 뷰어에서 화면 범위 기준으로 조회합니다."
+            )
         except Exception as exc:
             messagebox.showerror(APP_NAME,str(exc),parent=self)
 
