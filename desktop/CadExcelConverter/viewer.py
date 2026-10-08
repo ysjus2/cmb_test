@@ -305,6 +305,11 @@ def _is_cable_layer(layer_name):
     upper = name.upper()
     return _is_optical_cable_layer(name) or "CABLE" in upper or "케이블" in name or "선로" in name
 
+def _is_device_id_layer(layer_name):
+    """Hide equipment/cable ID annotation layers while preserving pole information."""
+    upper = str(layer_name or "").strip().upper()
+    return upper.startswith("CN_C_ID") or upper.startswith("CN_F_ID")
+
 def _display_color_for_layer(doc, layer_name, aci=None, true_color=None):
     # Cable colors carry field meaning (especially coax power state), so cable
     # layers must keep the original CAD color without brightness substitution.
@@ -760,10 +765,11 @@ def _lod_group(ent):
     layer = str(ent.layer or "").strip()
     u = layer.upper()
 
-    # 0: 시군구 + 광케이블
+    # 0: 시군구 + 모든 케이블
+    # 케이블은 네트워크의 기준 선형이므로 전체보기부터 항상 표시한다.
     if u == "TL_SCCO_SIG":
         return 0
-    if _is_optical_cable_layer(layer):
+    if _is_cable_layer(layer):
         return 0
 
     # 1: 셀경계
@@ -782,9 +788,7 @@ def _lod_group(ent):
     if u == "TL_SPRD_RW":
         return 4
 
-    # 5: 동축케이블
-    if u.startswith("CN_C_CABLE_"):
-        return 5
+    # 5: reserved (동축케이블은 0단계에서 이미 표시)
 
     # 6: 증폭기
     if u.startswith("CN_C_AMP") or ("AMP" in u and u.startswith("CN_C_")):
@@ -825,15 +829,9 @@ def _lod_group(ent):
 
     # 13: reserved intermediate stage
 
-    # 14: final text/ID stage
-    # All ID annotations stay with general text at the deepest zoom.
-    if (
-        u.startswith("CN_F_ID")
-        or u.startswith("CN_C_ID")
-        or u.startswith("CN_L_POLE_ID")
-        or u.startswith("CN_POLE_ID")
-    ):
-        return 14
+    # 14: final text stage
+    # 장비/케이블 ID(CN_C_ID*, CN_F_ID*)는 redraw에서 표시하지 않는다.
+    # 전주 ID/전주 정보는 유지한다.
     return 14
 def _zoom_lod(viewer):
     # Determine the current LOD directly from actual magnification.
@@ -1317,6 +1315,10 @@ class DXFViewer(ttk.Frame):
                 continue
             ent = self.scene.entities[idx]
             if self.entity_filter is not None and ent.index not in self.entity_filter:
+                continue
+            # 장비/케이블 ID 레이어는 도면 가독성을 해치므로 화면에는 표시하지 않는다.
+            # 전주 번호/전주 정보 레이어는 현장 식별에 필요하므로 제외하지 않는다.
+            if _is_device_id_layer(ent.layer):
                 continue
             if ent.layer not in self.visible_layers:
                 continue
