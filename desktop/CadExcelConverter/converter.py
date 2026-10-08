@@ -9,13 +9,6 @@ from typing import Callable
 
 import ezdxf
 from ezdxf import recover
-
-# Proxy cable geometry is stored as DXF 310 proxy graphics.
-# Keep it loaded so ACAD_PROXY_ENTITY.virtual_entities() can reconstruct lines.
-try:
-    ezdxf.options.load_proxy_graphics = True
-except Exception:
-    pass
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
