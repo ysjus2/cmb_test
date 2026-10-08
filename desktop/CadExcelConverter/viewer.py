@@ -43,12 +43,10 @@ class Scene:
     grid: dict = field(default_factory=dict)
     grid_n: int = 96
     large_entities: list = field(default_factory=list)
-    cable_entities: list = field(default_factory=list)
 
     def build_index(self):
         self.grid = {}
         self.large_entities = []
-        self.cable_entities = []
         if not self.entities:
             return
         minx, miny, maxx, maxy = self.bbox
@@ -56,9 +54,6 @@ class Scene:
         dy = max(maxy-miny, 1e-9)
         n = max(16, int(self.grid_n))
         for ent in self.entities:
-            layer_u = str(ent.layer or "").upper()
-            if _is_optical_cable_layer(ent.layer) or layer_u.startswith("CN_C_CABLE_"):
-                self.cable_entities.append(ent.index)
             b = ent.bbox
             if b is None:
                 continue
@@ -73,10 +68,6 @@ class Scene:
             for ix in range(ix1, ix2+1):
                 for iy in range(iy1, iy2+1):
                     self.grid.setdefault((ix,iy), []).append(ent.index)
-
-    @staticmethod
-    def _bbox_intersects(a, b):
-        return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
 
     def query(self, bbox):
         if not self.grid:
@@ -93,15 +84,6 @@ class Scene:
         for ix in range(ix1, ix2+1):
             for iy in range(iy1, iy2+1):
                 found.update(self.grid.get((ix,iy), ()))
-
-        # Cable continuity is visually critical. Always merge optical/coax
-        # cables intersecting the current viewport even if a spatial grid
-        # boundary or extreme drawing extent would otherwise miss them.
-        for idx in self.cable_entities:
-            if 0 <= idx < len(self.entities):
-                b = self.entities[idx].bbox
-                if b is not None and self._bbox_intersects(b, bbox):
-                    found.add(idx)
         return found
 
 def _expand_bbox(box, x, y):
@@ -1254,23 +1236,32 @@ class DXFViewer(ttk.Frame):
             x1, y1 = self.screen_to_world(0, self.canvas.winfo_height())
             x2, y2 = self.screen_to_world(self.canvas.winfo_width(), 0)
             viewport = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
-            indices = self.scene.query(viewport)
+            candidates = self.scene.query(viewport)
             lod = _zoom_lod(self)
+
+            # Decide the current stage first, then render every stage from
+            # 0 through that stage in order. Zoom thresholds may be skipped,
+            # but display stages are never skipped or replaced.
+            stage_indices = [[] for _ in range(lod + 1)]
+            for idx in candidates:
+                if 0 <= idx < len(self.scene.entities):
+                    group = _lod_group(self.scene.entities[idx])
+                    if 0 <= group <= lod:
+                        stage_indices[group].append(idx)
+            indices = [
+                idx
+                for group in range(lod + 1)
+                for idx in sorted(stage_indices[group])
+            ]
         else:
             # v3.29 network extraction mode keeps its exact route/pipe filter.
-            indices = self.entity_filter
+            indices = sorted(self.entity_filter)
             lod = 99
 
         for idx in indices:
             if idx < 0 or idx >= len(self.scene.entities):
                 continue
             ent = self.scene.entities[idx]
-            if self.entity_filter is None:
-                # Cumulative LOD: if current view is stage N, show every
-                # configured group from 0 through N. Only wheel thresholds may
-                # be skipped; earlier content must never disappear.
-                if _lod_group(ent) > lod:
-                    continue
             if self.entity_filter is not None and ent.index not in self.entity_filter:
                 continue
             if ent.layer not in self.visible_layers:
