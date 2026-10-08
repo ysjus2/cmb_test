@@ -14,6 +14,7 @@ from ezdxf.colors import aci2rgb
 from pyproj import Transformer
 
 from converter import load_dxf_document
+from essenpoly_recovery import recover_essenpoly_polylines
 
 @dataclass
 class VisualEntity:
@@ -495,6 +496,49 @@ def build_scene(input_path, log=None, progress=None):
         if i + 1 == total or (i + 1) % max(1, total // 100) == 0:
             progress(10 + int((i + 1) / total * 88), f"Viewer 객체 준비 {i+1:,}/{total:,}")
 
+    # Recover proprietary ESSENPOLY linework directly from the original ASCII DXF.
+    # Fiber/coax cable in production CMB drawings is often stored as ESSENPOLY,
+    # which ezdxf cannot render as normal geometry.
+    existing_handles={e.handle for e in entities if e.handle}
+    try:
+        recovered=recover_essenpoly_polylines(input_path)
+        added=0
+        for item in recovered:
+            handle=str(item.get("handle","") or "")
+            if handle and handle in existing_handles:
+                continue
+            pts=[(float(x),float(y)) for x,y in (item.get("points") or [])]
+            if len(pts) < 2:
+                continue
+            layer=str(item.get("layer","0") or "0")
+            box=_points_bbox(pts)
+            scene_box=_merge_bbox(scene_box,box)
+            meta=dict(item.get("attributes") or {})
+            xmap=item.get("xdata") or {}
+            xdata=[(str(k),[str(v) for v in vals]) for k,vals in xmap.items() if vals]
+            pole_info=_extract_pole_info(meta,xdata,{},"","")
+            idx=len(entities)
+            entities.append(VisualEntity(
+                index=idx,
+                entity_type="ESSENPOLY",
+                layer=layer,
+                handle=handle,
+                primitives=[("polyline",pts)],
+                bbox=tuple(box) if box else None,
+                color="#d4d7dc",
+                attributes=meta,
+                xdata=xdata,
+                dxf_data={"recovered":"ESSENPOLY"},
+                pole_info=pole_info,
+            ))
+            if handle:
+                existing_handles.add(handle)
+            added+=1
+        if added:
+            log(f"Viewer ESSENPOLY 선로 복구 {added:,}개")
+    except Exception as exc:
+        log(f"Viewer ESSENPOLY 복구 생략: {exc}")
+
     if scene_box is None:
         scene_box = [0.0, 0.0, 1.0, 1.0]
     if scene_box[0] == scene_box[2]:
@@ -868,27 +912,34 @@ class DXFViewer(ttk.Frame):
 
     def _lod_level(self):
         ratio=self.scale/max(self.fit_scale,1e-12)
-        if ratio < 1.8: return 0
-        if ratio < 3.8: return 1
-        if ratio < 8.0: return 2
-        if ratio < 18.0: return 3
-        return 4
+        # Deliberately wide zoom bands so information appears progressively,
+        # not all at once.
+        if ratio < 2.5: return 0   # map/admin only
+        if ratio < 5.0: return 1   # + fiber / cell outline
+        if ratio < 10.0: return 2  # + coax / equipment
+        if ratio < 20.0: return 3  # + poles/manholes
+        if ratio < 40.0: return 4  # + road boundary
+        return 5                   # + TEXT/MTEXT only at very large zoom
 
     @staticmethod
     def _entity_lod_visible(ent,lod):
-        # 5-step fast rendering:
-        # 0 행정경계
-        # 1 +광케이블
-        # 2 +셀테두리
-        # 3 +동축/기기 + 전주
-        # 4 +도로경계 + TEXT/MTEXT
         category=_layer_category(ent)
+        # category 1 admin/map
+        # category 2 fiber
+        # category 3 cell
+        # category 4 coax/equipment
+        # category 5 pole/manhole
+        # category 6 road or text: split by entity type
         if category == 1: return True
         if category == 2: return lod >= 1
-        if category == 3: return lod >= 2
-        if category in {4,5}: return lod >= 3
-        if category == 6: return lod >= 4
-        return lod >= 3
+        if category == 3: return lod >= 1
+        if category == 4: return lod >= 2
+        if category == 5: return lod >= 3
+        if category == 6:
+            if (ent.entity_type or "").upper() in {"TEXT","MTEXT"}:
+                return lod >= 5
+            return lod >= 4
+        return False
 
     def redraw(self):
         c = self.canvas
@@ -916,7 +967,7 @@ class DXFViewer(ttk.Frame):
 
         # At map-scale zoom, cap the number of rendered entities. As the user
         # zooms in the spatial query naturally becomes smaller and detail grows.
-        caps={0:8000,1:14000,2:22000,3:42000,4:65000}
+        caps={0:6000,1:10000,2:18000,3:28000,4:40000,5:55000}
         cap=caps[lod]
         if len(candidate_ids)>cap:
             step=max(1,len(candidate_ids)//cap)
@@ -934,7 +985,7 @@ class DXFViewer(ttk.Frame):
             for kind, data in ent.primitives:
                 # Text primitives are deliberately the last LOD and are only
                 # reached for entities returned by the current viewport index.
-                if kind=="text" and lod < 4:
+                if kind=="text" and lod < 5:
                     continue
                 try:
                     if kind in {"line", "polyline"}:
@@ -978,11 +1029,12 @@ class DXFViewer(ttk.Frame):
                 self.entity_items[ent.index] = ids
 
         stage_labels={
-            0:"행정경계",
-            1:"행정경계 + 광케이블",
-            2:"행정경계 + 광케이블 + 셀테두리",
-            3:"동축/기기 + 전주",
-            4:"도로경계 + TEXT(화면내)",
+            0:"지도/행정경계",
+            1:"광케이블 + 셀테두리",
+            2:"동축케이블 + 기기",
+            3:"전주/맨홀",
+            4:"도로경계",
+            5:"최대확대 + TEXT(현재 화면만)",
         }
         self.status_var.set(
             f"화면 객체 {drawn:,}/{len(candidate_ids):,} · {stage_labels.get(lod,'상세')}"
