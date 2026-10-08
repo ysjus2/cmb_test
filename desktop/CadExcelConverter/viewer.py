@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import math
 import re
+import hashlib
+import os
+import pickle
+import tempfile
 import tkinter as tk
 from dataclasses import dataclass, field
 from tkinter import ttk, messagebox
@@ -36,6 +40,51 @@ class Scene:
     bbox: tuple
     unsupported: dict
     diagnostics: list = field(default_factory=list)
+    grid: dict = field(default_factory=dict)
+    grid_n: int = 96
+    large_entities: list = field(default_factory=list)
+
+    def build_index(self):
+        self.grid = {}
+        self.large_entities = []
+        if not self.entities:
+            return
+        minx, miny, maxx, maxy = self.bbox
+        dx = max(maxx-minx, 1e-9)
+        dy = max(maxy-miny, 1e-9)
+        n = max(16, int(self.grid_n))
+        for ent in self.entities:
+            b = ent.bbox
+            if b is None:
+                continue
+            ix1 = max(0, min(n-1, int((b[0]-minx)/dx*n)))
+            iy1 = max(0, min(n-1, int((b[1]-miny)/dy*n)))
+            ix2 = max(0, min(n-1, int((b[2]-minx)/dx*n)))
+            iy2 = max(0, min(n-1, int((b[3]-miny)/dy*n)))
+            cells = (ix2-ix1+1)*(iy2-iy1+1)
+            if cells > 48:
+                self.large_entities.append(ent.index)
+                continue
+            for ix in range(ix1, ix2+1):
+                for iy in range(iy1, iy2+1):
+                    self.grid.setdefault((ix,iy), []).append(ent.index)
+
+    def query(self, bbox):
+        if not self.grid:
+            self.build_index()
+        minx, miny, maxx, maxy = self.bbox
+        dx = max(maxx-minx, 1e-9)
+        dy = max(maxy-miny, 1e-9)
+        n = max(16, int(self.grid_n))
+        ix1 = max(0, min(n-1, int((bbox[0]-minx)/dx*n)))
+        iy1 = max(0, min(n-1, int((bbox[1]-miny)/dy*n)))
+        ix2 = max(0, min(n-1, int((bbox[2]-minx)/dx*n)))
+        iy2 = max(0, min(n-1, int((bbox[3]-miny)/dy*n)))
+        found = set(self.large_entities)
+        for ix in range(ix1, ix2+1):
+            for iy in range(iy1, iy2+1):
+                found.update(self.grid.get((ix,iy), ()))
+        return found
 
 def _expand_bbox(box, x, y):
     if box is None:
@@ -608,6 +657,132 @@ def build_scene(input_path, log=None, progress=None):
     geometry_issues = [issue for issue in geometry_issues if not (issue['type'] in {'ESSENPOLY', 'ASDKESSENLINKER'} and issue['handle'] in repaired)]
     return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
+
+CACHE_VERSION = "v329-fast-local-1"
+
+def _cache_dir():
+    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+    root = os.path.join(base, "CMB_DXF_Viewer", "cache")
+    os.makedirs(root, exist_ok=True)
+    return root
+
+def _cache_file(path):
+    key = hashlib.sha256(os.path.abspath(path).encode("utf-8", "ignore")).hexdigest()
+    return os.path.join(_cache_dir(), key + ".pkl")
+
+def _cache_signature(path):
+    st = os.stat(path)
+    return (CACHE_VERSION, os.path.abspath(path), int(st.st_size), int(st.st_mtime_ns))
+
+_original_build_scene = build_scene
+
+def build_scene(input_path, log=None, progress=None):
+    log = log or (lambda msg: None)
+    progress = progress or (lambda percent, task: None)
+    cp = _cache_file(str(input_path))
+    sig = _cache_signature(str(input_path))
+    try:
+        if os.path.exists(cp):
+            with open(cp, "rb") as f:
+                payload = pickle.load(f)
+            if payload.get("sig") == sig:
+                scene = payload.get("scene")
+                if scene is not None:
+                    scene.build_index()
+                    log("CMB 캐시 사용")
+                    progress(100, "캐시 로딩 완료")
+                    return scene
+    except Exception as exc:
+        log(f"캐시 읽기 생략: {exc}")
+    scene = _original_build_scene(input_path, log=log, progress=progress)
+    scene.build_index()
+    try:
+        tmp = cp + ".tmp"
+        with open(tmp, "wb") as f:
+            pickle.dump({"sig": sig, "scene": scene}, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, cp)
+        log("CMB 캐시 저장 완료")
+    except Exception as exc:
+        log(f"캐시 저장 생략: {exc}")
+    return scene
+
+def _lod_group(ent):
+    layer = str(ent.layer or "")
+    u = layer.upper()
+
+    # 0: first view = terrain/region + fiber cable
+    if u in {"TL_SCCO_SIG","TL_SCCO_EMD","TL_SCCO_END","TL_SCCO_LI"}:
+        return 0
+    if _is_optical_cable_layer(layer):
+        return 0
+
+    # 1: cell
+    if u.startswith("CN_C_CELLBOUND") or u.startswith("CN_C_ID_CELL") or u.startswith("CN_C_CELLNO"):
+        return 1
+
+    # 2: coax
+    if u.startswith("CN_C_CABLE_"):
+        return 2
+
+    # 3: equipment
+    if u.startswith((
+        "CN_C_ONU","CN_C_POWER","CN_C_AMP","CN_C_TAP","CN_C_PASSIVE",
+        "CN_C_CONNECTOR","CN_C_ID_ACTIVE","CN_C_ID_TAP","CN_C_ID_PASSIVE",
+        "CN_C_ID_DROP","CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL","CN_F_ID_"
+    )):
+        return 3
+
+    # 4: road
+    if u == "TL_SPRD_RW":
+        return 4
+
+    # 5: building group only
+    if layer == "건물_건물군":
+        return 5
+
+    # 6: poles/manholes - intentionally much later
+    if (
+        u.startswith("CN_L_POLE_POLE")
+        or u.startswith("CN_L_POLE_ID")
+        or u.startswith("CN_L_POLE_MANHOLE")
+        or u.startswith("CN_L_POLE_HANDHOLE")
+        or u == "CN_L_POLE"
+    ):
+        return 6
+
+    # 7: conduit/aerial
+    if u.startswith("CN_L_POLE_LINE_"):
+        return 7
+
+    # 8: remaining buildings
+    if layer.startswith("건물_") or u.startswith("CN_M_USER_BUILDING"):
+        return 8
+
+    # 9: parcel number/text
+    if layer == "지번":
+        return 9
+
+    # Generic background geometry appears with building group.
+    if not u.startswith("CN_"):
+        return 5
+    return 8
+
+def _zoom_lod(viewer):
+    fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
+    ratio = viewer.scale / fit
+    if ratio < 1.8: return 0
+    if ratio < 3.2: return 1
+    if ratio < 5.2: return 2
+    if ratio < 8.0: return 3
+    if ratio < 12.0: return 4
+    if ratio < 20.0: return 5
+    # Big gap after building group: poles stay hidden until far deeper zoom.
+    if ratio < 48.0: return 5
+    if ratio < 70.0: return 6
+    if ratio < 95.0: return 7
+    if ratio < 125.0: return 8
+    return 9
+
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
@@ -618,6 +793,7 @@ class DXFViewer(ttk.Frame):
         self.route_start_marker = None
         self.visible_layers = set()
         self.scale = 1.0
+        self.fit_scale = 1.0
         self.ox = 0.0
         self.oy = 0.0
         self.item_to_entity = {}
@@ -970,6 +1146,7 @@ class DXFViewer(ttk.Frame):
         # 화면 가장자리와 도면 사이에 약간의 여백을 둔다.
         margin = 36
         self.scale = max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
+        self.fit_scale = self.scale
         cx, cy = (minx+maxx)/2, (miny+maxy)/2
         self.ox = w/2 - cx*self.scale
         self.oy = h/2 + cy*self.scale
@@ -984,7 +1161,23 @@ class DXFViewer(ttk.Frame):
         if not self.scene:
             c.create_text(30, 30, anchor="nw", fill="#b7c0cc", text="DXF 파일을 열어주세요.", font=("Malgun Gothic", 14))
             return
-        for ent in self.scene.entities:
+        if self.entity_filter is None:
+            x1, y1 = self.screen_to_world(0, self.canvas.winfo_height())
+            x2, y2 = self.screen_to_world(self.canvas.winfo_width(), 0)
+            viewport = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
+            indices = self.scene.query(viewport)
+            lod = _zoom_lod(self)
+        else:
+            # v3.29 network extraction mode keeps its exact route/pipe filter.
+            indices = self.entity_filter
+            lod = 99
+
+        for idx in indices:
+            if idx < 0 or idx >= len(self.scene.entities):
+                continue
+            ent = self.scene.entities[idx]
+            if self.entity_filter is None and _lod_group(ent) > lod:
+                continue
             if self.entity_filter is not None and ent.index not in self.entity_filter:
                 continue
             if ent.layer not in self.visible_layers:
