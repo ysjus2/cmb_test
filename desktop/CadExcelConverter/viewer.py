@@ -605,15 +605,18 @@ def build_scene(input_path, log=None, progress=None):
 
         target = by_handle.get(item.get("handle", ""))
         if target is not None and not target.primitives:
+            missing_type = target.entity_type
             target.layer = layer
             target.primitives = [("polyline", points)]
             target.bbox = tuple(box)
             target.color = color
             target.attributes.update(item.get("attributes", {}))
-            if unsupported.get("ESSENPOLY", 0) > 0:
-                unsupported["ESSENPOLY"] -= 1
-                if unsupported["ESSENPOLY"] <= 0:
-                    unsupported.pop("ESSENPOLY", None)
+            # Remove the actual recovered entity type from unsupported counts.
+            # Production cable objects may be ESSENPOLY or ACAD proxy entities.
+            if unsupported.get(missing_type, 0) > 0:
+                unsupported[missing_type] -= 1
+                if unsupported[missing_type] <= 0:
+                    unsupported.pop(missing_type, None)
         elif target is None:
             idx = len(entities)
             entity = VisualEntity(
@@ -684,11 +687,17 @@ def build_scene(input_path, log=None, progress=None):
     progress(100, "Viewer 준비 완료")
     # Recovered custom objects are no longer missing geometry.
     repaired = {e.handle for e in entities if e.primitives}
-    geometry_issues = [issue for issue in geometry_issues if not (issue['type'] in {'ESSENPOLY', 'ASDKESSENLINKER'} and issue['handle'] in repaired)]
+    geometry_issues = [
+        issue for issue in geometry_issues
+        if not (
+            issue['type'] in {'ESSENPOLY', 'ACAD_PROXY', 'ACAD_PROXY_ENTITY', 'ASDKESSENLINKER'}
+            and issue['handle'] in repaired
+        )
+    ]
     return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
 
-CACHE_VERSION = "v329-fast-local-2"
+CACHE_VERSION = "v329-fast-local-3"
 
 def _cache_dir():
     base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
