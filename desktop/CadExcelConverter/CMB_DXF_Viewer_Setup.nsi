@@ -43,23 +43,23 @@ Function InstallerInfoPage
     Abort
   ${EndIf}
 
-  ${NSD_CreateLabel} 0 0 100% 26u "사내 업무용 소프트웨어 사용 확인"
+  ${NSD_CreateLabel} 0 0 100% 18u "사내 업무용 소프트웨어 사용 확인"
   Pop $0
 
-  ${NSD_CreateLabel} 0 28u 100% 58u "본 프로그램은 회사 내부 업무 목적으로만 제공됩니다.$\r$\n회사의 사전 승인 없이 설치파일, 실행파일 또는 관련 자료를 외부인·외부업체에 복사·전달·반출하는 것을 금지합니다.$\r$\n무단 반출 또는 제3자 제공 시 회사 내부 규정 및 관계 법령에 따른 책임이 발생할 수 있습니다."
+  ${NSD_CreateLabel} 0 20u 100% 46u "본 프로그램은 회사 내부 업무 목적으로만 제공됩니다.$\r$\n회사의 사전 승인 없이 설치파일·실행파일·관련 자료를 외부에 복사·전달·반출하는 것을 금지합니다.$\r$\n무단 반출 또는 제3자 제공 시 회사 내부 규정 및 관계 법령에 따른 책임이 발생할 수 있습니다."
   Pop $0
 
-  ${NSD_CreateLabel} 0 92u 28% 12u "사용자명(성명)"
+  ${NSD_CreateLabel} 0 72u 28% 12u "사용자명(성명)"
   Pop $0
-  ${NSD_CreateText} 30% 90u 68% 12u "$InstallerName"
+  ${NSD_CreateText} 30% 70u 68% 14u "$InstallerName"
   Pop $NameField
 
-  ${NSD_CreateLabel} 0 112u 28% 12u "부서명"
+  ${NSD_CreateLabel} 0 94u 28% 12u "부서명"
   Pop $0
-  ${NSD_CreateText} 30% 110u 68% 12u "$InstallerDept"
+  ${NSD_CreateText} 30% 92u 68% 14u "$InstallerDept"
   Pop $DeptField
 
-  ${NSD_CreateCheckbox} 0 136u 100% 24u "위 내용을 확인하였으며 사내 업무 목적으로만 사용하고 외부 반출 금지 의무를 준수하겠습니다."
+  ${NSD_CreateCheckbox} 0 118u 100% 30u "외부 반출 금지 고지 내용을 확인했으며 이에 동의합니다."
   Pop $ConsentCheckbox
   ${If} $InstallerConsent == "1"
     ${NSD_Check} $ConsentCheckbox
