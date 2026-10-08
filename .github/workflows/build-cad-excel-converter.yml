@@ -93,57 +93,9 @@ jobs:
           Stop-Process -Id $proc.Id -Force
           Write-Host "PASS: local DXF mode launched and remained alive for 8 seconds"
 
-      - name: Prepare exact license notice for installer
-        shell: powershell
-        run: |
-          $exeHash = (Get-FileHash "dist\CMB_Network.exe" -Algorithm SHA256).Hash
-          $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
-          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nApp EXE SHA-256: $exeHash`r`nRuntime policy: Windows 10/11 UCRT/API-set DLLs use OS copies; VC++ v14 x64 Runtime is checked by Setup and installed from Microsoft's official Redistributable when missing.`r`n"
-          Set-Content -Path "THIRD_PARTY_LICENSES_BUILD.txt" -Value ($notice + $identity) -Encoding UTF8
-          Copy-Item "THIRD_PARTY_LICENSES_BUILD.txt" "THIRD_PARTY_LICENSES.txt" -Force
-
-      - name: Install NSIS
-        shell: powershell
-        run: choco install nsis -y --no-progress
-
-      - name: Build single installer EXE
-        shell: powershell
-        run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" /INPUTCHARSET UTF8 "CMB_DXF_Viewer_Setup.nsi"
-          if (-not (Test-Path "CMB_Network_Setup.exe")) { throw "Setup EXE was not created" }
-          Get-FileHash "CMB_Network_Setup.exe" -Algorithm SHA256 | Format-List
-
-      - name: Validate installer registration and shortcuts
-        shell: powershell
-        run: |
-          $p = Start-Process -FilePath ".\CMB_Network_Setup.exe" -ArgumentList '/S' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "Silent installer failed: $($p.ExitCode)" }
-          $installDir = "$env:ProgramFiles\CMB_Network"
-          if (-not (Test-Path "$installDir\CMB_Network.exe")) { throw "Installed EXE missing" }
-          if (-not (Test-Path "$installDir\Uninstall.exe")) { throw "Uninstall.exe missing" }
-          if (-not (Test-Path "$installDir\THIRD_PARTY_LICENSES.txt")) { throw "License notice missing" }
-          if (-not (Test-Path "$installDir\cmb_dev_ca.crt")) { throw "CMB CA certificate missing" }
-          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2("$installDir\cmb_dev_ca.crt")
-          $root = Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq $cert.Thumbprint
-          if (-not $root) { throw "CMB Development CA was not installed in LocalMachine Root" }
-          if (-not (Test-Path "$env:PUBLIC\Desktop\CMB Network PC.lnk") -and -not (Test-Path "$env:USERPROFILE\Desktop\CMB Network PC.lnk")) { throw "Desktop shortcut missing" }
-          $startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\CMB Network PC\CMB Network PC.lnk'
-          if (-not (Test-Path $startMenu)) { throw "Start menu shortcut missing" }
-          $uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\CMB_Network'
-          if (-not (Test-Path $uninstallKey)) { throw "Windows uninstall registration missing" }
-          $u = Get-ItemProperty $uninstallKey
-          if ($u.DisplayName -ne 'CMB Network PC') { throw "Unexpected uninstall DisplayName" }
-          Write-Host "PASS: installer, shortcuts and Windows uninstall registration verified"
-
-      - name: Uninstall validation install
-        shell: powershell
-        run: |
-          $uninstaller = "$env:ProgramFiles\CMB_Network\Uninstall.exe"
-          if (Test-Path $uninstaller) { Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait }
-
-      - name: Upload installer
+      - name: Upload portable executable
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Network-PC-Setup-Windows-x64
-          path: desktop/CadExcelConverter/CMB_Network_Setup.exe
+          name: CMB-Network-PC-Portable-Windows-x64
+          path: desktop/CadExcelConverter/dist/CMB_Network.exe
           if-no-files-found: error
