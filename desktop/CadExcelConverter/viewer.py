@@ -783,22 +783,26 @@ def _zoom_lod(viewer):
     fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
     ratio = viewer.scale / fit
 
-    # Every display stage advances after exactly 5 wheel notches.
+    # Up to coax cable: keep 5-wheel spacing.
     step5 = 1.15 ** 5
     if ratio < step5 ** 1: return 0
     if ratio < step5 ** 2: return 1
     if ratio < step5 ** 3: return 2
     if ratio < step5 ** 4: return 3
     if ratio < step5 ** 5: return 4
-    if ratio < step5 ** 6: return 5
-    if ratio < step5 ** 7: return 6
-    if ratio < step5 ** 8: return 7
-    if ratio < step5 ** 9: return 8
-    if ratio < step5 ** 10: return 9
-    if ratio < step5 ** 11: return 10
-    if ratio < step5 ** 12: return 11
-    if ratio < step5 ** 13: return 12
-    if ratio < step5 ** 14: return 13
+
+    # From coax cable onward: advance every 2 wheel notches.
+    base = step5 ** 5
+    step2 = 1.15 ** 2
+    if ratio < base * step2 ** 1: return 5
+    if ratio < base * step2 ** 2: return 6
+    if ratio < base * step2 ** 3: return 7
+    if ratio < base * step2 ** 4: return 8
+    if ratio < base * step2 ** 5: return 9
+    if ratio < base * step2 ** 6: return 10
+    if ratio < base * step2 ** 7: return 11
+    if ratio < base * step2 ** 8: return 12
+    if ratio < base * step2 ** 9: return 13
     return 14
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
