@@ -780,7 +780,9 @@ def _lod_group(ent):
     # 14: 나머지 전체 / TEXT 포함
     return 14
 def _zoom_lod(viewer):
-    fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
+    # LOD follows the actual on-screen magnification against a stable
+    # full-drawing reference. Smart fit / reset view must not restart LOD at 1x.
+    fit = max(float(getattr(viewer, "lod_reference_scale", getattr(viewer, "fit_scale", 1.0))), 1e-12)
     ratio = viewer.scale / fit
 
     # Up to coax cable: keep 5-wheel spacing.
@@ -815,6 +817,7 @@ class DXFViewer(ttk.Frame):
         self.visible_layers = set()
         self.scale = 1.0
         self.fit_scale = 1.0
+        self.lod_reference_scale = 1.0
         self.ox = 0.0
         self.oy = 0.0
         self.item_to_entity = {}
@@ -917,6 +920,10 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
+        # Stable reference for LOD: exact full drawing fit before smart/cropped view.
+        # This lets LOD reflect the actual visual magnification even when the
+        # initial view is automatically zoomed into the dominant drawing area.
+        self.lod_reference_scale = self._bbox_fit_scale(scene.bbox, margin=36)
         self.fit_initial_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
@@ -1155,14 +1162,22 @@ class DXFViewer(ttk.Frame):
         maxy = max(b[3] for b in boxes)
         return (minx, miny, maxx, maxy)
 
+    def _bbox_fit_scale(self, bbox, margin=36):
+        if not bbox:
+            return 1.0
+        self.update_idletasks()
+        w, h = max(100, self.canvas.winfo_width()), max(100, self.canvas.winfo_height())
+        minx, miny, maxx, maxy = bbox
+        dx, dy = max(maxx-minx, 1e-9), max(maxy-miny, 1e-9)
+        return max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
+
     def _apply_fit_bbox(self, bbox, margin=36, zoom_factor=1.0):
         if not self.scene or not bbox:
             return
         self.update_idletasks()
         w, h = max(100, self.canvas.winfo_width()), max(100, self.canvas.winfo_height())
         minx, miny, maxx, maxy = bbox
-        dx, dy = max(maxx-minx, 1e-9), max(maxy-miny, 1e-9)
-        self.scale = max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
+        self.scale = self._bbox_fit_scale(bbox, margin)
         self.scale *= max(0.1, float(zoom_factor))
         cx, cy = (minx+maxx)/2, (miny+maxy)/2
         self.ox = w/2 - cx*self.scale
