@@ -5,6 +5,7 @@ import os
 import ssl
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -85,13 +86,12 @@ class CMBServerClient:
     def dataset_layers(self, dataset_id):
         return self._request("GET", f"/datasets/{dataset_id}/layers")
 
-    def dataset_objects(self, dataset_id):
-        # The server object endpoint requires a bbox query.
-        # The browser uses a world bbox and a bounded first page for inspection.
-        path = (
-            f"/datasets/{urllib.parse.quote(str(dataset_id))}/objects"
-            "?bbox=-180,-90,180,90&limit=200"
-        )
+    def dataset_objects(self, dataset_id, bbox):
+        # Server object queries are viewport-scoped and limited to a maximum
+        # geographic span. Callers must supply the current viewer bbox.
+        encoded_dataset = urllib.parse.quote(str(dataset_id))
+        encoded_bbox = urllib.parse.quote(str(bbox), safe=",.-")
+        path = f"/datasets/{encoded_dataset}/objects?bbox={encoded_bbox}&limit=200"
         return self._request("GET", path)
 
 
