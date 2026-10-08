@@ -86,7 +86,13 @@ class CMBServerClient:
         return self._request("GET", f"/datasets/{dataset_id}/layers")
 
     def dataset_objects(self, dataset_id):
-        return self._request("GET", f"/datasets/{dataset_id}/objects")
+        # The server object endpoint requires a bbox query.
+        # The browser uses a world bbox and a bounded first page for inspection.
+        path = (
+            f"/datasets/{urllib.parse.quote(str(dataset_id))}/objects"
+            "?bbox=-180,-90,180,90&limit=200"
+        )
+        return self._request("GET", path)
 
 
     def list_users(self, query: str = ""):
