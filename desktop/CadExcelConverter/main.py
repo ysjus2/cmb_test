@@ -385,17 +385,20 @@ class App(NetworkExtractionMixin, tk.Tk):
 
         def worker():
             try:
-                layers = scan_layers(
-                    inp,
-                    None,
-                    log=lambda m: self.q.put(("log", m)),
-                    progress=lambda p, t: self.q.put(("progress", (int(p * 0.45), t))),
-                )
                 scene = build_scene(
                     inp,
                     log=lambda m: self.q.put(("log", m)),
-                    progress=lambda p, t: self.q.put(("progress", (45 + int(p * 0.55), t))),
+                    progress=lambda p, t: self.q.put(("progress", (int(p), t))),
                 )
+                counts = {}
+                types = {}
+                for ent in scene.entities:
+                    counts[ent.layer] = counts.get(ent.layer, 0) + 1
+                    types.setdefault(ent.layer, set()).add(ent.entity_type)
+                layers = [
+                    LayerInfo(name, counts[name], ", ".join(sorted(types[name])))
+                    for name in sorted(counts, key=str.lower)
+                ]
                 self.q.put(("loaded", (layers, scene)))
             except Exception as e:
                 self.q.put(("error", str(e)))
