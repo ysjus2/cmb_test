@@ -101,6 +101,15 @@ jobs:
           Stop-Process -Id $proc.Id -Force
           Write-Host "PASS: app launched and remained alive for 8 seconds"
 
+      - name: Launch local DXF mode smoke test
+        shell: powershell
+        run: |
+          $proc = Start-Process -FilePath "dist\CMB_Network.exe" -ArgumentList '--local-dxf' -PassThru
+          Start-Sleep -Seconds 8
+          if ($proc.HasExited) { throw "Local DXF mode exited during smoke test. ExitCode=$($proc.ExitCode)" }
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "PASS: local DXF mode launched and remained alive for 8 seconds"
+
       - name: Prepare exact license notice for installer
         shell: powershell
         run: |
