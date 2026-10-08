@@ -7,8 +7,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from converter import convert_selected_layers, scan_layers
-from viewer import DXFViewer, build_scene
+from converter import convert_selected_layers
+from viewer import DXFViewer, build_scene_cached, layer_info_from_scene
 
 APP_NAME = "CMB DXF Viewer + Excel v3.6"
 
@@ -236,18 +236,16 @@ class App(tk.Tk):
 
         def worker():
             try:
-                layers = scan_layers(
-                    inp,
-                    None,
-                    log=lambda m: self.q.put(("log", m)),
-                    progress=lambda p, t: self.q.put(("progress", (int(p * 0.45), t))),
-                )
-                scene = build_scene(
+                # Viewer parsing is now single-pass. The first open creates a
+                # binary CMB cache; later opens reuse it and avoid reparsing DXF.
+                scene, cache_hit = build_scene_cached(
                     inp,
                     log=lambda m: self.q.put(("log", m)),
-                    progress=lambda p, t: self.q.put(("progress", (45 + int(p * 0.55), t))),
+                    progress=lambda p, t: self.q.put(("progress", (p, t))),
+                    force=False,
                 )
-                self.q.put(("loaded", (layers, scene)))
+                layers = layer_info_from_scene(scene)
+                self.q.put(("loaded", (layers, scene, cache_hit)))
             except Exception as e:
                 self.q.put(("error", str(e)))
 
@@ -404,7 +402,7 @@ class App(tk.Tk):
                 elif kind == "progress":
                     self._set_progress(data[0], data[1])
                 elif kind == "loaded":
-                    layers, scene = data
+                    layers, scene, cache_hit = data
                     for i, layer in enumerate(layers):
                         iid = f"L{i}"
                         self.layer_names[iid] = layer.name
@@ -418,7 +416,9 @@ class App(tk.Tk):
                     self.scan_btn.config(state="normal")
                     self.run_btn.config(state="normal" if layers else "disabled")
                     self._update_status()
-                    self._set_progress(100, f"DXF Viewer 준비 완료 · 객체 {len(scene.entities):,}개")
+                    source = "CMB 캐시" if cache_hit else "DXF 최초 분석/캐시 생성"
+                    self._set_progress(100, f"{source} 완료 · 객체 {len(scene.entities):,}개")
+                    self.status_var.set(f"{source} · 레이어 {len(layers)}개 · 객체 {len(scene.entities):,}개")
                     self.after(450, self._hide_progress)
                     if scene.unsupported:
                         text = ", ".join(f"{k}:{v}" for k, v in sorted(scene.unsupported.items()))
