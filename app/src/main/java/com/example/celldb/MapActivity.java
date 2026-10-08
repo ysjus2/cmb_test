@@ -227,27 +227,34 @@ public class MapActivity extends Activity {
     }
 
     private void layoutMapScreen(){
-        for(android.view.View view:new android.view.View[]{header,settingsPanel,status,connectionStatus,regionStatus,mapArea,mapAttribution,connectionBadge})detach(view);
-        mapScreen.removeAllViews();settingsPanel.setVisibility(android.view.View.GONE);
-        if(landscape()){
-            mapScreen.setOrientation(LinearLayout.HORIZONTAL);
-            LinearLayout rail=new LinearLayout(this);rail.setOrientation(LinearLayout.VERTICAL);
-            header.setText("설정\n▶");header.setTextSize(13);header.setGravity(Gravity.CENTER);header.setPadding(dp(4),dp(12),dp(4),dp(12));
-            rail.addView(header,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));
-            connectionBadge.setTextColor(connectionStatus.getCurrentTextColor());rail.addView(connectionBadge);
-            mapScreen.addView(rail,new LinearLayout.LayoutParams(dp(48),ViewGroup.LayoutParams.MATCH_PARENT));
-            settingsContent.addView(connectionStatus,0);settingsContent.addView(status,1);settingsContent.addView(regionStatus,2);
-            mapScreen.addView(settingsPanel,new LinearLayout.LayoutParams(Math.min(dp(300),(int)(getResources().getDisplayMetrics().widthPixels*0.4)),ViewGroup.LayoutParams.MATCH_PARENT));
-            LinearLayout drawing=new LinearLayout(this);drawing.setOrientation(LinearLayout.VERTICAL);
-            drawing.addView(mapArea,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));drawing.addView(mapAttribution);
-            mapScreen.addView(drawing,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.MATCH_PARENT,1));
-        }else{
+        // Keep the Kakao MapView in the same parent for the lifetime of the Activity.
+        // Re-parenting its rendering surface during rotation can leave a black map.
+        if(mapArea.getParent()!=mapScreen){
+            for(android.view.View view:new android.view.View[]{header,settingsPanel,status,connectionStatus,regionStatus,mapArea,mapAttribution,connectionBadge})detach(view);
+            mapScreen.removeAllViews();
             mapScreen.setOrientation(LinearLayout.VERTICAL);
-            header.setText("CAD 서버 지도 · 설정 ▼");header.setTextSize(21);header.setGravity(Gravity.START);header.setPadding(dp(16),dp(12),dp(16),dp(12));
-            mapScreen.addView(header,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));mapScreen.addView(settingsPanel,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(250)));
-            mapScreen.addView(status);mapScreen.addView(connectionStatus);mapScreen.addView(regionStatus);
-            mapScreen.addView(mapArea,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));mapScreen.addView(mapAttribution);
+            mapScreen.addView(header,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+            mapScreen.addView(settingsPanel,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(250)));
+            mapScreen.addView(status);
+            mapScreen.addView(connectionStatus);
+            mapScreen.addView(regionStatus);
+            mapScreen.addView(mapArea,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1));
+            mapScreen.addView(mapAttribution);
         }
+
+        header.setText("CAD 서버 지도 · 설정 ▼");
+        header.setTextSize(landscape()?16:21);
+        header.setGravity(Gravity.START);
+        header.setPadding(dp(landscape()?10:16),dp(landscape()?6:12),dp(landscape()?10:16),dp(landscape()?6:12));
+
+        ViewGroup.LayoutParams panelParams=settingsPanel.getLayoutParams();
+        if(panelParams!=null){
+            panelParams.height=landscape()?Math.min(dp(180),(int)(getResources().getDisplayMetrics().heightPixels*0.38)):dp(250);
+            settingsPanel.setLayoutParams(panelParams);
+        }
+        settingsPanel.setVisibility(android.view.View.GONE);
+        mapArea.requestLayout();
+        mapArea.invalidate();
     }
 
     private void toggleSettingsPanel(){
@@ -259,10 +266,21 @@ public class MapActivity extends Activity {
     }
 
     @Override public void onConfigurationChanged(android.content.res.Configuration configuration){
-        super.onConfigurationChanged(configuration);layoutMapScreen();
-        if(server!=null&&mapReady){
-            viewportKey="";pendingViewportKey="";
-            map.getView().postDelayed(()->{if(!destroyed&&server!=null)showAll();},250);
+        super.onConfigurationChanged(configuration);
+        // Do not detach/re-attach the Kakao MapView on rotation.
+        layoutMapScreen();
+        map.getView().requestLayout();
+        map.getView().invalidate();
+        if(mapStarted){
+            map.getView().postDelayed(()->{
+                if(destroyed)return;
+                map.getView().requestLayout();
+                map.getView().invalidate();
+                if(server!=null&&mapReady){
+                    viewportKey="";pendingViewportKey="";
+                    showAll();
+                }
+            },250);
         }
     }
 
