@@ -817,7 +817,7 @@ class DXFViewer(ttk.Frame):
         button_frame = ttk.Frame(bar)
         button_frame.pack(side="left")
         for text, cmd in [
-            ("전체보기", self.fit_all_view),
+            ("전체보기", self.fit_initial_view),
             ("선택", lambda: self.set_mode("select")),
             ("거리 측정", lambda: self.set_mode("distance")),
             ("좌표 확인", lambda: self.set_mode("coord")),
@@ -1155,23 +1155,19 @@ class DXFViewer(ttk.Frame):
         self._apply_fit_bbox(bbox, margin=28, zoom_factor=1.15)
 
     def fit_all_view(self):
-        """Toolbar 전체보기: center the complete drawing extent in the canvas."""
+        """Exact complete drawing extent, kept only as an internal utility."""
         if not self.scene:
             return
-        # In an extraction filter, keep the selected route/pipe fitting behavior.
-        if self.entity_filter is not None:
-            bbox = self._visible_fit_bbox() or self.scene.bbox
-        else:
-            bbox = self.scene.bbox
+        bbox = self.scene.bbox
         self._apply_fit_bbox(bbox, margin=36, zoom_factor=1.0)
 
     def fit_view(self):
-        """Compatibility: extraction mode fits its current scope; otherwise exact full drawing."""
-        if self.entity_filter is not None:
+        """Extraction mode fits its scope; normal mode restores the comfortable initial view."""
+        if getattr(self, "entity_filter", None) is not None:
             bbox = self._visible_fit_bbox() or self.scene.bbox
             self._apply_fit_bbox(bbox, margin=36, zoom_factor=1.0)
         else:
-            self.fit_all_view()
+            self.fit_initial_view()
 
     def redraw(self):
         c = self.canvas
