@@ -932,11 +932,12 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
-        # Stable reference for LOD uses the dominant drawing area so outlier
-        # geometry does not distort the scale. The current zoom may jump
-        # directly to a deeper LOD, but display is always cumulative.
-        dominant_bbox = self._visible_fit_bbox() or scene.bbox
-        self.lod_reference_scale = self._bbox_fit_scale(dominant_bbox, margin=28) * 1.15
+        # LOD reference is the exact full-drawing fit and never follows the
+        # smart initial crop. Therefore, if the initial view is already much
+        # larger than the full drawing, LOD immediately advances to the
+        # matching detail stage. Rendering stays cumulative, so earlier
+        # cable/road/equipment groups never disappear when stages are skipped.
+        self.lod_reference_scale = self._bbox_fit_scale(scene.bbox, margin=36)
         self.fit_initial_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
