@@ -26,22 +26,22 @@ jobs:
           cache: 'pip'
           cache-dependency-path: desktop/CadExcelConverter/requirements.txt
 
-      - name: Install clean dependencies
+      - name: Install verified v3.29 dependencies
         shell: powershell
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install --no-deps pyproj==3.7.2
+          pip install --no-deps ezdxf==1.0.3 pyproj==3.7.2
+          pip install openpyxl==3.1.5 pyinstaller==6.16.0 pyparsing typing_extensions et-xmlfile altgraph packaging pefile pywin32-ctypes
 
           $installed = pip list --format=json | ConvertFrom-Json
           $blocked = @("numpy", "fonttools", "certifi")
           foreach ($name in $blocked) {
             if ($installed.name -contains $name) {
-              throw "$name must not be installed in the v3.20-clean build"
+              throw "$name must not be installed in the v3.29 local build"
             }
           }
 
-          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__); print('pyparsing', pyparsing.__version__); print('typing_extensions imported')"
+          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__)"
 
       - name: Verify no DWG copyleft engine
         shell: powershell
