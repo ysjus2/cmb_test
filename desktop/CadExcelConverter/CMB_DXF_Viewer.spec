@@ -29,8 +29,16 @@ a = Analysis(
 # 2) VC++ v14 x64 Runtime is a machine prerequisite. The installer checks it
 #    and launches the official Microsoft Redistributable when missing.
 def _is_system_or_prereq_runtime(entry):
-    dest_name = str(entry[0])
+    dest_name = str(entry[0]).replace("\\", "/")
     base = PurePath(dest_name).name.lower()
+
+    # Only remove top-level Windows/VC runtime files.  Wheels such as pyproj
+    # ship hashed runtime DLL names inside pyproj.libs and native extensions
+    # link to those exact filenames. Removing them makes pyproj._context fail
+    # to import even when the machine VC++ redistributable is installed.
+    nested = "/" in dest_name
+    if nested:
+        return False
     if base == "ucrtbase.dll" or base.startswith("api-ms-win-"):
         return True
     if base.startswith("vcruntime140") and base.endswith(".dll"):
