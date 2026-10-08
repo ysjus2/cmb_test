@@ -44,10 +44,13 @@ def render_entity(entity, inherited_layer, depth, fallback, parts, issues, chain
             for attr in getattr(entity, 'attribs', []):
                 if int(getattr(attr.dxf, 'flags', 0)) & 1:
                     continue
-                if not _keep_insert_attrib(attr, layer):
-                    continue
-                attr_layer, attr_prims = render_entity(attr, layer, depth + 1, fallback, parts, issues, chain + (name,))
-                if attr_layer == layer:
+                # Always parse ATTRIB so child-layer metadata remains available
+                # to Scene/details/Excel. Only pole attributes are painted into
+                # the parent INSERT primitives.
+                attr_layer, attr_prims = render_entity(
+                    attr, layer, depth + 1, fallback, parts, issues, chain + (name,)
+                )
+                if attr_layer == layer and _keep_insert_attrib(attr, layer):
                     primitives.extend(attr_prims)
             if not primitives:
                 p = entity.dxf.insert
