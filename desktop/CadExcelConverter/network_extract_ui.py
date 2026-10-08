@@ -35,7 +35,14 @@ class NetworkExtractionMixin:
 
     def _show_scope(self,scope):
         self.export_scope=scope
-        background=set() if scope.get('kind')=='fiber' else {e.index for e in self.viewer.scene.entities if is_background(e)}
+        if scope.get('kind')=='fiber':
+            # Keep geographic context on screen: SIG + general terrain/background.
+            background={
+                e.index for e in self.viewer.scene.entities
+                if is_background(e) or str(e.layer or '').upper()=='TL_SCCO_SIG'
+            }
+        else:
+            background={e.index for e in self.viewer.scene.entities if is_background(e)}
         display_indices=set(scope['indices']) | background
         self.viewer.entity_filter=display_indices
         layers={self.viewer.scene.entities[i].layer for i in display_indices}
@@ -112,7 +119,7 @@ class NetworkExtractionMixin:
         cable_count=len(scope['route'])
         device_count=len(route_devices)
         self.extract_hint.set(f'선택 경로: 광케이블 {cable_count}개 / 광기기 {device_count}개. 나머지는 숨김.')
-        self.status_var.set('선택한 두 광기기 사이 주간선만 표시')
+        self.status_var.set('선택 주간선 + 시군구/지형도 표시 / Excel은 광 관련 정보만 추출')
 
     def _begin_main_conduit(self):
         if self.busy:return
