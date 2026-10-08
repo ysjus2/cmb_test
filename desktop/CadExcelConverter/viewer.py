@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import tkinter as tk
 from dataclasses import dataclass, field
 from tkinter import ttk, messagebox
@@ -10,6 +11,8 @@ from ezdxf.colors import aci2rgb
 from pyproj import Transformer
 
 from converter import load_dxf_document
+from essenpoly_recovery import recover_linker_polylines
+from essenpoly_recovery import recover_essenpoly_polylines
 
 @dataclass
 class VisualEntity:
@@ -32,6 +35,7 @@ class Scene:
     entities: list[VisualEntity]
     bbox: tuple
     unsupported: dict
+    diagnostics: list = field(default_factory=list)
 
 def _expand_bbox(box, x, y):
     if box is None:
@@ -50,7 +54,7 @@ def _points_bbox(points):
 
 def _primitive_bbox(primitive):
     kind, data = primitive
-    if kind in {"polyline", "line"}:
+    if kind in {"polyline", "line", "polygon"}:
         return _points_bbox(data)
     if kind == "circle":
         cx, cy, r = data
@@ -194,12 +198,60 @@ def _contrast_color(hex_color):
         pass
     return hex_color
 
+def _is_optical_cable_layer(layer_name):
+    name = str(layer_name or "")
+    upper = name.upper()
+    return (
+        "F_CABLE" in upper
+        or "FOC" in upper
+        or "FIBER" in upper
+        or "OPTIC" in upper
+        or "광케이블" in name
+        or "광선로" in name
+    )
+
+def _is_cable_layer(layer_name):
+    name = str(layer_name or "")
+    upper = name.upper()
+    return _is_optical_cable_layer(name) or "CABLE" in upper or "케이블" in name or "선로" in name
+
+def _display_color_for_layer(doc, layer_name, aci=None, true_color=None):
+    # Cable colors carry field meaning (especially coax power state), so cable
+    # layers must keep the original CAD color without brightness substitution.
+    raw = None
+    try:
+        if true_color is not None:
+            value = int(true_color)
+            raw = f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}"
+    except Exception:
+        raw = None
+    if raw is None:
+        try:
+            if aci is not None:
+                value = abs(int(aci))
+                if 1 <= value <= 255:
+                    raw = _rgb_hex(aci2rgb(value))
+        except Exception:
+            raw = None
+    if raw is None:
+        try:
+            layer = doc.layers.get(layer_name)
+            value = abs(int(layer.dxf.color))
+            if 1 <= value <= 255:
+                raw = _rgb_hex(aci2rgb(value))
+        except Exception:
+            raw = None
+    if raw is None:
+        raw = "#d4d7dc"
+    return raw if _is_cable_layer(layer_name) else _contrast_color(raw)
+
 def _resolve_entity_color(doc, entity, layer_name, inherited=None):
     try:
         true_color = getattr(entity.dxf, "true_color", None)
         if true_color is not None:
             value = int(true_color)
-            return _contrast_color(f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}")
+            raw = f"#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}"
+            return raw if _is_cable_layer(layer_name) else _contrast_color(raw)
     except Exception:
         pass
 
@@ -212,7 +264,8 @@ def _resolve_entity_color(doc, entity, layer_name, inherited=None):
         return inherited
     if 1 <= color <= 255:
         try:
-            return _contrast_color(_rgb_hex(aci2rgb(color)))
+            raw = _rgb_hex(aci2rgb(color))
+            return raw if _is_cable_layer(layer_name) else _contrast_color(raw)
         except Exception:
             pass
 
@@ -220,7 +273,8 @@ def _resolve_entity_color(doc, entity, layer_name, inherited=None):
         layer = doc.layers.get(layer_name)
         layer_color = abs(int(layer.dxf.color))
         if 1 <= layer_color <= 255:
-            return _contrast_color(_rgb_hex(aci2rgb(layer_color)))
+            raw = _rgb_hex(aci2rgb(layer_color))
+            return raw if _is_cable_layer(layer_name) else _contrast_color(raw)
     except Exception:
         pass
     return inherited or "#d4d7dc"
@@ -274,6 +328,33 @@ _POLE_KEYWORDS = (
     "pole", "pole_no", "poleno", "poleid", "pole_id"
 )
 
+_POLE_CODE_RE = re.compile(r"(?<![0-9A-Za-z])\d{4}[Xx]\d{3}(?![0-9A-Za-z])")
+_ADDRESS_KEYWORDS = (
+    "주소", "도로명", "지번", "address", "addr", "road", "jibun",
+)
+
+def _extract_address_info(entity):
+    found = {}
+
+    def add(key, value):
+        k = str(key or "").strip()
+        v = str(value or "").strip()
+        if not v:
+            return
+        blob = (k + " " + v).lower()
+        if any(word.lower() in blob for word in _ADDRESS_KEYWORDS):
+            found[k or "주소"] = v
+
+    for key, value in (entity.attributes or {}).items():
+        add(key, value)
+    for appid, values in (entity.xdata or []):
+        for value in values:
+            add(appid, value)
+    for key, value in (entity.dxf_data or {}).items():
+        add(key, value)
+    add("TEXT", entity.text)
+    return found
+
 def _extract_pole_info(attributes, xdata, dxf_data, text="", block_name=""):
     found = {}
 
@@ -301,7 +382,47 @@ def _extract_pole_info(attributes, xdata, dxf_data, text="", block_name=""):
     if block_name:
         check_pair("BLOCK", block_name)
 
+    # 현장 전주번호가 0000X000 형태로만 저장된 경우 키워드가 없어도 직접 인식한다.
+    blobs = []
+    blobs.extend(str(v) for v in (attributes or {}).values())
+    for appid, values in (xdata or []):
+        blobs.append(str(appid))
+        blobs.extend(str(v) for v in values)
+    blobs.extend(str(v) for v in (dxf_data or {}).values())
+    blobs.extend([str(text or ""), str(block_name or "")])
+    for blob in blobs:
+        for match in _POLE_CODE_RE.findall(blob):
+            found.setdefault("전주번호", match.upper())
+
     return found
+
+from geometry_complete import render_entity
+
+_legacy_entity_primitives = _entity_primitives
+
+def _entity_primitives(entity, inherited_layer=None, depth=0, issues=None, parts=None):
+    return render_entity(entity, inherited_layer, depth, _legacy_entity_primitives,
+                         parts if parts is not None else [], issues if issues is not None else [])
+
+_original_display_color_for_layer = _display_color_for_layer
+
+
+def _display_color_for_layer(doc, layer_name, aci=None, true_color=None):
+    # Explicit CAD entity colors always win over the conduit display default.
+    if true_color is not None or aci not in (None, 0, 256):
+        return _original_display_color_for_layer(doc, layer_name, aci, true_color)
+    try:
+        layer = doc.layers.get(layer_name)
+        layer_rgb = getattr(layer.dxf, 'true_color', None)
+        if layer_rgb is not None:
+            value = int(layer_rgb)
+            return f'#{(value >> 16) & 255:02x}{(value >> 8) & 255:02x}{value & 255:02x}'
+        layer_aci = abs(int(layer.dxf.color))
+    except Exception:
+        layer_aci = 7
+    if str(layer_name).upper() == 'CN_L_POLE_LINE_CONDUIT' and layer_aci in (0, 7, 256):
+        return '#00ffff'  # CAD cyan: conduit display color requested by the user.
+    return _original_display_color_for_layer(doc, layer_name, aci, true_color)
 
 def build_scene(input_path, log=None, progress=None):
     log = log or (lambda msg: None)
@@ -312,9 +433,12 @@ def build_scene(input_path, log=None, progress=None):
     total = max(1, len(source))
     entities, unsupported = [], {}
     scene_box = None
+    geometry_issues = []
+    pending_children = []
 
     for i, ent in enumerate(source):
-        layer, primitives = _entity_primitives(ent)
+        block_parts = []
+        layer, primitives = _entity_primitives(ent, issues=geometry_issues, parts=block_parts)
         typ = ent.dxftype()
         if not primitives:
             unsupported[typ] = unsupported.get(typ, 0) + 1
@@ -354,8 +478,123 @@ def build_scene(input_path, log=None, progress=None):
             dxf_data=dxf_data,
             pole_info=pole_info,
         ))
+        for part_index, (child, child_layer, child_prims) in enumerate(block_parts):
+            if child_layer == layer:
+                continue
+            child_box = None
+            for prim in child_prims:
+                child_box = _merge_bbox(child_box, _primitive_bbox(prim))
+            child_attrs, child_xdata, child_dxf = _collect_entity_details(doc, child)
+            child_dxf['PARENT_HANDLE'] = str(getattr(ent.dxf, 'handle', '') or '')
+            child_dxf['PARENT_BLOCK'] = block_name
+            if child.dxftype() == 'ATTRIB':
+                child_attrs[str(child.dxf.tag)] = str(child.dxf.text)
+            pending_children.append(VisualEntity(
+                index=0, entity_type=child.dxftype(), layer=child_layer,
+                handle=f'{getattr(ent.dxf, "handle", "")}/child/{part_index}',
+                text=str(getattr(child.dxf, 'text', '') or ''), block_name=block_name,
+                primitives=child_prims, bbox=tuple(child_box) if child_box else None,
+                color=_resolve_entity_color(doc, child, child_layer, display_color),
+                attributes=child_attrs, xdata=child_xdata, dxf_data=child_dxf,
+            ))
+            scene_box = _merge_bbox(scene_box, child_box)
         if i + 1 == total or (i + 1) % max(1, total // 100) == 0:
             progress(10 + int((i + 1) / total * 88), f"Viewer 객체 준비 {i+1:,}/{total:,}")
+
+    for child in pending_children:
+        child.index = len(entities)
+        entities.append(child)
+
+    # 일부 통신망 CAD는 케이블을 ESSENPOLY 사용자 객체로 저장한다.
+    # 손상된 310 바이너리 태그와 별개로 Embedded AcDbPolyline의 10/20 좌표는
+    # 정상적으로 남아 있으므로 원본 DXF를 수정하지 않고 Viewer 표시만 복구한다.
+    recovered = recover_essenpoly_polylines(input_path)
+    by_handle = {e.handle: e for e in entities if e.handle}
+    recovered_count = 0
+    for item in recovered:
+        points = item["points"]
+        box = _points_bbox(points)
+        if box is None:
+            continue
+        layer = item["layer"]
+        color = _display_color_for_layer(
+            doc,
+            layer,
+            aci=item.get("color_aci"),
+            true_color=item.get("true_color"),
+        )
+
+        target = by_handle.get(item.get("handle", ""))
+        if target is not None and not target.primitives:
+            target.layer = layer
+            target.primitives = [("polyline", points)]
+            target.bbox = tuple(box)
+            target.color = color
+            target.attributes.update(item.get("attributes", {}))
+            if unsupported.get("ESSENPOLY", 0) > 0:
+                unsupported["ESSENPOLY"] -= 1
+                if unsupported["ESSENPOLY"] <= 0:
+                    unsupported.pop("ESSENPOLY", None)
+        elif target is None:
+            idx = len(entities)
+            entity = VisualEntity(
+                index=idx,
+                entity_type="ESSENPOLY",
+                layer=layer,
+                handle=item.get("handle", ""),
+                primitives=[("polyline", points)],
+                bbox=tuple(box),
+                color=color,
+                attributes=item.get("attributes", {}),
+            )
+            entities.append(entity)
+            if entity.handle:
+                by_handle[entity.handle] = entity
+        else:
+            continue
+        scene_box = _merge_bbox(scene_box, box)
+        recovered_count += 1
+
+    if recovered_count:
+        log(f"ESSENPOLY 케이블/선로 {recovered_count}개 Viewer 복구")
+
+    # Restore original conduit/aerial paths from their embedded geometry.
+    linker_items = recover_linker_polylines(input_path)
+    linker_targets = {entity.handle: entity for entity in entities if entity.handle}
+    linker_count = 0
+    for item in linker_items:
+        points = item['points']
+        box = _points_bbox(points)
+        if box is None:
+            continue
+        target = linker_targets.get(item['handle'])
+        layer = item['layer']
+        color = _display_color_for_layer(doc, layer, item.get('color_aci'), item.get('true_color'))
+        xdata = [(appid, values) for appid, values in item.get('xdata', {}).items()]
+        if target is None:
+            target = VisualEntity(index=len(entities), entity_type='ASDKESSENLINKER', layer=layer, handle=item['handle'])
+            entities.append(target)
+            if target.handle:
+                linker_targets[target.handle] = target
+        else:
+            if target.primitives:
+                continue
+            missing_type = target.entity_type
+            if unsupported.get(missing_type, 0):
+                unsupported[missing_type] -= 1
+                if not unsupported[missing_type]:
+                    unsupported.pop(missing_type)
+        target.entity_type = 'ASDKESSENLINKER'
+        target.layer = layer
+        target.primitives = [('polyline', points)]
+        target.bbox = box
+        target.color = color
+        target.attributes.update(item.get('attributes', {}))
+        target.xdata = xdata
+        scene_box = _merge_bbox(scene_box, box)
+        linker_count += 1
+    if linker_count:
+        log(f'관로/연결선 {linker_count}개 원본 경로 복구')
 
     if scene_box is None:
         scene_box = [0.0, 0.0, 1.0, 1.0]
@@ -364,12 +603,19 @@ def build_scene(input_path, log=None, progress=None):
     if scene_box[1] == scene_box[3]:
         scene_box[3] += 1.0
     progress(100, "Viewer 준비 완료")
-    return Scene(entities, tuple(scene_box), unsupported)
+    # Recovered custom objects are no longer missing geometry.
+    repaired = {e.handle for e in entities if e.primitives}
+    geometry_issues = [issue for issue in geometry_issues if not (issue['type'] in {'ESSENPOLY', 'ASDKESSENLINKER'} and issue['handle'] in repaired)]
+    return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
         self.scene = None
+        self.entity_filter = None
+        self.network_click = None
+        self.route_nodes = {}
+        self.route_start_marker = None
         self.visible_layers = set()
         self.scale = 1.0
         self.ox = 0.0
@@ -381,12 +627,16 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.measure_items = []
         self.completed_measurements = []
+        self.selected_measurement = None
         self.hover_world = None
+        self._right_dragged = False
+        self._right_press_xy = None
         self.pan_start = None
         self.source_epsg = 5174
         self.transformer = Transformer.from_crs("EPSG:5174", "EPSG:4326", always_xy=True)
         self.status_var = tk.StringVar(value="DXF를 열어주세요.")
         self.info_var = tk.StringVar(value="")
+        self.details_window = None
         self._build()
 
     def _build(self):
@@ -423,8 +673,23 @@ class DXFViewer(ttk.Frame):
             justify="right",
         ).pack(fill="x")
 
+        # 상단 도구바는 전체 폭을 그대로 유지한다.
+        # 레이어 도킹 영역과 DXF Canvas는 그 아래 body에서만 좌/우로 나뉜다.
+        self.body = tk.PanedWindow(
+            self, orient="horizontal", sashwidth=7, sashrelief="raised",
+            showhandle=False, bd=0, relief="flat"
+        )
+        self.body.pack(fill="both", expand=True)
+
+        self.side_host = ttk.Frame(self.body, width=420)
+        self.side_host.pack_propagate(False)
+
+        self.canvas_host = ttk.Frame(self.body)
+        self.body.add(self.side_host, minsize=220, width=420, stretch="never")
+        self.body.add(self.canvas_host, minsize=500, stretch="always")
+
         self.canvas = tk.Canvas(
-            self,
+            self.canvas_host,
             background="#171a1f",
             highlightthickness=0,
             cursor="crosshair",
@@ -438,14 +703,15 @@ class DXFViewer(ttk.Frame):
         self.canvas.bind("<ButtonPress-2>", self._pan_start)
         self.canvas.bind("<B2-Motion>", self._pan_move)
         self.canvas.bind("<ButtonRelease-2>", self._pan_end)
-        self.canvas.bind("<ButtonPress-3>", self._pan_start)
-        self.canvas.bind("<B3-Motion>", self._pan_move)
-        self.canvas.bind("<ButtonRelease-3>", self._pan_end)
+        # 우클릭 짧게=컨텍스트 메뉴, 우클릭 드래그=기존 PAN.
+        self.canvas.bind("<ButtonPress-3>", self._right_press)
+        self.canvas.bind("<B3-Motion>", self._right_move)
+        self.canvas.bind("<ButtonRelease-3>", self._right_release)
         self.canvas.bind("<Button-1>", self._left_click)
         self.canvas.bind("<Double-Button-1>", self._double_click)
         self.canvas.bind("<Motion>", self._motion)
-        self.bind_all("<Escape>", lambda e: self.clear_selection())
-        self.bind_all("<Return>", lambda e: self._finish_measurement())
+        self.bind_all("<Escape>", self.handle_escape)
+        # 거리 측정 완료는 ESC를 사용한다. Enter는 더 이상 측정 종료 키로 사용하지 않는다.
 
     def load_scene(self, scene):
         self.scene = scene
@@ -453,6 +719,7 @@ class DXFViewer(ttk.Frame):
         self.selected.clear()
         self.measure_points = []
         self.completed_measurements = []
+        self.selected_measurement = None
         self.fit_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
@@ -465,13 +732,17 @@ class DXFViewer(ttk.Frame):
         self.redraw()
 
     def set_mode(self, mode):
+        if self.network_click is not None and mode != "fiber_route":
+            self.network_click = None
+            self.route_nodes = {}
+            self.route_start_marker = None
         self.mode = mode
         self.measure_points = []
         labels = {"select":"선택", "distance":"거리 측정", "coord":"좌표 확인"}
         self.status_var.set(f"모드: {labels.get(mode, mode)}")
         if mode == "distance":
             self.info_var.set(
-                "지점을 계속 클릭하세요. 구간/누적 거리가 표시됩니다. 더블클릭 또는 Enter로 완료합니다."
+                "지점을 계속 클릭하세요. 구간/누적 거리가 표시됩니다. ESC로 현재 마지막 지점까지 측정을 완료합니다."
             )
 
     def set_source_epsg(self, epsg):
@@ -493,6 +764,30 @@ class DXFViewer(ttk.Frame):
         if isinstance(value, (list, tuple, dict, set)):
             return bool(value)
         return True
+
+    @staticmethod
+    def _detail_label(key):
+        labels = {
+            "insert": "삽입점",
+            "location": "위치",
+            "center": "중심점",
+            "start": "시작점",
+            "end": "끝점",
+            "rotation": "회전각",
+            "angle": "각도",
+            "radius": "반지름",
+            "xscale": "X 스케일",
+            "yscale": "Y 스케일",
+            "zscale": "Z 스케일",
+            "elevation": "표고",
+            "extrusion": "돌출방향",
+            "height": "문자높이",
+            "text": "문자",
+            "name": "이름",
+            "closed": "폐합여부",
+        }
+        raw = str(key).strip()
+        return labels.get(raw.lower(), raw)
 
     def show_details(self):
         if not self.scene or not self.selected:
@@ -546,11 +841,13 @@ class DXFViewer(ttk.Frame):
                 if not self._detail_value_present(value):
                     continue
                 text_value = str(value).strip()
-                if text_value in {"0", "0.0", "0.000000", "None", "()", "[]", "{}"}:
+                # 빈 컬렉션/None만 제거한다. 0은 좌표·회전·표고 등에서
+                # 실제 의미가 있을 수 있으므로 필드명과 함께 그대로 표시한다.
+                if text_value in {"None", "()", "[]", "{}"}:
                     continue
                 if (key.lower(), text_value) in existing:
                     continue
-                rows.append((key, text_value))
+                rows.append((self._detail_label(key), text_value))
 
         if not rows:
             messagebox.showinfo("상세정보", "표시할 상세정보가 없습니다.")
@@ -562,10 +859,27 @@ class DXFViewer(ttk.Frame):
         width = max(420, min(820, 180 + max_key * 8 + max_val * 7))
         height = max(220, min(650, 70 + len(rows) * 25))
 
+        if self.details_window is not None:
+            try:
+                if self.details_window.winfo_exists():
+                    self.details_window.destroy()
+            except Exception:
+                pass
+            self.details_window = None
+
         win = tk.Toplevel(self)
+        self.details_window = win
         win.title("선택 객체 상세정보")
         win.geometry(f"{width}x{height}")
         win.transient(self.winfo_toplevel())
+
+        def _close_details():
+            try:
+                win.destroy()
+            finally:
+                if self.details_window is win:
+                    self.details_window = None
+        win.protocol("WM_DELETE_WINDOW", _close_details)
 
         frame = ttk.Frame(win, padding=8)
         frame.pack(fill="both", expand=True)
@@ -615,7 +929,7 @@ class DXFViewer(ttk.Frame):
             return None
         boxes = [
             e.bbox for e in self.scene.entities
-            if e.layer in self.visible_layers and e.bbox is not None
+            if e.layer in self.visible_layers and e.bbox is not None and (self.entity_filter is None or e.index in self.entity_filter)
         ]
         if not boxes:
             return self.scene.bbox
@@ -659,6 +973,7 @@ class DXFViewer(ttk.Frame):
         cx, cy = (minx+maxx)/2, (miny+maxy)/2
         self.ox = w/2 - cx*self.scale
         self.oy = h/2 + cy*self.scale
+        self.pan_start = None
         self.redraw()
 
     def redraw(self):
@@ -670,6 +985,8 @@ class DXFViewer(ttk.Frame):
             c.create_text(30, 30, anchor="nw", fill="#b7c0cc", text="DXF 파일을 열어주세요.", font=("Malgun Gothic", 14))
             return
         for ent in self.scene.entities:
+            if self.entity_filter is not None and ent.index not in self.entity_filter:
+                continue
             if ent.layer not in self.visible_layers:
                 continue
             selected = ent.index in self.selected
@@ -684,7 +1001,22 @@ class DXFViewer(ttk.Frame):
                             sx, sy = self.world_to_screen(x, y)
                             coords.extend([sx, sy])
                         if len(coords) >= 4:
-                            ids.append(c.create_line(*coords, fill=color, width=width))
+                            # 광케이블은 CAD 내부 Polyline 정점 순서의 마지막 점을
+                            # 현재 도면의 IN 방향으로 간주해 화살표를 표시한다.
+                            # 동축 및 기타 케이블에는 방향 화살표를 표시하지 않는다.
+                            if _is_optical_cable_layer(ent.layer):
+                                ids.append(c.create_line(
+                                    *coords, fill=color, width=max(width, 2),
+                                    arrow=tk.LAST, arrowshape=(10, 12, 5),
+                                ))
+                            else:
+                                ids.append(c.create_line(*coords, fill=color, width=width))
+                    elif kind == "polygon":
+                        coords = []
+                        for x, y in data:
+                            coords.extend(self.world_to_screen(x, y))
+                        if len(coords) >= 6:
+                            ids.append(c.create_polygon(*coords, fill=color, outline=color))
                     elif kind == "circle":
                         x, y, r = data
                         x1, y1 = self.world_to_screen(x-r, y-r)
@@ -704,7 +1036,7 @@ class DXFViewer(ttk.Frame):
                     elif kind == "text":
                         x, y, text = data
                         sx, sy = self.world_to_screen(x, y)
-                        ids.append(c.create_text(sx, sy, anchor="sw", fill=color, text=text[:120], font=("Malgun Gothic", 9)))
+                        ids.append(c.create_text(sx, sy, anchor="sw", fill=color, text=text, font=("Malgun Gothic", 9)))
                     elif kind == "insert":
                         x, y, name = data
                         sx, sy = self.world_to_screen(x, y)
@@ -715,10 +1047,21 @@ class DXFViewer(ttk.Frame):
                 self.item_to_entity[item] = ent.index
             self.entity_items[ent.index] = ids
         self._redraw_measure()
+        if self.network_click is not None:
+            for point in self.route_nodes.values():
+                sx, sy = self.world_to_screen(*point)
+                self.canvas.create_oval(sx-3, sy-3, sx+3, sy+3, fill="#00ffff", outline="#003a46")
+            if self.route_start_marker:
+                sx, sy = self.world_to_screen(*self.route_start_marker)
+                self.canvas.create_oval(sx-7, sy-7, sx+7, sy+7, outline="#54ff54", width=3)
 
     def _wheel(self, event):
-        factor = 1.15 if event.delta > 0 else 1/1.15
-        self._zoom_at(event.x, event.y, factor)
+        delta = float(getattr(event, "delta", 0) or 0)
+        if not math.isfinite(delta) or delta == 0:
+            return "break"
+        notches = max(-4.0, min(4.0, delta / 120.0))
+        self._zoom_at(event.x, event.y, 1.15 ** notches)
+        return "break"
 
     def _zoom_event(self, event, factor):
         self._zoom_at(event.x, event.y, factor)
@@ -728,6 +1071,9 @@ class DXFViewer(ttk.Frame):
         self.scale = max(1e-12, min(self.scale * factor, 1e9))
         self.ox = sx - wx*self.scale
         self.oy = sy + wy*self.scale
+        # A drag must resume from the new zoom origin, not its pre-zoom origin.
+        if self.pan_start is not None:
+            self.pan_start = (sx, sy, self.ox, self.oy)
         self.redraw()
 
     def _pan_start(self, event):
@@ -754,7 +1100,152 @@ class DXFViewer(ttk.Frame):
             return self.item_to_entity[closest[0]]
         return None
 
+    @staticmethod
+    def _segment_distance_px(px, py, ax, ay, bx, by):
+        dx, dy = bx - ax, by - ay
+        if dx == 0 and dy == 0:
+            return math.hypot(px - ax, py - ay)
+        t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+        t = max(0.0, min(1.0, t))
+        qx, qy = ax + t * dx, ay + t * dy
+        return math.hypot(px - qx, py - qy)
+
+    def _nearest_measurement(self, sx, sy, threshold=8.0):
+        best = None
+        best_dist = float("inf")
+        for idx, measurement in enumerate(self.completed_measurements):
+            pts = measurement.get("points", [])
+            for a, b in zip(pts, pts[1:]):
+                ax, ay = self.world_to_screen(*a)
+                bx, by = self.world_to_screen(*b)
+                dist = self._segment_distance_px(sx, sy, ax, ay, bx, by)
+                if dist < best_dist:
+                    best_dist = dist
+                    best = idx
+        return best if best is not None and best_dist <= threshold else None
+
+    def _right_press(self, event):
+        self._right_press_xy = (event.x, event.y)
+        self._right_dragged = False
+        self._pan_start(event)
+
+    def _right_move(self, event):
+        if self._right_press_xy:
+            if math.hypot(event.x - self._right_press_xy[0], event.y - self._right_press_xy[1]) >= 4:
+                self._right_dragged = True
+        if self._right_dragged:
+            self._pan_move(event)
+
+    def _right_release(self, event):
+        dragged = self._right_dragged
+        self._pan_end(event)
+        self._right_press_xy = None
+        self._right_dragged = False
+        if dragged:
+            return
+        self._show_context_menu(event)
+
+    def _show_context_menu(self, event):
+        # 측정선은 사용자 생성 객체이므로 삭제 가능. DXF 원본 객체는 삭제 메뉴를 절대 제공하지 않는다.
+        measurement_idx = self._nearest_measurement(event.x, event.y)
+        if measurement_idx is not None:
+            self.selected_measurement = measurement_idx
+            self.selected.clear()
+            self.redraw()
+            menu = tk.Menu(self.canvas, tearoff=False)
+            menu.add_command(label="삭제", command=lambda i=measurement_idx: self._delete_measurement(i))
+            menu.tk_popup(event.x_root, event.y_root)
+            return
+
+        idx = self._nearest_entity(event.x, event.y)
+        if idx is None:
+            return
+        self.selected_measurement = None
+        if idx not in self.selected:
+            self.selected = {idx}
+        self._show_selected_info()
+        self.redraw()
+        # DXF 원본 객체는 우클릭 시 속성정보 메뉴만 제공한다.
+        # 삭제/전주정보/주소 메뉴는 제공하지 않는다.
+        menu = tk.Menu(self.canvas, tearoff=False)
+        menu.add_command(label="속성정보", command=self.show_details)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _delete_measurement(self, index):
+        if 0 <= index < len(self.completed_measurements):
+            self.completed_measurements.pop(index)
+        self.selected_measurement = None
+        self.info_var.set("")
+        self.redraw()
+
+    def _show_rows_window(self, title, rows):
+        if not rows:
+            messagebox.showinfo(title, f"{title} 정보가 없습니다.")
+            return
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.geometry("520x300")
+        win.transient(self.winfo_toplevel())
+        frame = ttk.Frame(win, padding=8)
+        frame.pack(fill="both", expand=True)
+        tree = ttk.Treeview(frame, columns=("key", "value"), show="headings")
+        tree.heading("key", text="항목")
+        tree.heading("value", text="내용")
+        tree.column("key", width=130, stretch=False)
+        tree.column("value", width=340, stretch=True)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        for key, value in rows:
+            tree.insert("", "end", values=(key, value))
+
+    def show_pole_info(self):
+        if not self.scene or not self.selected:
+            messagebox.showinfo("전주정보", "먼저 객체를 선택해주세요.")
+            return
+        rows = []
+        for idx in sorted(self.selected):
+            ent = self.scene.entities[idx]
+            for key, value in (ent.pole_info or {}).items():
+                if str(value).strip():
+                    rows.append((key, str(value).strip()))
+        # 같은 전주번호/항목 중복 제거
+        rows = list(dict.fromkeys(rows))
+        self._show_rows_window("전주정보", rows)
+
+    def show_address_info(self):
+        if not self.scene or not self.selected:
+            messagebox.showinfo("주소", "먼저 객체를 선택해주세요.")
+            return
+        rows = []
+        for idx in sorted(self.selected):
+            ent = self.scene.entities[idx]
+            for key, value in _extract_address_info(ent).items():
+                rows.append((key, value))
+        rows = list(dict.fromkeys(rows))
+        self._show_rows_window("주소", rows)
+
+    def handle_escape(self, event=None):
+        if self.network_click is not None:
+            self.winfo_toplevel()._reset_network_filter()
+            return "break"
+        if self.mode == "distance":
+            if len(self.measure_points) >= 2:
+                self._finish_measurement()
+            else:
+                self.measure_points = []
+                self.redraw()
+            self.mode = "select"
+            self.status_var.set("모드: 선택")
+            return "break"
+        self.clear_selection()
+        return "break"
+
     def _left_click(self, event):
+        if self.network_click is not None:
+            self.network_click(event)
+            return
         wx, wy = self.screen_to_world(event.x, event.y)
         if self.mode == "coord":
             try:
@@ -786,6 +1277,15 @@ class DXFViewer(ttk.Frame):
                 )
             self.redraw()
             return
+        measurement_idx = self._nearest_measurement(event.x, event.y)
+        if measurement_idx is not None:
+            self.selected_measurement = measurement_idx
+            self.selected.clear()
+            m = self.completed_measurements[measurement_idx]
+            self.info_var.set(f'측정거리: {m.get("value", 0.0):,.3f} · 우클릭하면 삭제할 수 있습니다.')
+            self.redraw()
+            return
+        self.selected_measurement = None
         idx = self._nearest_entity(event.x, event.y)
         shift = bool(event.state & 0x0001)
         if idx is None:
@@ -871,6 +1371,7 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.measure_items = []
         self.completed_measurements = []
+        self.selected_measurement = None
         self.info_var.set("")
         self.redraw()
 
@@ -888,15 +1389,16 @@ class DXFViewer(ttk.Frame):
 
     def _redraw_measure(self):
         # 완료된 거리/면적은 확대/축소/PAN 후에도 계속 표시한다.
-        for m in self.completed_measurements:
+        for measurement_index, m in enumerate(self.completed_measurements):
             pts = m.get("points", [])
             if not pts:
                 continue
+            is_selected_measurement = measurement_index == self.selected_measurement
             self._draw_measure_polyline(
                 pts,
-                color="#ffd43b",
+                color="#ff8c00" if is_selected_measurement else "#ffd43b",
                 close=m.get("type") == "area",
-                width=2,
+                width=4 if is_selected_measurement else 2,
             )
             if m.get("type") in {"distance", "distance_path"} and len(pts) >= 2:
                 segments = m.get("segments") or [
