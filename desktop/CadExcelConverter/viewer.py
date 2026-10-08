@@ -773,11 +773,17 @@ def _lod_group(ent):
     if u == "0":
         return 12
 
-    # 13: 광/동축 ID 전체
-    if u.startswith("CN_F_ID") or u.startswith("CN_C_ID"):
-        return 13
+    # 13: reserved intermediate stage
 
-    # 14: 나머지 전체 / TEXT 포함
+    # 14: final text/ID stage
+    # All ID annotations stay with general text at the deepest zoom.
+    if (
+        u.startswith("CN_F_ID")
+        or u.startswith("CN_C_ID")
+        or u.startswith("CN_L_POLE_ID")
+        or u.startswith("CN_POLE_ID")
+    ):
+        return 14
     return 14
 def _zoom_lod(viewer):
     # LOD follows the actual on-screen magnification against a stable
@@ -805,6 +811,11 @@ def _zoom_lod(viewer):
     if ratio < base * step2 ** 7: return 11
     if ratio < base * step2 ** 8: return 12
     if ratio < base * step2 ** 9: return 13
+
+    # Final text/ID stage: 5 wheel notches instead of 2.
+    # This is 3 additional wheel notches beyond the current spacing.
+    final5 = 1.15 ** 5
+    if ratio < base * step2 ** 9 * final5: return 13
     return 14
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
