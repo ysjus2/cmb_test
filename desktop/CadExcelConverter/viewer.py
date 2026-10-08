@@ -708,7 +708,7 @@ def build_scene(input_path, log=None, progress=None):
     return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
 
-CACHE_VERSION = "v329-fast-local-3"
+CACHE_VERSION = "v329-fast-local-4"
 
 def _cache_dir():
     base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
@@ -982,12 +982,12 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
-        # LOD reference is the exact full-drawing fit and never follows the
-        # smart initial crop. Therefore, if the initial view is already much
-        # larger than the full drawing, LOD immediately advances to the
-        # matching detail stage. Rendering stays cumulative, so earlier
-        # cable/road/equipment groups never disappear when stages are skipped.
-        self.lod_reference_scale = self._bbox_fit_scale(scene.bbox, margin=36)
+        # LOD reference is anchored to stage 0 itself (SIG + optical cable),
+        # not to the raw full-scene bbox. Remote text/ID/junk entities must not
+        # make the initial view look artificially over-zoomed and jump straight
+        # to the final ID/TEXT stage.
+        stage0_bbox = self._lod_group_bbox(0) or scene.bbox
+        self.lod_reference_scale = self._bbox_fit_scale(stage0_bbox, margin=28) * 1.15
         self.fit_initial_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
@@ -1225,6 +1225,22 @@ class DXFViewer(ttk.Frame):
         maxx = max(b[2] for b in boxes)
         maxy = max(b[3] for b in boxes)
         return (minx, miny, maxx, maxy)
+
+    def _lod_group_bbox(self, group):
+        if not self.scene:
+            return None
+        boxes = [
+            e.bbox for e in self.scene.entities
+            if e.bbox is not None and _lod_group(e) == group
+        ]
+        if not boxes:
+            return None
+        return (
+            min(b[0] for b in boxes),
+            min(b[1] for b in boxes),
+            max(b[2] for b in boxes),
+            max(b[3] for b in boxes),
+        )
 
     def _bbox_fit_scale(self, bbox, margin=36):
         if not bbox:
