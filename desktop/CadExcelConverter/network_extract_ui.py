@@ -6,7 +6,7 @@ from pathlib import Path
 from tkinter import ttk, messagebox, filedialog
 from converter import ConversionStats
 from layer_defaults import is_default_hidden
-from network_extract import FiberNetwork, conduit_records, export_network, is_background
+from network_extract import FiberNetwork, conduit_records, export_network, is_background, is_fiber_device
 
 
 class NetworkExtractionMixin:
@@ -35,7 +35,7 @@ class NetworkExtractionMixin:
 
     def _show_scope(self,scope):
         self.export_scope=scope
-        background={e.index for e in self.viewer.scene.entities if is_background(e)}
+        background=set() if scope.get('kind')=='fiber' else {e.index for e in self.viewer.scene.entities if is_background(e)}
         display_indices=set(scope['indices']) | background
         self.viewer.entity_filter=display_indices
         layers={self.viewer.scene.entities[i].layer for i in display_indices}
@@ -59,36 +59,60 @@ class NetworkExtractionMixin:
             messagebox.showinfo('광주간선 추출','지선을 제외한 연결 가능한 광케이블이 없습니다.');return
         self.export_scope=None;self.route_start=None;self.viewer.entity_filter=None
         layers={self.viewer.scene.entities[e.index].layer for e in self.fiber_network.edges.values()}
-        layers.update(e.layer for e in self.viewer.scene.entities if 'CLOSURE' in e.layer.upper())
+        layers.update(e.layer for e in self.viewer.scene.entities if is_fiber_device(e))
         for iid in self.tree.get_children():
             if self.layer_names.get(iid) in layers and not is_default_hidden(self.layer_names.get(iid)):self._set_checked(iid,True)
         self.viewer.network_click=self._fiber_route_click
-        self.viewer.route_nodes=self.fiber_network.positions
+        self.viewer.route_nodes={**self.fiber_network.positions, **{f'DEV:{i}':p for i,p in self.fiber_network.device_positions.items()}}
         self.viewer.mode='fiber_route';self.viewer.redraw()
-        self.extract_hint.set('시작 함체/광케이블 끝점을 클릭하세요. ESC: 취소')
+        self.extract_hint.set('시작 광기기/함체를 클릭하세요. ESC: 취소')
 
     def _fiber_route_click(self,event):
+        # First hit-test actual optical equipment; fall back to cable topology nodes.
         hits=[]
-        for node,point in self.fiber_network.positions.items():
+        for index,point in self.fiber_network.device_positions.items():
             sx,sy=self.viewer.world_to_screen(*point)
             distance=math.hypot(event.x-sx,event.y-sy)
-            if distance<=18:hits.append((distance,node))
+            if distance<=24:
+                hits.append((distance,'device',index))
         if not hits:
-            self.extract_hint.set('표시된 작은 점(함체/광케이블 끝점)을 클릭해주세요.');return
-        hits.sort()
-        if len(hits)>1 and abs(hits[0][0]-hits[1][0])<1:
-            self.extract_hint.set('끝점이 겹칩니다. 확대해서 구분되는 끝점을 선택해주세요.');return
-        node=hits[0][1]
+            for node,point in self.fiber_network.positions.items():
+                sx,sy=self.viewer.world_to_screen(*point)
+                distance=math.hypot(event.x-sx,event.y-sy)
+                if distance<=20:
+                    hits.append((distance,'node',node))
+        if not hits:
+            self.extract_hint.set('광 함체/중간 광기기를 클릭해주세요.');return
+
+        hits.sort(key=lambda x:x[0])
+        kind,value=hits[0][1],hits[0][2]
+        node=self.fiber_network.device_nodes[value] if kind=='device' else value
+        marker=self.fiber_network.device_positions[value] if kind=='device' else self.fiber_network.positions[node]
+
         if self.route_start is None:
-            self.route_start=node;self.viewer.route_start_marker=self.fiber_network.positions[node]
-            self.extract_hint.set('끝 함체/광케이블 끝점을 클릭하세요. ESC: 취소');self.viewer.redraw();return
-        try:scope=self.fiber_network.unique_route(self.route_start,node)
+            self.route_start=node
+            self.viewer.route_start_marker=marker
+            self.extract_hint.set('끝점 광기기를 선택해주세요. ESC: 취소')
+            self.viewer.redraw()
+            return
+
+        try:
+            scope=self.fiber_network.unique_route(self.route_start,node)
         except ValueError as exc:
             messagebox.showwarning('광주간선 추출',str(exc));return
+
+        # Keep route cable + any optical devices that lie on route nodes.
+        route_nodes=set(scope.get('nodes',[]))
+        route_devices={
+            index for index,mapped in self.fiber_network.device_nodes.items()
+            if mapped in route_nodes
+        }
+        scope={**scope,'indices':set(scope['indices'])|route_devices}
         self._show_scope(scope)
-        cable_count=len(scope['route']);closure_count=len(scope['indices'])-cable_count
-        self.extract_hint.set(f'선택 경로: 광케이블 {cable_count}개 / 함체 {closure_count}개. Excel 추출을 누르세요.')
-        self.status_var.set('선택 경로와 배경 지형도 표시 / 배경은 Excel 추출에서 제외')
+        cable_count=len(scope['route'])
+        device_count=len(route_devices)
+        self.extract_hint.set(f'선택 경로: 광케이블 {cable_count}개 / 광기기 {device_count}개. 나머지는 숨김.')
+        self.status_var.set('선택한 두 광기기 사이 주간선만 표시')
 
     def _begin_main_conduit(self):
         if self.busy:return
