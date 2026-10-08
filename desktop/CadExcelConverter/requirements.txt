@@ -1,15 +1,7 @@
-# CMB DXF Viewer v3.20-clean runtime/build lock
-# Goal: keep the internal Windows EXE free of NumPy/OpenBLAS/GCC-runtime chain.
-# ezdxf 1.1.0+ makes NumPy/fontTools hard dependencies, so the clean build pins
-# the last pre-hard-dependency release and validates compatibility in CI.
-
-ezdxf==1.0.3
+ezdxf==1.4.2
 openpyxl==3.1.5
-et-xmlfile==2.0.0
-pyparsing==3.3.3
-typing_extensions==4.16.0
 pyinstaller==6.16.0
 
-# pyproj is intentionally installed separately with --no-deps by CI.
-# Its native PROJ stack remains subject to THIRD_PARTY_LICENSES notices.
-# The application does not install external certifi.
+# pyproj is intentionally installed separately with --no-deps in the
+# company build. Its optional HTTPS CA-bundle dependency certifi (MPL-2.0)
+# is not needed for local EPSG coordinate transformations and is excluded.
