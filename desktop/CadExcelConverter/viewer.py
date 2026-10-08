@@ -709,7 +709,6 @@ def build_scene(input_path, log=None, progress=None):
 def _lod_group(ent):
     layer = str(ent.layer or "").strip()
     u = layer.upper()
-    etype = str(ent.entity_type or "").upper()
 
     # 0: 시군구 + 광케이블
     if u == "TL_SCCO_SIG":
@@ -717,36 +716,50 @@ def _lod_group(ent):
     if _is_optical_cable_layer(layer):
         return 0
 
-    # 1: 셀경계만
+    # 1: 셀경계
     if u == "CN_C_CELLBOUND" or u.startswith("CN_C_CELLBOUND_"):
         return 1
 
-    # 2: 건물군
-    if layer == "건물_건물군":
+    # 2: CellNo
+    if u.startswith("CN_C_CELLNO"):
         return 2
 
-    # 3: 도로
-    if u == "TL_SPRD_RW":
+    # 3: ONU
+    if u.startswith("CN_C_ONU"):
         return 3
 
-    # 4: 광기기 (ID/텍스트는 최종단계)
-    if u.startswith(("CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL")):
+    # 4: 동축케이블
+    if u.startswith("CN_C_CABLE_"):
         return 4
 
-    # 5: 동축케이블 + 동축기기
-    if u.startswith("CN_C_CABLE_"):
-        return 5
-    if u.startswith((
-        "CN_C_ONU","CN_C_POWER","CN_C_AMP","CN_C_TAP","CN_C_PASSIVE",
-        "CN_C_CONNECTOR","CN_C_DC_","CN_C_SUBSCRIBERS","CN_C_NMS_"
-    )):
+    # 5: 증폭기
+    if u.startswith("CN_C_AMP") or "AMP" in u and u.startswith("CN_C_"):
         return 5
 
-    # 6: 사용자 작성 CN_M_User_* 전체
-    if u.startswith("CN_M_USER_"):
+    # 6: 광기기
+    if u.startswith(("CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL")):
         return 6
 
-    # 7: 전주 + 맨홀 + 관로
+    # 7: 기타 동축기기
+    if u.startswith((
+        "CN_C_POWER","CN_C_TAP","CN_C_PASSIVE","CN_C_CONNECTOR",
+        "CN_C_DC_","CN_C_SUBSCRIBERS","CN_C_NMS_"
+    )):
+        return 7
+
+    # 8: 건물군
+    if layer == "건물_건물군":
+        return 8
+
+    # 9: 도로
+    if u == "TL_SPRD_RW":
+        return 9
+
+    # 10: 사용자 작성 CN_M_User_* 전체
+    if u.startswith("CN_M_USER_"):
+        return 10
+
+    # 11: 전주 + 맨홀 + 관로
     if (
         u.startswith("CN_L_POLE_POLE")
         or u.startswith("CN_L_POLE_MANHOLE")
@@ -754,19 +767,23 @@ def _lod_group(ent):
         or u.startswith("CN_L_POLE_LINE_")
         or u == "CN_L_POLE"
     ):
-        return 7
+        return 11
 
-    # 8: 0 레이어
+    # 12: 0 레이어
     if u == "0":
-        return 8
+        return 12
 
-    # 9: 나머지 전체 + 모든 텍스트/ID + 하위 행정경계
-    return 9
+    # 13: 광/동축 ID 전체
+    if u.startswith("CN_F_ID") or u.startswith("CN_C_ID"):
+        return 13
+
+    # 14: 나머지 전체 / TEXT 포함
+    return 14
 def _zoom_lod(viewer):
     fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
     ratio = viewer.scale / fit
 
-    # 10 stages, fixed 5-wheel interval between every stage.
+    # Every display stage advances after exactly 5 wheel notches.
     step5 = 1.15 ** 5
     if ratio < step5 ** 1: return 0
     if ratio < step5 ** 2: return 1
@@ -777,7 +794,12 @@ def _zoom_lod(viewer):
     if ratio < step5 ** 7: return 6
     if ratio < step5 ** 8: return 7
     if ratio < step5 ** 9: return 8
-    return 9
+    if ratio < step5 ** 10: return 9
+    if ratio < step5 ** 11: return 10
+    if ratio < step5 ** 12: return 11
+    if ratio < step5 ** 13: return 12
+    if ratio < step5 ** 14: return 13
+    return 14
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
