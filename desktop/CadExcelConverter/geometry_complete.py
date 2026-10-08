@@ -1,29 +1,6 @@
 from __future__ import annotations
 
-import re
-
 from ezdxf.path import make_path, from_hatch, triangulate
-
-_POLE_CODE_RE = re.compile(r"(?<![0-9A-Za-z])\d{4}[Xx]\d{3}(?![0-9A-Za-z])")
-
-def _is_pole_layer(layer):
-    u = str(layer or "").upper()
-    return "POLE" in u or "전주" in str(layer or "")
-
-def _keep_insert_attrib(attr, parent_layer):
-    """Render only field-useful pole labels from INSERT attributes.
-
-    Equipment/cable IDs remain available as entity metadata/Excel attributes,
-    but are not painted over the drawing.
-    """
-    if not _is_pole_layer(parent_layer):
-        return False
-    tag = str(getattr(attr.dxf, "tag", "") or "")
-    text = str(getattr(attr.dxf, "text", "") or "")
-    blob = (tag + " " + text).lower()
-    if any(k in blob for k in ("pole", "전주", "전주번호", "전주명", "주번호", "지지물")):
-        return True
-    return bool(_POLE_CODE_RE.search(text))
 
 
 def render_entity(entity, inherited_layer, depth, fallback, parts, issues, chain=()):
@@ -44,27 +21,14 @@ def render_entity(entity, inherited_layer, depth, fallback, parts, issues, chain
             for attr in getattr(entity, 'attribs', []):
                 if int(getattr(attr.dxf, 'flags', 0)) & 1:
                     continue
-                # Always parse ATTRIB so child-layer metadata remains available
-                # to Scene/details/Excel. Only pole attributes are painted into
-                # the parent INSERT primitives.
-                attr_layer, attr_prims = render_entity(
-                    attr, layer, depth + 1, fallback, parts, issues, chain + (name,)
-                )
-                if attr_layer == layer and _keep_insert_attrib(attr, layer):
+                attr_layer, attr_prims = render_entity(attr, layer, depth + 1, fallback, parts, issues, chain + (name,))
+                if attr_layer == layer:
                     primitives.extend(attr_prims)
             if not primitives:
                 p = entity.dxf.insert
                 primitives.append(('insert', (float(p.x), float(p.y), name)))
             return layer, primitives
-        if typ in {'ACAD_PROXY_ENTITY', 'ACAD_PROXY'} and hasattr(entity, 'virtual_entities'):
-            # ezdxf can decode the embedded proxy graphic (DXF 310 data) into
-            # ordinary virtual LINE/LWPOLYLINE/ARC/... entities.
-            for child in entity.virtual_entities():
-                child_layer, child_prims = render_entity(
-                    child, layer, depth + 1, fallback, parts, issues, chain
-                )
-                primitives.extend(child_prims)
-        elif typ in {'LWPOLYLINE', 'POLYLINE'}:
+        if typ in {'LWPOLYLINE', 'POLYLINE'}:
             path = make_path(entity)
             points = [(float(v.x), float(v.y)) for v in path.flattening(distance=0.02, segments=16)]
             if len(points) >= 2:
