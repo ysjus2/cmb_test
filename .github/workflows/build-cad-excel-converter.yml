@@ -43,42 +43,6 @@ jobs:
 
           python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__); print('pyparsing', pyparsing.__version__); print('typing_extensions imported')"
 
-      - name: Apply UI policy
-        run: python apply_ui_policy.py
-
-      - name: Apply direct ESSENPOLY Excel fix
-        run: python apply_excel_cable_fix.py
-
-      - name: Apply viewer-first shell
-        run: python apply_viewer_shell.py
-
-      - name: Apply interaction policy
-        run: python apply_interaction_policy.py
-
-      - name: Apply Escape policy
-        run: python apply_escape_policy.py
-
-      - name: Apply v3.14 layout
-        run: python apply_layout_v314.py
-
-      - name: Apply v3.15 layout
-        run: python apply_layout_v315.py
-
-      - name: Apply v3.16 layout
-        run: python apply_layout_v316.py
-
-      - name: Apply v3.17 layout
-        run: python apply_layout_v317.py
-
-      - name: Apply v3.18 layout
-        run: python apply_layout_v318.py
-
-      - name: Apply v3.19 layout
-        run: python apply_layout_v319.py
-
-      - name: Apply fast cache and progressive layers
-        run: python apply_fast_cache_lod.py
-
       - name: Verify no DWG copyleft engine
         shell: powershell
         run: |
@@ -95,8 +59,20 @@ jobs:
       - name: Run core self-test
         run: python selftest.py
 
-      - name: Run functional regression
-        run: python functional_regression.py
+      - name: Test conduit recovery
+        run: python conduit_selftest.py
+
+      - name: Test full layer rendering
+        run: python full_layer_selftest.py
+
+      - name: Test navigation
+        run: python navigation_selftest.py
+
+      - name: Test network extraction
+        run: python network_extract_selftest.py
+
+      - name: Test pipe endpoints
+        run: python pipe_endpoint_selftest.py
 
       - name: Build Windows EXE
         shell: powershell
@@ -130,24 +106,9 @@ jobs:
           Stop-Process -Id $proc.Id -Force
           Write-Host "PASS: final EXE launched and remained alive for 8 seconds"
 
-      - name: Package with exact build identity
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path package | Out-Null
-          Copy-Item "dist\CMB_DXF_Viewer.exe" "package\CMB_DXF_Viewer.exe"
-          Copy-Item "README.md" "package\README.txt"
-          Copy-Item "exe-contents.txt" "package\EXE_CONTENTS.txt"
-
-          $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
-          $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
-          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nEXE SHA-256: $exeHash`r`n`r`nThe hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.`r`n"
-          Set-Content -Path "package\THIRD_PARTY_LICENSES.txt" -Value ($notice + $identity) -Encoding UTF8
-
-          Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
-
-      - name: Upload
+      - name: Upload portable EXE
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-Windows-x64
-          path: desktop/CadExcelConverter/CMB_DXF_Viewer_Windows_x64.zip
+          name: CMB-DXF-Viewer-v3.29-FAST-LOCAL
+          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer.exe
           if-no-files-found: error
