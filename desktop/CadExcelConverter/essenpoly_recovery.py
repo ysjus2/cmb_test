@@ -39,8 +39,8 @@ def _collect_xdata(pairs, start_index=0):
     return result
 
 
-def recover_essenpoly_polylines(input_path, entity_types=("ESSENPOLY",)):
-    """Recover embedded AcDbPolyline geometry from ESSENPOLY custom entities.
+def recover_essenpoly_polylines(input_path, entity_types=("ESSENPOLY", "ACAD_PROXY", "ACAD_PROXY_ENTITY")):
+    """Recover embedded AcDbPolyline geometry from custom/proxy cable entities.
 
     This parser only reads the original ASCII DXF text. It does not alter the
     source file and does not depend on any proprietary DWG/DXF component.
@@ -49,6 +49,10 @@ def recover_essenpoly_polylines(input_path, entity_types=("ESSENPOLY",)):
 
     Original entity color, custom 300-309 fields and XDATA are retained so the
     same recovered cable can be rendered in the Viewer and exported to Excel.
+
+    Real production drawings may expose the same embedded cable object through
+    ESSENPOLY, ACAD_PROXY, or ACAD_PROXY_ENTITY depending on the DXF producer
+    and ezdxf interpretation. Geometry recovery therefore accepts all three.
     """
     path = Path(input_path)
     if path.suffix.lower() != ".dxf" or not path.is_file():
