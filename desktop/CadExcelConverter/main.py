@@ -7,25 +7,29 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from converter import convert_selected_layers, scan_layers
+from converter import LayerInfo, convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
+from layer_defaults import is_default_hidden
+from network_extract_ui import NetworkExtractionMixin
 
-APP_NAME = "CMB DXF Viewer + Excel v3.6"
+APP_NAME = "CMB DXF Viewer + Excel v3.29"
 
-class App(tk.Tk):
+
+class App(NetworkExtractionMixin, tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_NAME)
         self.geometry("1450x900")
-        self.minsize(1100, 700)
+        self.minsize(1000, 650)
 
         self.q = queue.Queue()
-        self.input_var = tk.StringVar()
-        self.output_var = tk.StringVar()
+        self.input_path = ""
         self.epsg_var = tk.StringVar(value="5174")
-        self.status_var = tk.StringVar(value="DXF 파일을 선택해주세요.")
+        self.status_var = tk.StringVar(value="파일 > 열기에서 DXF 파일을 선택해주세요.")
         self.progress_value = 0
         self.progress_text = "0% · 준비"
+        self.busy = False
+        self.fullscreen = False
 
         self.layer_names = {}
         self.layer_rows = {}
@@ -33,151 +37,303 @@ class App(tk.Tk):
         self.visible_layers = set()
         self.last_checked_iid = None
         self.highlighted_iids = set()
-        self.layer_panel_visible = True
-        self.fullscreen = False
+        self.layer_window = None
+        self.tree = None
 
-        self._build()
-        self.after(120, self._set_initial_layer_width)
+        self._build_menu()
+        self._build_main_view()
+        # 시작 시 레이어는 본창 내부 좌측에 실제 도킹된 패널로 표시한다.
+        self._build_docked_layer_panel()
+
         self.bind("<F11>", lambda e: self._toggle_fullscreen())
         self.bind("<Escape>", self._escape_key)
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.after(100, self._drain)
 
-    def _build(self):
-        root = ttk.Frame(self, padding=10)
+    def _build_menu(self):
+        menubar = tk.Menu(self)
+
+        file_menu = tk.Menu(menubar, tearoff=False)
+        file_menu.add_command(label="열기...", command=self._pick_input, accelerator="Ctrl+O")
+        file_menu.add_command(label="Excel로 출력...", command=self._run_excel, accelerator="Ctrl+E")
+        file_menu.add_command(label="전체 레이어 Excel (기존 방식)", command=self._run_all_layer_excel)
+        file_menu.add_separator()
+        file_menu.add_command(label="레이어 표시", command=self._show_layer_window)
+        file_menu.add_separator()
+        file_menu.add_command(label="종료", command=self.destroy)
+        menubar.add_cascade(label="파일", menu=file_menu)
+
+        view_menu = tk.Menu(menubar, tearoff=False)
+        view_menu.add_command(label="도면 점검 결과", command=self._show_drawing_audit)
+        view_menu.add_command(label="전체 화면", command=self._toggle_fullscreen, accelerator="F11")
+        menubar.add_cascade(label="보기", menu=view_menu)
+
+        settings_menu = tk.Menu(menubar, tearoff=False)
+        epsg_menu = tk.Menu(settings_menu, tearoff=False)
+        for epsg, label in [
+            ("5174", "EPSG:5174"),
+            ("2097", "EPSG:2097"),
+            ("5181", "EPSG:5181"),
+            ("5179", "EPSG:5179"),
+            ("5186", "EPSG:5186"),
+        ]:
+            epsg_menu.add_radiobutton(
+                label=label,
+                variable=self.epsg_var,
+                value=epsg,
+                command=self._epsg_changed,
+            )
+        settings_menu.add_cascade(label="좌표계", menu=epsg_menu)
+        menubar.add_cascade(label="설정", menu=settings_menu)
+
+        self.config(menu=menubar)
+        self.bind_all("<Control-o>", lambda e: self._pick_input())
+        self.bind_all("<Control-e>", lambda e: self._run_excel())
+
+    def _build_main_view(self):
+        root = ttk.Frame(self, padding=4)
         root.pack(fill="both", expand=True)
 
-        title = ttk.Frame(root)
-        title.pack(fill="x")
-        ttk.Label(title, text=APP_NAME, font=("Malgun Gothic", 19, "bold")).pack(side="left")
-        ttk.Label(
-            title,
-            text="DXF 전용 · 읽기 전용 Viewer · 로컬 처리 · 원본 수정 없음",
-            foreground="#126b3a",
-        ).pack(side="right")
+        self._build_extract_toolbar(root)
 
-        form = ttk.Frame(root)
-        form.pack(fill="x", pady=(8, 6))
-        ttk.Label(form, text="DXF 파일").grid(row=0, column=0, sticky="w", padx=(0, 6))
-        ttk.Entry(form, textvariable=self.input_var).grid(row=0, column=1, sticky="ew")
-        ttk.Button(form, text="열기", command=self._pick_input).grid(row=0, column=2, padx=6)
+        # Viewer 자체가 전체 폭을 차지한다.
+        # 레이어는 Viewer의 상단 도구바 아래 side_host에 실제 위젯으로 도킹된다.
+        self.viewer = DXFViewer(root)
+        self.viewer.pack(fill="both", expand=True)
+        self.viewer.set_source_epsg(self.epsg_var.get())
 
-        ttk.Label(form, text="Excel 출력").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(5, 0))
-        ttk.Entry(form, textvariable=self.output_var).grid(row=1, column=1, sticky="ew", pady=(5, 0))
-        ttk.Button(form, text="찾기", command=self._pick_output).grid(row=1, column=2, padx=6, pady=(5, 0))
+        status = ttk.Frame(root)
+        status.pack(fill="x", pady=(3, 0))
+        ttk.Label(status, textvariable=self.status_var, anchor="w").pack(fill="x")
 
-        ttk.Label(form, text="EPSG").grid(row=0, column=3, padx=(10, 4))
-        self.epsg_combo = ttk.Combobox(
-            form, textvariable=self.epsg_var,
-            values=["5174", "2097", "5181", "5179", "5186"],
-            width=10,
+        self.progress_frame = ttk.Frame(root)
+        self.progress_canvas = tk.Canvas(
+            self.progress_frame,
+            height=24,
+            highlightthickness=1,
+            highlightbackground="#9ca3af",
+            bg="#e5e7eb",
         )
-        self.epsg_combo.grid(row=0, column=4)
-        self.epsg_combo.bind(
-            "<<ComboboxSelected>>",
-            lambda e: self.viewer.set_source_epsg(self.epsg_var.get())
-        )
-        form.columnconfigure(1, weight=1)
+        self.progress_canvas.pack(fill="x")
+        self.progress_canvas.bind("<Configure>", lambda e: self._draw_progress())
+        self.progress_frame.pack_forget()
+        self.last_log = ""
 
-        toolbar = ttk.Frame(root)
-        toolbar.pack(fill="x", pady=(2, 6))
-        self.scan_btn = ttk.Button(toolbar, text="DXF 다시 읽기", command=self._scan)
-        self.scan_btn.pack(side="left")
-        ttk.Button(toolbar, text="추출 전체 선택", command=self._select_all).pack(side="left", padx=(6, 2))
-        ttk.Button(toolbar, text="추출 선택 해제", command=self._clear_selection).pack(side="left", padx=2)
-        self.layer_toggle_btn = ttk.Button(toolbar, text="레이어 창 접기", command=self._toggle_layer_panel)
-        self.layer_toggle_btn.pack(side="left", padx=(10, 2))
-        ttk.Button(toolbar, text="전체 화면(F11)", command=self._toggle_fullscreen).pack(side="left", padx=2)
-        self.run_btn = ttk.Button(toolbar, text="선택 레이어 Excel 생성", command=self._run, state="disabled")
-        self.run_btn.pack(side="left", padx=(12, 2))
-        ttk.Label(toolbar, textvariable=self.status_var).pack(side="right")
+    def _create_layer_window(self, show=False):
+        if self.layer_window is not None and self.layer_window.winfo_exists():
+            if show:
+                self._show_layer_window()
+            return
 
-        self.panes = tk.PanedWindow(
-            root,
-            orient="horizontal",
-            sashwidth=8,
-            sashrelief="raised",
-            showhandle=True,
-            bg="#9ca3af",
-            bd=0,
-            relief="flat",
-        )
-        self.panes.pack(fill="both", expand=True)
+        win = tk.Toplevel(self)
+        win.title("레이어")
+        win.geometry("520x720")
+        win.minsize(330, 350)
+        win.transient(None)
+        win.protocol("WM_DELETE_WINDOW", self._hide_layer_window)
+        self.layer_window = win
 
-        self.left_panel = ttk.LabelFrame(self.panes, text="레이어", padding=6)
-        left = self.left_panel
-        self.panes.add(left, minsize=220, stretch="always")
+        frame = ttk.Frame(win, padding=6)
+        frame.pack(fill="both", expand=True)
 
         self.tree = ttk.Treeview(
-            left,
+            frame,
             columns=("check", "layer", "count", "types"),
             show="headings",
             selectmode="extended",
-            height=28,
         )
         self.tree.heading("check", text="선택")
         self.tree.heading("layer", text="레이어명")
         self.tree.heading("count", text="객체수")
         self.tree.heading("types", text="객체종류")
         self.tree.column("check", width=55, anchor="center", stretch=False)
-        self.tree.column("layer", width=260)
-        self.tree.column("count", width=75, anchor="center")
-        self.tree.column("types", width=250)
+        self.tree.column("layer", width=230)
+        self.tree.column("count", width=70, anchor="center", stretch=False)
+        self.tree.column("types", width=150)
         self.tree.tag_configure("range_selected", background="#2563eb", foreground="#ffffff")
         self.tree.bind("<Button-1>", self._tree_click)
+        self.tree.bind("<Button-3>", self._layer_context_menu)
 
-        y = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
+        y = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=y.set)
         self.tree.pack(side="left", fill="both", expand=True)
         y.pack(side="right", fill="y")
 
-        self.right_panel = ttk.Frame(self.panes)
-        right = self.right_panel
-        self.panes.add(right, minsize=500, stretch="always")
-        self.viewer = DXFViewer(right)
-        self.viewer.pack(fill="both", expand=True)
-        self.viewer.set_source_epsg(self.epsg_var.get())
+        if not show:
+            win.withdraw()
 
-        # 진행 영역은 작업 중에만 표시하고 완료되면 자동으로 숨긴다.
-        self.progress_frame = ttk.Frame(root)
-        self.progress_canvas = tk.Canvas(
-            self.progress_frame, height=30, highlightthickness=1,
-            highlightbackground="#9ca3af", bg="#e5e7eb"
-        )
-        self.progress_canvas.pack(fill="x")
-        self.progress_canvas.bind("<Configure>", lambda e: self._draw_progress())
-        self.progress_frame.pack_forget()
+    def _layer_context_menu(self, event):
+        menu = tk.Menu(self.tree, tearoff=False)
+        menu.add_command(label="전체 선택", command=self._select_all)
+        menu.add_command(label="전체 해제", command=self._clear_selection)
+        menu.tk_popup(event.x_root, event.y_root)
 
-        self.last_log = ""
-
-    def _set_initial_layer_width(self):
-        if not self.layer_panel_visible:
-            return
+    def _show_layer_window(self):
+        self._create_layer_window(show=False)
+        self._place_layer_window_left()
         try:
-            total = max(1000, self.panes.winfo_width())
-            target = max(220, int(total * 0.20))
-            self.panes.sash_place(0, target, 0)
+            self.layer_window.focus_force()
         except Exception:
             pass
+
+    def _hide_layer_window(self):
+        if self.layer_window is not None and self.layer_window.winfo_exists():
+            self.layer_window.withdraw()
+        self._set_layer_docked(False)
+
+    def _rebuild_layer_tree_rows(self):
+        if self.tree is None:
+            return
+        try:
+            self.tree.delete(*self.tree.get_children())
+        except Exception:
+            return
+        for iid, row in self.layer_rows.items():
+            try:
+                self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
+                if iid in self.highlighted_iids:
+                    self.tree.item(iid, tags=("range_selected",))
+            except Exception:
+                pass
+
+    def _build_layer_tree_in(self, parent):
+        for child in parent.winfo_children():
+            child.destroy()
+
+        self.tree = ttk.Treeview(
+            parent,
+            columns=("check", "layer", "count", "types"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.tree.heading("check", text="선택")
+        self.tree.heading("layer", text="레이어명")
+        self.tree.heading("count", text="객체수")
+        self.tree.heading("types", text="객체종류")
+        self.tree.column("check", width=55, anchor="center", stretch=False)
+        self.tree.column("layer", width=210)
+        self.tree.column("count", width=65, anchor="center", stretch=False)
+        self.tree.column("types", width=120)
+        self.tree.tag_configure("range_selected", background="#2563eb", foreground="#ffffff")
+        self.tree.bind("<Button-1>", self._tree_click)
+        self.tree.bind("<Button-3>", self._layer_context_menu)
+
+        y = ttk.Scrollbar(parent, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=y.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        y.pack(side="right", fill="y")
+        self._rebuild_layer_tree_rows()
+
+    def _build_docked_layer_panel(self):
+        # 플로팅 창이 있으면 닫고, Viewer 내부 좌측에 실제 레이어 패널을 만든다.
+        if self.layer_window is not None:
+            try:
+                if self.layer_window.winfo_exists():
+                    self.layer_window.destroy()
+            except Exception:
+                pass
+            self.layer_window = None
+
+        host = self.viewer.side_host
+        for child in host.winfo_children():
+            child.destroy()
+
+        self.layer_panel = ttk.Frame(host, relief="solid", borderwidth=1)
+        self.layer_panel.pack(fill="both", expand=True)
+
+        title = ttk.Frame(self.layer_panel, padding=(7, 4))
+        title.pack(fill="x")
+        self.layer_title = ttk.Label(title, text="레이어", anchor="w")
+        self.layer_title.pack(side="left", fill="x", expand=True)
+        close_btn = ttk.Button(title, text="×", width=3, command=self._hide_layer_window)
+        close_btn.pack(side="right")
+
+        body = ttk.Frame(self.layer_panel, padding=(4, 0, 4, 4))
+        body.pack(fill="both", expand=True)
+        self._build_layer_tree_in(body)
+
+        # 제목줄을 끌면 일정 거리 이후 독립 창으로 분리한다.
+        for widget in (title, self.layer_title):
+            widget.bind("<ButtonPress-1>", self._layer_drag_start)
+            widget.bind("<B1-Motion>", self._layer_drag_motion)
+
+        host.configure(width=420)
+        try:
+            panes = [str(p) for p in self.viewer.body.panes()]
+            if str(host) not in panes:
+                self.viewer.body.add(host, before=self.viewer.canvas_host, minsize=220, width=420, stretch="never")
+            self.after(40, lambda: self.viewer.body.sash_place(0, 420, 0))
+        except Exception:
+            pass
+        self.layer_docked = True
         self.after(20, self.viewer.redraw)
 
-    def _toggle_layer_panel(self):
-        if self.layer_panel_visible:
+    def _layer_drag_start(self, event):
+        self._layer_drag_origin = (event.x_root, event.y_root)
+        self._layer_drag_detached = False
+
+    def _layer_drag_motion(self, event):
+        origin = getattr(self, "_layer_drag_origin", None)
+        if not origin or getattr(self, "_layer_drag_detached", False):
+            return
+        dx = event.x_root - origin[0]
+        dy = event.y_root - origin[1]
+        if dx * dx + dy * dy < 900:
+            return
+        self._layer_drag_detached = True
+        self._detach_layer_window(event.x_root - 40, event.y_root - 15)
+
+    def _detach_layer_window(self, x=None, y=None):
+        # 내부 패널을 제거하면 Canvas가 즉시 전체 폭을 사용한다.
+        try:
+            self.viewer.body.forget(self.viewer.side_host)
+        except Exception:
+            pass
+        self.tree = None
+        try:
+            for child in self.viewer.side_host.winfo_children():
+                child.destroy()
+        except Exception:
+            pass
+
+        self.layer_window = None
+        self._create_layer_window(show=True)
+        self._rebuild_layer_tree_rows()
+        if self.layer_window is not None and self.layer_window.winfo_exists():
             try:
-                self.panes.forget(self.left_panel)
+                if x is not None and y is not None:
+                    self.layer_window.geometry(f"430x720+{max(0, int(x))}+{max(0, int(y))}")
+                self.layer_window.lift()
             except Exception:
                 pass
-            self.layer_panel_visible = False
-            self.layer_toggle_btn.config(text="레이어 창 펼치기")
-        else:
+        self.layer_docked = False
+        self.after(20, self.viewer.redraw)
+
+    def _hide_layer_window(self):
+        if self.layer_window is not None:
             try:
-                self.panes.forget(self.right_panel)
+                if self.layer_window.winfo_exists():
+                    self.layer_window.destroy()
             except Exception:
                 pass
-            self.panes.add(self.left_panel, minsize=220, stretch="always")
-            self.panes.add(self.right_panel, minsize=500, stretch="always")
-            self.layer_panel_visible = True
-            self.layer_toggle_btn.config(text="레이어 창 접기")
-        self.after(30, self.viewer.redraw)
+            self.layer_window = None
+        try:
+            self.viewer.body.forget(self.viewer.side_host)
+            for child in self.viewer.side_host.winfo_children():
+                child.destroy()
+        except Exception:
+            pass
+        self.tree = None
+        self.layer_docked = False
+        self.after(20, self.viewer.redraw)
+
+    def _show_layer_window(self):
+        # 메뉴에서 다시 표시할 때는 항상 내부 좌측 도킹 상태로 복원한다.
+        self._build_docked_layer_panel()
+
+    def _epsg_changed(self):
+        self.viewer.set_source_epsg(self.epsg_var.get())
+        self.status_var.set(f"좌표계 EPSG:{self.epsg_var.get()} 적용")
 
     def _toggle_fullscreen(self):
         self.fullscreen = not self.fullscreen
@@ -185,48 +341,41 @@ class App(tk.Tk):
         self.after(50, self.viewer.redraw)
 
     def _escape_key(self, event=None):
-        if self.fullscreen:
-            self.fullscreen = False
-            self.attributes("-fullscreen", False)
-            self.after(50, self.viewer.redraw)
-        else:
-            self.viewer.clear_selection()
+        # ESC는 Viewer 조작 전용: 거리 측정 완료 또는 선택 해제.
+        # 전체화면 진입/해제는 F11만 사용한다.
+        return self.viewer.handle_escape(event)
 
     def _pick_input(self):
+        if self.busy:
+            return
         p = filedialog.askopenfilename(
-            filetypes=[("DXF 파일", "*.dxf"), ("모든 파일", "*.*")]
+            title="DXF 파일 열기",
+            filetypes=[("DXF 파일", "*.dxf"), ("모든 파일", "*.*")],
         )
-        if p:
-            if Path(p).suffix.lower() != ".dxf":
-                messagebox.showerror(APP_NAME, "회사용 최종판은 DXF 파일만 열 수 있습니다.")
-                return
-            self.input_var.set(p)
-            self.output_var.set(str(Path(p).with_suffix("")) + "_레이어별.xlsx")
-            self._scan()
-
-    def _pick_output(self):
-        p = filedialog.asksaveasfilename(
-            defaultextension=".xlsx",
-            filetypes=[("Excel", "*.xlsx")],
-        )
-        if p:
-            self.output_var.set(p)
+        if not p:
+            return
+        if Path(p).suffix.lower() != ".dxf":
+            messagebox.showerror(APP_NAME, "DXF 파일만 열 수 있습니다.")
+            return
+        self.input_path = p
+        self.title(f"{APP_NAME} - {Path(p).name}")
+        self._scan()
 
     def _scan(self):
-        inp = self.input_var.get().strip()
+        inp = self.input_path
         if not inp or not os.path.isfile(inp):
-            messagebox.showerror(APP_NAME, "DXF 파일을 선택해주세요.")
+            messagebox.showerror(APP_NAME, "먼저 파일 > 열기에서 DXF 파일을 선택해주세요.")
             return
-        if Path(inp).suffix.lower() != ".dxf":
-            messagebox.showerror(APP_NAME, "DXF 파일만 지원합니다.")
+        if self.busy:
             return
 
-        self.scan_btn.config(state="disabled")
-        self.run_btn.config(state="disabled")
+        self._clear_network_state()
+        self.busy = True
         self.status_var.set("DXF 분석 중...")
         self._show_progress()
         self._set_progress(0, "DXF 분석 준비")
-        self.tree.delete(*self.tree.get_children())
+        if self.tree is not None:
+            self.tree.delete(*self.tree.get_children())
         self.layer_names.clear()
         self.layer_rows.clear()
         self.checked_layers.clear()
@@ -257,11 +406,13 @@ class App(tk.Tk):
         name, count, types = self.layer_rows[iid]
         return (
             "☑" if name in self.checked_layers else "☐",
-            name, count, types
+            name,
+            count,
+            types,
         )
 
     def _refresh_row(self, iid):
-        if iid in self.layer_rows:
+        if self.tree is not None and iid in self.layer_rows and self.tree.exists(iid):
             self.tree.item(iid, values=self._row_values(iid))
 
     def _set_checked(self, iid, checked):
@@ -280,11 +431,14 @@ class App(tk.Tk):
         self._update_status()
 
     def _update_status(self):
-        self.status_var.set(
-            f"레이어 {len(self.layer_rows)}개 · 선택/표시/추출 {len(self.checked_layers)}개"
-        )
+        if self.input_path:
+            self.status_var.set(
+                f"{Path(self.input_path).name} · 레이어 {len(self.layer_rows)}개 · 표시/Excel 대상 {len(self.checked_layers)}개"
+            )
 
     def _highlight_items(self, items):
+        if self.tree is None:
+            return
         for old_iid in list(self.highlighted_iids):
             if self.tree.exists(old_iid):
                 self.tree.item(old_iid, tags=())
@@ -296,6 +450,8 @@ class App(tk.Tk):
             self.tree.see(items[-1])
 
     def _tree_click(self, event):
+        if self.tree is None:
+            return "break"
         iid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
         if not iid:
@@ -304,26 +460,20 @@ class App(tk.Tk):
         items = list(self.tree.get_children())
         shift_pressed = bool(event.state & 0x0001)
 
-        # v2.2 CAD식 범위 선택: 일반 클릭 기준점, Shift 클릭 연속 파란 범위.
         if shift_pressed and self.last_checked_iid in items:
             start = items.index(self.last_checked_iid)
             end = items.index(iid)
             lo, hi = sorted((start, end))
             range_items = items[lo:hi + 1]
             self._highlight_items(range_items)
-
-            # Shift+체크 클릭: 클릭 항목 상태 기준으로 범위 전체 일괄 체크/해제.
-            # 체크 상태는 Viewer 표시 여부와 Excel 추출 대상을 동시에 결정한다.
             if col == "#1":
                 clicked_name = self.layer_names.get(iid)
                 target = clicked_name not in self.checked_layers
                 for item in range_items:
                     self._set_checked(item, target)
-
             self.last_checked_iid = iid
             return "break"
 
-        # 파란 선택 범위 안 체크 클릭: 선택 그룹 전체 일괄 체크/해제.
         if col == "#1":
             if iid in self.highlighted_iids and self.highlighted_iids:
                 targets = [item for item in items if item in self.highlighted_iids]
@@ -331,69 +481,146 @@ class App(tk.Tk):
                 targets = [iid]
                 self._highlight_items(targets)
                 self.last_checked_iid = iid
-
             clicked_name = self.layer_names.get(iid)
             target = clicked_name not in self.checked_layers
             for item in targets:
                 self._set_checked(item, target)
             return "break"
 
-        # 일반 행 클릭: 기존 파란 선택을 지우고 클릭 행 하나를 즉시 파란색으로.
         self._highlight_items([iid])
         self.last_checked_iid = iid
         return "break"
 
     def _select_all(self):
+        if self.tree is None:
+            return
         items = list(self.tree.get_children())
         for iid in items:
             self._set_checked(iid, True)
         self._highlight_items(items)
 
     def _clear_selection(self):
+        if self.tree is None:
+            return
         for iid in self.tree.get_children():
             self._set_checked(iid, False)
         self._highlight_items([])
         self.last_checked_iid = None
 
-    def _run(self):
+    def _run_excel(self):
+        if self.export_scope is not None:
+            return self._run_network_excel()
+        messagebox.showinfo(APP_NAME, "먼저 광주간선 추출 또는 100mm 주관로 추출로 대상을 선택해주세요. 전체 레이어 출력은 파일 메뉴의 기존 방식을 사용하세요.")
+
+    def _run_all_layer_excel(self):
+        if self.busy:
+            return
+        if not self.input_path or not os.path.isfile(self.input_path):
+            messagebox.showerror(APP_NAME, "먼저 DXF 파일을 열어주세요.")
+            return
         selected = [
             self.layer_names[iid]
-            for iid in self.tree.get_children()
+            for iid in (self.tree.get_children() if self.tree is not None else [])
             if self.layer_names.get(iid) in self.checked_layers
         ]
         if not selected:
-            messagebox.showerror(APP_NAME, "Excel로 추출할 레이어를 선택해주세요.")
-            return
-        out = self.output_var.get().strip()
-        if not out:
-            messagebox.showerror(APP_NAME, "출력 Excel 경로를 지정해주세요.")
-            return
-        try:
-            epsg = int(self.epsg_var.get().strip())
-        except ValueError:
-            messagebox.showerror(APP_NAME, "EPSG 번호를 확인해주세요.")
+            messagebox.showerror(APP_NAME, "Excel로 출력할 레이어가 없습니다. 레이어 표시에서 선택해주세요.")
             return
 
-        self.run_btn.config(state="disabled")
-        self.scan_btn.config(state="disabled")
+        default_name = Path(self.input_path).stem + "_레이어별.xlsx"
+        out = filedialog.asksaveasfilename(
+            title="Excel로 출력",
+            defaultextension=".xlsx",
+            initialfile=default_name,
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not out:
+            return
+
+        try:
+            epsg = int(self.epsg_var.get())
+        except ValueError:
+            messagebox.showerror(APP_NAME, "좌표계 설정을 확인해주세요.")
+            return
+
+        self.busy = True
         self._show_progress()
         self._set_progress(0, "Excel 변환 준비")
-        self._log("=" * 60)
         self._log("Excel 추출 레이어: " + ", ".join(selected))
 
         def worker():
             try:
                 stats = convert_selected_layers(
-                    self.input_var.get().strip(),
-                    out, selected, epsg, None,
+                    self.input_path,
+                    out,
+                    selected,
+                    epsg,
+                    None,
                     log=lambda m: self.q.put(("log", m)),
                     progress=lambda p, t: self.q.put(("progress", (p, t))),
                 )
-                self.q.put(("done", stats))
+                self.q.put(("done", (stats, out)))
             except Exception as e:
                 self.q.put(("error", str(e)))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _populate_layers(self, layers, scene):
+        known = {layer.name for layer in layers}
+        scene_counts = {}
+        scene_types = {}
+        for ent in scene.entities:
+            scene_counts[ent.layer] = scene_counts.get(ent.layer, 0) + 1
+            scene_types.setdefault(ent.layer, set()).add(ent.entity_type)
+        for layer_name in sorted(scene_counts, key=str.lower):
+            if layer_name not in known:
+                layers.append(LayerInfo(
+                    layer_name,
+                    scene_counts[layer_name],
+                    ", ".join(sorted(scene_types[layer_name])),
+                ))
+        layers.sort(key=lambda x: x.name.lower())
+
+        if self.tree is None:
+            self._create_layer_window(show=False)
+        self.tree.delete(*self.tree.get_children())
+        for i, layer in enumerate(layers):
+            iid = f"L{i}"
+            self.layer_names[iid] = layer.name
+            self.layer_rows[iid] = (layer.name, scene_counts.get(layer.name, 0), ", ".join(sorted(scene_types.get(layer.name, set()))))
+            # 지번은 첫 화면 가독성을 위해 기본 OFF.
+            if not is_default_hidden(layer.name):
+                self.visible_layers.add(layer.name)
+                self.checked_layers.add(layer.name)
+            self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
+
+    def _show_drawing_audit(self):
+        scene = self.viewer.scene
+        if scene is None:
+            messagebox.showinfo(APP_NAME, '먼저 DXF 도면을 열어주세요.')
+            return
+        counts = {}
+        for ent in scene.entities:
+            counts[ent.layer] = counts.get(ent.layer, 0) + 1
+        empty = [name for name in self.layer_names.values() if not counts.get(name)]
+        missing = [ent for ent in scene.entities if not ent.primitives]
+        lines = [f'등록 레이어: {len(self.layer_names)}개', f'객체가 있는 레이어: {len(counts)}개',
+                 f'빈 레이어: {len(empty)}개', f'상위/블록 내부 표시 객체: {len(scene.entities):,}개',
+                 f'도형 미표시 객체: {len(missing)}개', f'블록/도형 변환 문제: {len(scene.diagnostics)}건']
+        if missing:
+            lines.append(chr(10) + '미표시 객체:')
+            lines.extend(f'{e.layer} / {e.entity_type} / {e.handle}' for e in missing)
+        if scene.diagnostics:
+            lines.append(chr(10) + '변환 문제:')
+            lines.extend(f"{i['layer']} / {i['type']}: {i['reason']}" for i in scene.diagnostics)
+        lines.append(chr(10) + '새 사용자 객체 형식은 지원 여부를 확인해야 합니다.')
+        window = tk.Toplevel(self)
+        window.title('도면 점검 결과')
+        window.geometry('760x480')
+        text = tk.Text(window, wrap='word', font=('Malgun Gothic', 10))
+        text.pack(fill='both', expand=True)
+        text.insert('1.0', chr(10).join(lines))
+        text.configure(state='disabled')
 
     def _drain(self):
         try:
@@ -405,34 +632,30 @@ class App(tk.Tk):
                     self._set_progress(data[0], data[1])
                 elif kind == "loaded":
                     layers, scene = data
-                    for i, layer in enumerate(layers):
-                        iid = f"L{i}"
-                        self.layer_names[iid] = layer.name
-                        self.layer_rows[iid] = (layer.name, layer.count, layer.types)
-                        self.visible_layers.add(layer.name)
-                        self.checked_layers.add(layer.name)
-                        self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
+                    self._populate_layers(layers, scene)
                     self.viewer.set_source_epsg(self.epsg_var.get())
                     self.viewer.load_scene(scene)
                     self.viewer.set_visible_layers(self.visible_layers)
-                    self.scan_btn.config(state="normal")
-                    self.run_btn.config(state="normal" if layers else "disabled")
+                    self.busy = False
                     self._update_status()
                     self._set_progress(100, f"DXF Viewer 준비 완료 · 객체 {len(scene.entities):,}개")
                     self.after(450, self._hide_progress)
+                    if scene.unsupported or scene.diagnostics:
+                        messagebox.showwarning(APP_NAME, '일부 객체 또는 블록 내부 도형을 표시하지 못했습니다. 보기 > 도면 점검 결과에서 확인하세요.')
                     if scene.unsupported:
                         text = ", ".join(f"{k}:{v}" for k, v in sorted(scene.unsupported.items()))
                         self._log("Viewer 미표시 객체: " + text)
                 elif kind == "done":
-                    self.scan_btn.config(state="normal")
-                    self.run_btn.config(state="normal")
+                    stats, out = data
+                    self.busy = False
                     self._set_progress(100, "Excel 생성 완료")
                     self.after(450, self._hide_progress)
-                    self._log(f"완료 · 레이어 {data.layers} · 객체 {data.entities} · 행 {data.rows}")
-                    messagebox.showinfo(APP_NAME, "선택 레이어 Excel 생성이 완료되었습니다.")
+                    self.status_var.set(
+                        f"Excel 생성 완료 · 객체 {stats.entities:,} · 행 {stats.rows:,} · {Path(out).name}"
+                    )
+                    messagebox.showinfo(APP_NAME, f"Excel 생성이 완료되었습니다.\n\n{out}")
                 elif kind == "error":
-                    self.scan_btn.config(state="normal")
-                    self.run_btn.config(state="normal" if self.layer_names else "disabled")
+                    self.busy = False
                     self._set_progress(self.progress_value, "오류 발생")
                     self.after(1200, self._hide_progress)
                     self._log("오류: " + data)
@@ -443,7 +666,7 @@ class App(tk.Tk):
 
     def _show_progress(self):
         if not self.progress_frame.winfo_manager():
-            self.progress_frame.pack(fill="x", pady=(6, 0))
+            self.progress_frame.pack(fill="x", pady=(3, 0))
         self.progress_frame.lift()
 
     def _hide_progress(self):
@@ -472,14 +695,17 @@ class App(tk.Tk):
         if fill > 0:
             c.create_rectangle(0, 0, fill, h, fill="#2563eb", outline="")
         c.create_text(
-            w // 2, h // 2, text=self.progress_text,
+            w // 2,
+            h // 2,
+            text=self.progress_text,
             fill="white" if self.progress_value >= 45 else "#111827",
-            font=("Malgun Gothic", 10, "bold"),
+            font=("Malgun Gothic", 9, "bold"),
         )
 
     def _log(self, msg):
-        # 로그는 내부 상태로만 보관한다. 화면 하단 로그창은 사용하지 않는다.
         self.last_log = str(msg)
+
 
 if __name__ == "__main__":
     App().mainloop()
+
