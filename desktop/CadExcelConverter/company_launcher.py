@@ -378,7 +378,7 @@ class ServerBrowser(tk.Toplevel):
         if isinstance(data, list):
             return data
         if isinstance(data, dict):
-            for key in ("items","regions","datasets","layers","objects","data","results"):
+            for key in ("items","regions","datasets","layers","objects","features","data","results"):
                 value=data.get(key)
                 if isinstance(value,list):
                     return value
