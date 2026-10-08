@@ -786,9 +786,9 @@ def _lod_group(ent):
         return 14
     return 14
 def _zoom_lod(viewer):
-    # LOD follows actual screen magnification against the dominant drawing
-    # fit. This preserves the visible sequence instead of skipping cable stages
-    # because of remote/outlier DXF geometry.
+    # Determine the current LOD directly from actual magnification.
+    # Wheel stages may be skipped when the view is already zoomed in.
+    # Rendering remains cumulative: all groups <= current LOD stay visible.
     fit = max(float(getattr(viewer, "lod_reference_scale", getattr(viewer, "fit_scale", 1.0))), 1e-12)
     ratio = max(1.0, viewer.scale / fit)
 
@@ -932,9 +932,9 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
-        # Stable reference for LOD: use the dominant/visible drawing area,
-        # not the raw full-DXF extents. Far-away junk objects must not make
-        # the initial view jump straight into deep LOD stages.
+        # Stable reference for LOD uses the dominant drawing area so outlier
+        # geometry does not distort the scale. The current zoom may jump
+        # directly to a deeper LOD, but display is always cumulative.
         dominant_bbox = self._visible_fit_bbox() or scene.bbox
         self.lod_reference_scale = self._bbox_fit_scale(dominant_bbox, margin=28) * 1.15
         self.fit_initial_view()
@@ -1246,8 +1246,12 @@ class DXFViewer(ttk.Frame):
             if idx < 0 or idx >= len(self.scene.entities):
                 continue
             ent = self.scene.entities[idx]
-            if self.entity_filter is None and _lod_group(ent) > lod:
-                continue
+            if self.entity_filter is None:
+                # Cumulative LOD: if current view is stage N, show every
+                # configured group from 0 through N. Only wheel thresholds may
+                # be skipped; earlier content must never disappear.
+                if _lod_group(ent) > lod:
+                    continue
             if self.entity_filter is not None and ent.index not in self.entity_filter:
                 continue
             if ent.layer not in self.visible_layers:
