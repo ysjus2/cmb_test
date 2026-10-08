@@ -76,6 +76,9 @@ jobs:
       - name: Apply v3.19 layout
         run: python apply_layout_v319.py
 
+      - name: Apply fast cache and progressive layers
+        run: python apply_fast_cache_lod.py
+
       - name: Verify no DWG copyleft engine
         shell: powershell
         run: |
