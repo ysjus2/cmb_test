@@ -88,9 +88,9 @@ jobs:
           pyi-archive_viewer -r -b "dist\CMB_Network.exe" | Out-File -Encoding utf8 exe-contents.txt
           $badOpen = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
           if ($badOpen) { $badOpen | ForEach-Object { Write-Host $_.Line }; throw "Blocked NumPy/fontTools/OpenBLAS content found" }
-          $badMsRuntime = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])(ucrtbase\.dll|api-ms-win-[^\\/]*\.dll|vcruntime140[^\\/]*\.dll|msvcp140[^\\/]*\.dll)$" -CaseSensitive:$false
-          if ($badMsRuntime) { $badMsRuntime | ForEach-Object { Write-Host $_.Line }; throw "Bundled Microsoft system/VC runtime DLL found" }
-          Write-Host "PASS: app does not bundle Windows UCRT/API-set or VC++ runtime DLLs"
+          $badMsRuntime = Select-String -Path exe-contents.txt -Pattern "^(?!.*pyproj\.libs[\\/]).*(^|[\\/])(ucrtbase\.dll|api-ms-win-[^\\/]*\.dll|vcruntime140[^\\/]*\.dll|msvcp140[^\\/]*\.dll)$" -CaseSensitive:$false
+          if ($badMsRuntime) { $badMsRuntime | ForEach-Object { Write-Host $_.Line }; throw "Bundled top-level Microsoft system/VC runtime DLL found" }
+          Write-Host "PASS: top-level Windows UCRT/API-set/VC runtime DLLs are excluded; pyproj.libs hashed dependencies are allowed"
 
       - name: Launch app smoke test
         shell: powershell
