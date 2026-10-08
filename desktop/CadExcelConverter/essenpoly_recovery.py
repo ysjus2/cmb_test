@@ -36,10 +36,10 @@ def _collect_xdata(pairs, start_index=0):
             continue
         if code.startswith("10") and value.strip():
             result[current].append(f"{code}:{value.strip()}")
-    return {k: v for k, v in result.items() if v}
+    return result
 
 
-def recover_essenpoly_polylines(input_path):
+def recover_essenpoly_polylines(input_path, entity_types=("ESSENPOLY",)):
     """Recover embedded AcDbPolyline geometry from ESSENPOLY custom entities.
 
     This parser only reads the original ASCII DXF text. It does not alter the
@@ -59,7 +59,7 @@ def recover_essenpoly_polylines(input_path):
     i = 0
 
     while i + 1 < len(raw):
-        if raw[i].strip() != "0" or raw[i + 1].strip() != "ESSENPOLY":
+        if raw[i].strip() != "0" or raw[i + 1].strip() not in entity_types:
             i += 2
             continue
 
@@ -154,6 +154,7 @@ def recover_essenpoly_polylines(input_path):
 
         if layer and len(points) >= 2:
             recovered.append({
+                "entity_type": raw[start + 1].strip(),
                 "handle": handle,
                 "layer": layer,
                 "points": points,
@@ -166,3 +167,8 @@ def recover_essenpoly_polylines(input_path):
         i = max(j, i + 2)
 
     return recovered
+
+
+def recover_linker_polylines(input_path):
+    """Read actual embedded conduit/aerial paths; do not infer connections."""
+    return recover_essenpoly_polylines(input_path, ("ASDKESSENLINKER",))
