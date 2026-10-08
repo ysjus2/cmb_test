@@ -219,6 +219,113 @@ class UserRegistrationDialog(tk.Toplevel):
             self.save_btn.config(state="normal")
 
 
+class UserManagementDialog(tk.Toplevel):
+    def __init__(self, master, client):
+        super().__init__(master)
+        self.client = client
+        self.title("회원 검색 / 사용자 관리")
+        self.geometry("820x520")
+        self.transient(master)
+        self._build()
+        self._load()
+
+    def _build(self):
+        top = ttk.Frame(self, padding=12)
+        top.pack(fill="x")
+        ttk.Label(top, text="회원 검색", font=("Malgun Gothic", 15, "bold")).pack(side="left")
+        self.query = ttk.Entry(top, width=32)
+        self.query.pack(side="left", padx=(16,6))
+        ttk.Button(top, text="검색", command=self._load).pack(side="left")
+        ttk.Button(top, text="새로고침", command=lambda:self._load("")).pack(side="left", padx=6)
+        self.query.bind("<Return>", lambda e:self._load())
+
+        self.tree = ttk.Treeview(
+            self,
+            columns=("name","username","department","level","status"),
+            show="headings",
+            selectmode="browse",
+        )
+        for col, title, width in (
+            ("name","이름",140),
+            ("username","아이디",150),
+            ("department","부서",180),
+            ("level","등급",70),
+            ("status","상태",90),
+        ):
+            self.tree.heading(col,text=title)
+            self.tree.column(col,width=width,anchor="center" if col in ("level","status") else "w")
+        self.tree.pack(fill="both",expand=True,padx=12,pady=(0,8))
+        self.tree.bind("<Button-3>", self._popup_menu)
+
+        self.menu=tk.Menu(self,tearoff=False)
+        self.menu.add_command(label="퇴사자 처리", command=self._deactivate_selected)
+
+        self.status=tk.StringVar(value="")
+        ttk.Label(self,textvariable=self.status,padding=(12,4)).pack(fill="x")
+
+    def _load(self, forced=None):
+        q=self.query.get().strip() if forced is None else forced
+        if forced == "":
+            self.query.delete(0,"end")
+        try:
+            data=self.client.list_users(q)
+            rows=data if isinstance(data,list) else (data.get("items",[]) if isinstance(data,dict) else [])
+            self.tree.delete(*self.tree.get_children())
+            for row in rows:
+                if not isinstance(row,dict):
+                    continue
+                uid=row.get("id")
+                if uid is None:
+                    continue
+                active=bool(row.get("active",True))
+                self.tree.insert(
+                    "","end",iid=str(uid),
+                    values=(
+                        row.get("name") or "",
+                        row.get("username") or "",
+                        row.get("department") or "",
+                        row.get("level") or "",
+                        "재직" if active else "퇴사",
+                    ),
+                    tags=("active" if active else "inactive",)
+                )
+            self.tree.tag_configure("inactive",foreground="#777777")
+            self.status.set(f"검색 결과 {len(rows)}명")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME,str(exc),parent=self)
+
+    def _popup_menu(self,event):
+        iid=self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        values=self.tree.item(iid,"values")
+        if len(values)>=5 and values[4]=="퇴사":
+            return
+        self.menu.tk_popup(event.x_root,event.y_root)
+
+    def _deactivate_selected(self):
+        sel=self.tree.selection()
+        if not sel:
+            return
+        iid=sel[0]
+        values=self.tree.item(iid,"values")
+        name=values[0] or values[1]
+        if not messagebox.askyesno(
+            APP_NAME,
+            f"{name} 사용자를 퇴사자로 처리하시겠습니까?\n\n"
+            "로그인이 즉시 차단되고 기존 로그인 세션도 모두 종료됩니다.\n"
+            "계정 기록은 삭제하지 않습니다.",
+            parent=self
+        ):
+            return
+        try:
+            self.client.deactivate_user(int(iid))
+            self._load()
+        except Exception as exc:
+            messagebox.showerror(APP_NAME,str(exc),parent=self)
+
+
 class ServerBrowser(tk.Toplevel):
     def __init__(self, master, client):
         super().__init__(master)
@@ -382,11 +489,18 @@ class Portal(tk.Tk):
         if self.level == 1:
             ttk.Separator(root).pack(fill="x",pady=16)
             ttk.Label(root,text="관리자 기능",font=("Malgun Gothic",12,"bold")).pack(anchor="w")
+            admin_buttons=ttk.Frame(root)
+            admin_buttons.pack(fill="x", pady=(8,4))
             ttk.Button(
-                root,
+                admin_buttons,
                 text="사용자 등록",
                 command=lambda: UserRegistrationDialog(self, self.client)
-            ).pack(fill="x", ipady=7, pady=(8, 4))
+            ).pack(side="left", ipadx=10, ipady=5)
+            ttk.Button(
+                admin_buttons,
+                text="회원 검색 / 퇴사 처리",
+                command=lambda: UserManagementDialog(self, self.client)
+            ).pack(side="left", padx=(10,0), ipadx=10, ipady=5)
             ttk.Label(
                 root,
                 text="서버 업로드/수정 기능은 서버 API 준비 후 이 영역에만 추가됩니다.",
