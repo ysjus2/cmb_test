@@ -43,10 +43,14 @@ class Scene:
     grid: dict = field(default_factory=dict)
     grid_n: int = 96
     large_entities: list = field(default_factory=list)
+    lod_grids: dict = field(default_factory=dict)
+    lod_large_entities: dict = field(default_factory=dict)
 
     def build_index(self):
         self.grid = {}
         self.large_entities = []
+        self.lod_grids = {}
+        self.lod_large_entities = {}
         if not self.entities:
             return
         minx, miny, maxx, maxy = self.bbox
@@ -62,12 +66,19 @@ class Scene:
             ix2 = max(0, min(n-1, int((b[2]-minx)/dx*n)))
             iy2 = max(0, min(n-1, int((b[3]-miny)/dy*n)))
             cells = (ix2-ix1+1)*(iy2-iy1+1)
+            group = _lod_group(ent)
+            stage_grid = self.lod_grids.setdefault(group, {})
+            stage_large = self.lod_large_entities.setdefault(group, [])
+
             if cells > 48:
                 self.large_entities.append(ent.index)
+                stage_large.append(ent.index)
                 continue
+
             for ix in range(ix1, ix2+1):
                 for iy in range(iy1, iy2+1):
                     self.grid.setdefault((ix,iy), []).append(ent.index)
+                    stage_grid.setdefault((ix,iy), []).append(ent.index)
 
     def query(self, bbox):
         if not self.grid:
@@ -84,6 +95,25 @@ class Scene:
         for ix in range(ix1, ix2+1):
             for iy in range(iy1, iy2+1):
                 found.update(self.grid.get((ix,iy), ()))
+        return found
+
+    def query_lod(self, bbox, group):
+        """Query one LOD group independently so earlier groups cannot be lost."""
+        if not self.grid or not self.lod_grids:
+            self.build_index()
+        minx, miny, maxx, maxy = self.bbox
+        dx = max(maxx-minx, 1e-9)
+        dy = max(maxy-miny, 1e-9)
+        n = max(16, int(self.grid_n))
+        ix1 = max(0, min(n-1, int((bbox[0]-minx)/dx*n)))
+        iy1 = max(0, min(n-1, int((bbox[1]-miny)/dy*n)))
+        ix2 = max(0, min(n-1, int((bbox[2]-minx)/dx*n)))
+        iy2 = max(0, min(n-1, int((bbox[3]-miny)/dy*n)))
+        found = set(self.lod_large_entities.get(group, ()))
+        stage_grid = self.lod_grids.get(group, {})
+        for ix in range(ix1, ix2+1):
+            for iy in range(iy1, iy2+1):
+                found.update(stage_grid.get((ix,iy), ()))
         return found
 
 def _expand_bbox(box, x, y):
@@ -658,7 +688,7 @@ def build_scene(input_path, log=None, progress=None):
     return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
 
-CACHE_VERSION = "v329-fast-local-1"
+CACHE_VERSION = "v329-fast-local-2"
 
 def _cache_dir():
     base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
@@ -1236,23 +1266,18 @@ class DXFViewer(ttk.Frame):
             x1, y1 = self.screen_to_world(0, self.canvas.winfo_height())
             x2, y2 = self.screen_to_world(self.canvas.winfo_width(), 0)
             viewport = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
-            candidates = self.scene.query(viewport)
             lod = _zoom_lod(self)
 
-            # Decide the current stage first, then render every stage from
-            # 0 through that stage in order. Zoom thresholds may be skipped,
-            # but display stages are never skipped or replaced.
-            stage_indices = [[] for _ in range(lod + 1)]
-            for idx in candidates:
-                if 0 <= idx < len(self.scene.entities):
-                    group = _lod_group(self.scene.entities[idx])
-                    if 0 <= group <= lod:
-                        stage_indices[group].append(idx)
-            indices = [
-                idx
-                for group in range(lod + 1)
-                for idx in sorted(stage_indices[group])
-            ]
+            # Determine the current stage first, then independently query and
+            # append every stage from 0 through the current stage. A zoom jump
+            # may skip wheel thresholds, but it can never skip display content.
+            indices = []
+            seen = set()
+            for group in range(lod + 1):
+                for idx in sorted(self.scene.query_lod(viewport, group)):
+                    if idx not in seen:
+                        seen.add(idx)
+                        indices.append(idx)
         else:
             # v3.29 network extraction mode keeps its exact route/pipe filter.
             indices = sorted(self.entity_filter)
