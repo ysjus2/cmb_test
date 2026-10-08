@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -283,7 +285,7 @@ class ServerBrowser(tk.Toplevel):
         return None
 
     @staticmethod
-    def _name(item):
+    def _item_name(item):
         if not isinstance(item,dict): return str(item)
         for k in ("name","title","label","code","id"):
             if item.get(k) not in (None,""): return str(item.get(k))
@@ -292,7 +294,7 @@ class ServerBrowser(tk.Toplevel):
     def _load_regions(self):
         try:
             self.regions_data=self._items(self.client.regions())
-            self.region["values"]=[self._name(x) for x in self.regions_data]
+            self.region["values"]=[self._item_name(x) for x in self.regions_data]
             if self.regions_data:
                 self.region.current(0); self._load_datasets()
             self.status.set(f"지역 {len(self.regions_data)}개")
@@ -305,7 +307,7 @@ class ServerBrowser(tk.Toplevel):
         rid=self._id(self.regions_data[i])
         try:
             self.datasets_data=self._items(self.client.region_datasets(rid))
-            self.dataset["values"]=[self._name(x) for x in self.datasets_data]
+            self.dataset["values"]=[self._item_name(x) for x in self.datasets_data]
             if self.datasets_data:
                 self.dataset.current(0); self._load_dataset()
             else:
@@ -326,7 +328,7 @@ class ServerBrowser(tk.Toplevel):
                 count=""
                 if isinstance(x,dict):
                     count=x.get("count",x.get("object_count",""))
-                self.layers.insert("","end",values=(self._name(x),count))
+                self.layers.insert("","end",values=(self._item_name(x),count))
             self.objects.delete(*self.objects.get_children())
             self.object_rows.clear()
             for idx,x in enumerate(objects):
@@ -394,11 +396,20 @@ class Portal(tk.Tk):
         ttk.Label(root,text="권한이 없는 기능은 화면에 표시되지 않습니다.",foreground="#666").pack(side="bottom",anchor="w")
 
     def _open_dxf(self):
-        self.destroy()
-        from main import App
-        App().mainloop()
+        try:
+            # Keep the authenticated portal alive and run the local DXF tool
+            # in a separate process. A second Tk root in the same packaged
+            # process can fail silently after destroying the portal.
+            subprocess.Popen([sys.executable, "--local-dxf"])
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"로컬 DXF 실행 실패: {exc}", parent=self)
 
 def run():
+    if "--local-dxf" in sys.argv:
+        from main import App
+        App().mainloop()
+        return
+
     login=LoginDialog()
     login.mainloop()
     if not login.result:
