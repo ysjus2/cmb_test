@@ -711,96 +711,73 @@ def _lod_group(ent):
     u = layer.upper()
     etype = str(ent.entity_type or "").upper()
 
-    # 0: initial view = SIG only
+    # 0: 시군구 + 광케이블
     if u == "TL_SCCO_SIG":
         return 0
-
-    # 1: fiber cable after one wheel notch
     if _is_optical_cable_layer(layer):
+        return 0
+
+    # 1: 셀경계만
+    if u == "CN_C_CELLBOUND" or u.startswith("CN_C_CELLBOUND_"):
         return 1
 
-    # 2: CellBound only
-    if u == "CN_C_CELLBOUND" or u.startswith("CN_C_CELLBOUND_"):
+    # 2: 건물군
+    if layer == "건물_건물군":
         return 2
 
-    # Final-only text / IDs / lower administrative boundaries.
-    if u in {"TL_SCCO_EMD", "TL_SCCO_END", "TL_SCCO_LI"}:
-        return 9
-    if etype in {"TEXT", "MTEXT", "ATTRIB"}:
-        return 9
-    if u.startswith("C-ID_") or u.startswith("C_ID_"):
-        return 9
-    if u.startswith("CN_C_ID_") or u.startswith("CN_F_ID_") or u.startswith("CN_L_POLE_ID"):
-        return 9
-    if u == "0":
-        return 9
-
-    # 3: fiber equipment only (ID/text layers already diverted to final stage)
-    if u.startswith((
-        "CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL"
-    )):
+    # 3: 도로
+    if u == "TL_SPRD_RW":
         return 3
 
-    # 4: coax cable + coax equipment
-    if u.startswith("CN_C_CABLE_"):
+    # 4: 광기기 (ID/텍스트는 최종단계)
+    if u.startswith(("CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL")):
         return 4
+
+    # 5: 동축케이블 + 동축기기
+    if u.startswith("CN_C_CABLE_"):
+        return 5
     if u.startswith((
         "CN_C_ONU","CN_C_POWER","CN_C_AMP","CN_C_TAP","CN_C_PASSIVE",
         "CN_C_CONNECTOR","CN_C_DC_","CN_C_SUBSCRIBERS","CN_C_NMS_"
     )):
-        return 4
-
-    # 5: road
-    if u == "TL_SPRD_RW":
         return 5
 
-    # 6: building group only
-    if layer == "건물_건물군":
+    # 6: 사용자 작성 CN_M_User_* 전체
+    if u.startswith("CN_M_USER_"):
         return 6
 
-    # 7: poles/manholes (pole ID/text remains final-only)
+    # 7: 전주 + 맨홀 + 관로
     if (
         u.startswith("CN_L_POLE_POLE")
         or u.startswith("CN_L_POLE_MANHOLE")
         or u.startswith("CN_L_POLE_HANDHOLE")
+        or u.startswith("CN_L_POLE_LINE_")
         or u == "CN_L_POLE"
     ):
         return 7
 
-    # 8: conduit/aerial
-    if u.startswith("CN_L_POLE_LINE_"):
+    # 8: 0 레이어
+    if u == "0":
         return 8
 
-    # 9: max zoom only — all remaining layers, names, distribution, etc.
+    # 9: 나머지 전체 + 모든 텍스트/ID + 하위 행정경계
     return 9
-
 def _zoom_lod(viewer):
     fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
     ratio = viewer.scale / fit
 
-    # First transition is fast: one wheel notch shows fiber.
-    step1 = 1.15
-    if ratio < step1: return 0
-
-    # Fiber remains for three more notches before CellBound appears.
-    step3 = 1.15 ** 3
-    if ratio < step1 * step3: return 1
-
-    # From CellBound onward, every new group requires 3 wheel notches.
-    base = step1 * step3
-    if ratio < base * step3 ** 1: return 2  # CellBound
-    if ratio < base * step3 ** 2: return 3  # fiber equipment
-    if ratio < base * step3 ** 3: return 4  # coax cable/equipment
-    if ratio < base * step3 ** 4: return 5  # road
-    if ratio < base * step3 ** 5: return 6  # building group
-    if ratio < base * step3 ** 6: return 7  # pole/manhole
-    if ratio < base * step3 ** 7: return 8  # conduit
-
-    # Final maximum-detail stage requires 5 additional wheel notches.
-    final_gap = 1.15 ** 5
-    if ratio < base * step3 ** 7 * final_gap: return 8
+    # 10 stages, fixed 5-wheel interval between every stage.
+    step5 = 1.15 ** 5
+    if ratio < step5 ** 1: return 0
+    if ratio < step5 ** 2: return 1
+    if ratio < step5 ** 3: return 2
+    if ratio < step5 ** 4: return 3
+    if ratio < step5 ** 5: return 4
+    if ratio < step5 ** 6: return 5
+    if ratio < step5 ** 7: return 6
+    if ratio < step5 ** 8: return 7
+    if ratio < step5 ** 9: return 8
     return 9
-
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
