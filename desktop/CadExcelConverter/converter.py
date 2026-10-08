@@ -14,6 +14,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from pyproj import Transformer
 
+from essenpoly_recovery import recover_essenpoly_polylines, recover_linker_polylines
+
 LAYER_HEADERS = [
     "ENTITY_TYPE","ENTITY_ID","BLOCK_NAME","SEQ",
     "CAD_X","CAD_Y","경도","위도",
@@ -119,13 +121,49 @@ def load_dxf_document(input_path, log: Callable[[str], None] | None = None):
             except Exception:
                 pass
 
+def _layer_entities(doc):
+    """Include block components on explicit child layers without changing DXF."""
+    def walk(insert, inherited, root_layer, chain=()):
+        name = str(insert.dxf.name)
+        if name in chain or len(chain) >= 32:
+            return
+        for part_no, child in enumerate(insert.virtual_entities()):
+            layer = str(child.dxf.layer or '0')
+            if layer == '0':
+                layer = inherited
+            if child.dxftype() == 'INSERT':
+                yield from walk(child, layer, root_layer, chain + (name,))
+            elif layer != root_layer:
+                clone = child.copy()
+                clone.dxf.layer = layer
+                clone._cmb_export_handle = f"{getattr(insert.dxf, 'handle', '')}/child/{part_no}"
+                clone._cmb_parent_block = name
+                clone._cmb_parent_handle = str(getattr(insert.dxf, 'handle', '') or '')
+                yield clone
+        for attr_no, attr in enumerate(getattr(insert, 'attribs', [])):
+            layer = str(attr.dxf.layer or '0')
+            if layer == '0':
+                layer = inherited
+            if layer != root_layer:
+                clone = attr.copy()
+                clone.dxf.layer = layer
+                clone._cmb_export_handle = str(attr.dxf.handle or f"{getattr(insert.dxf, 'handle', '')}/attr/{attr_no}")
+                clone._cmb_parent_block = name
+                clone._cmb_parent_handle = str(getattr(insert.dxf, 'handle', '') or '')
+                yield clone
+    for ent in doc.modelspace():
+        yield ent
+        if ent.dxftype() == 'INSERT':
+            yield from walk(ent, str(ent.dxf.layer), str(ent.dxf.layer))
+
 def scan_layers(input_path, oda_exe=None, log=None, progress=None):
     log = log or (lambda msg: None)
     progress = progress or (lambda percent, task: None)
     progress(5, "DXF 읽기")
     doc = load_dxf_document(input_path, log)
-    entities = list(doc.modelspace())
-    counts, types = {}, {}
+    entities = list(_layer_entities(doc))
+    counts = {str(layer.dxf.name): 0 for layer in doc.layers}
+    types = {name: set() for name in counts}
     total = max(1, len(entities))
     for index, ent in enumerate(entities, 1):
         layer = _norm(getattr(ent.dxf, "layer", "0")) or "0"
@@ -142,6 +180,10 @@ def scan_layers(input_path, oda_exe=None, log=None, progress=None):
 
 def _attributes(entity):
     out = {}
+    if getattr(entity, "_cmb_parent_handle", ""):
+        out["PARENT_HANDLE"] = entity._cmb_parent_handle
+    if entity.dxftype() == "ATTRIB":
+        out[_norm(entity.dxf.tag)] = _norm(entity.dxf.text)
     if entity.dxftype() == "INSERT":
         for attr in getattr(entity, "attribs", []):
             out[_norm(attr.dxf.tag)] = _norm(attr.dxf.text)
@@ -152,22 +194,19 @@ def _joined_attrs(attrs):
 
 def _xdata_text(doc, entity):
     chunks = []
-    try:
-        for appid in doc.appids:
-            try:
-                tags = entity.get_xdata(appid.dxf.name)
-            except Exception:
-                continue
-            for tag in tags:
-                if isinstance(tag.value, str) and tag.value.strip():
-                    chunks.append(tag.value.strip())
-    except Exception:
-        pass
-    return " | ".join(dict.fromkeys(chunks))
+    for appid in doc.appids:
+        name = str(appid.dxf.name)
+        try:
+            tags = entity.get_xdata(name)
+        except Exception:
+            continue
+        chunks.append(name + ': ' + ' ; '.join(f'{tag.code}:{tag.value}' for tag in tags))
+    return ' | '.join(chunks)
+
 
 def _entity_text(entity):
     try:
-        if entity.dxftype() == "TEXT":
+        if entity.dxftype() in {"TEXT", "ATTRIB"}:
             return _norm(entity.dxf.text)
         if entity.dxftype() == "MTEXT":
             return _norm(entity.plain_text())
@@ -184,7 +223,7 @@ def entity_points(entity):
         if typ == "POINT":
             p = entity.dxf.location
             return [(float(p.x), float(p.y))]
-        if typ in {"TEXT", "MTEXT"}:
+        if typ in {"TEXT", "MTEXT", "ATTRIB"}:
             p = entity.dxf.insert
             return [(float(p.x), float(p.y))]
         if typ == "LWPOLYLINE":
@@ -257,19 +296,34 @@ def convert_selected_layers(
     entity_counts = {name: 0 for name in selected}
     stats = ConversionStats(layers=len(selected))
 
-    entities = list(doc.modelspace())
+    # IMPORTANT:
+    # 손상 DXF를 ezdxf recover로 읽으면 ESSENPOLY의 원래 레이어가 '0'으로
+    # 바뀌는 도면이 있다. 따라서 ESSENPOLY는 modelspace 값을 신뢰하지 않고
+    # 원본 ASCII DXF에서 복구한 실제 layer/handle/point/xdata를 직접 출력한다.
+    recovered_items = recover_essenpoly_polylines(input_path) + recover_linker_polylines(input_path)
+    recovered_handles = {item.get("handle", "") for item in recovered_items if item.get("handle")}
+
+    entities = list(_layer_entities(doc))
     total = max(1, len(entities))
     for index, ent in enumerate(entities, 1):
+        typ = ent.dxftype()
+        handle = _norm(getattr(ent, "_cmb_export_handle", getattr(ent.dxf, "handle", "")))
+
+        # ESSENPOLY는 아래 원문 복구 단계에서만 처리한다.
+        # 여기서 처리하면 recover가 만든 layer=0 빈 행이 Excel에 섞인다.
+        if typ in {"ESSENPOLY", "ASDKESSENLINKER"} or (handle and handle in recovered_handles):
+            if index == total or index % max(1, total // 100) == 0:
+                progress(15 + int(index / total * 55), f"객체 분석 {index:,}/{total:,}")
+            continue
+
         layer = _norm(getattr(ent.dxf, "layer", "0")) or "0"
         if layer in grouped:
             entity_counts[layer] += 1
             stats.entities += 1
-            typ = ent.dxftype()
-            handle = _norm(getattr(ent.dxf, "handle", ""))
-            block = _norm(getattr(ent.dxf, "name", "")) if typ == "INSERT" else ""
+            block = _norm(getattr(ent.dxf, "name", "")) if typ == "INSERT" else str(getattr(ent, "_cmb_parent_block", ""))
             attrs = _joined_attrs(_attributes(ent))
             xdata = _xdata_text(doc, ent)
-            text = _entity_text(ent)
+            text_value = _entity_text(ent)
             points = entity_points(ent)
             length = _length(points)
             if points:
@@ -280,18 +334,69 @@ def convert_selected_layers(
                         lon, lat = None, None
                     grouped[layer].append([
                         typ, handle, block, seq, x, y, lon, lat,
-                        length, text, attrs, xdata,
+                        length, text_value, attrs, xdata,
                     ])
                     stats.rows += 1
             else:
                 grouped[layer].append([
                     typ, handle, block, 0, None, None, None, None,
-                    0, text, attrs, xdata,
+                    0, text_value, attrs, xdata,
                 ])
                 stats.rows += 1
                 stats.skipped += 1
+
         if index == total or index % max(1, total // 100) == 0:
-            progress(15 + int(index / total * 60), f"객체 분석 {index:,}/{total:,}")
+            progress(15 + int(index / total * 55), f"객체 분석 {index:,}/{total:,}")
+
+    # ESSENPOLY는 원본 DXF 텍스트의 실제 레이어명으로 직접 출력한다.
+    recovered_count = 0
+    recovered_rows = 0
+    per_layer = {}
+    for item in recovered_items:
+        layer = _norm(item.get("layer", ""))
+        if layer not in grouped:
+            continue
+        points = item.get("points", [])
+        if len(points) < 2:
+            continue
+
+        handle = _norm(item.get("handle", ""))
+        meta = dict(item.get("attributes", {}))
+        if item.get("color_aci") is not None:
+            meta["CAD_COLOR_ACI"] = item.get("color_aci")
+        if item.get("true_color") is not None:
+            meta["CAD_TRUE_COLOR"] = item.get("true_color")
+        meta["RECOVERED_TYPE"] = item.get("entity_type", "ESSENPOLY") + "/Embedded AcDbPolyline"
+        attrs = _joined_attrs(meta)
+
+        xmap = item.get("xdata", {}) or {}
+        xdata = " | ".join(
+            f"{appid}: " + " ; ".join(str(v) for v in values)
+            for appid, values in xmap.items()
+            if values
+        )
+        length = _length(points)
+
+        entity_counts[layer] += 1
+        stats.entities += 1
+        recovered_count += 1
+        per_layer[layer] = per_layer.get(layer, 0) + 1
+
+        for seq, (x, y) in enumerate(points, 1):
+            try:
+                lon, lat = transformer.transform(x, y)
+            except Exception:
+                lon, lat = None, None
+            grouped[layer].append([
+                item.get("entity_type", "ESSENPOLY"), handle, "", seq, x, y, lon, lat,
+                length, "", attrs, xdata,
+            ])
+            stats.rows += 1
+            recovered_rows += 1
+
+    if recovered_count:
+        summary = ", ".join(f"{k}:{v}" for k, v in sorted(per_layer.items()))
+        log(f"ESSENPOLY Excel 직접 복구 {recovered_count}개 / {recovered_rows}행 · {summary}")
 
     progress(78, "Excel 시트 생성")
     wb = Workbook()
@@ -315,6 +420,8 @@ def convert_selected_layers(
         ["선택레이어수", stats.layers],
         ["대상객체수", stats.entities],
         ["출력행수", stats.rows],
+        ["ESSENPOLY복구객체수", recovered_count],
+        ["ESSENPOLY복구행수", recovered_rows],
         ["외부전송", "없음 - 로컬 읽기 전용 Viewer/Excel 추출"],
     ])
 
