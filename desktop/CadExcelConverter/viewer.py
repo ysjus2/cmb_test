@@ -786,10 +786,11 @@ def _lod_group(ent):
         return 14
     return 14
 def _zoom_lod(viewer):
-    # LOD follows the actual on-screen magnification against a stable
-    # full-drawing reference. Smart fit / reset view must not restart LOD at 1x.
+    # LOD follows actual screen magnification against the dominant drawing
+    # fit. This preserves the visible sequence instead of skipping cable stages
+    # because of remote/outlier DXF geometry.
     fit = max(float(getattr(viewer, "lod_reference_scale", getattr(viewer, "fit_scale", 1.0))), 1e-12)
-    ratio = viewer.scale / fit
+    ratio = max(1.0, viewer.scale / fit)
 
     # Up to coax cable: keep 5-wheel spacing.
     step5 = 1.15 ** 5
@@ -931,10 +932,11 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
-        # Stable reference for LOD: exact full drawing fit before smart/cropped view.
-        # This lets LOD reflect the actual visual magnification even when the
-        # initial view is automatically zoomed into the dominant drawing area.
-        self.lod_reference_scale = self._bbox_fit_scale(scene.bbox, margin=36)
+        # Stable reference for LOD: use the dominant/visible drawing area,
+        # not the raw full-DXF extents. Far-away junk objects must not make
+        # the initial view jump straight into deep LOD stages.
+        dominant_bbox = self._visible_fit_bbox() or scene.bbox
+        self.lod_reference_scale = self._bbox_fit_scale(dominant_bbox, margin=28) * 1.15
         self.fit_initial_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
