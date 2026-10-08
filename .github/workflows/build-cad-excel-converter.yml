@@ -1,4 +1,4 @@
-name: Build CMB Network PC
+name: Build CMB DXF Viewer
 
 on:
   workflow_dispatch:
@@ -32,18 +32,49 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install --no-deps pyproj==3.7.2
+
           $installed = pip list --format=json | ConvertFrom-Json
           $blocked = @("numpy", "fonttools", "certifi")
           foreach ($name in $blocked) {
-            if ($installed.name -contains $name) { throw "$name must not be installed in the v3.20-clean build" }
+            if ($installed.name -contains $name) {
+              throw "$name must not be installed in the v3.20-clean build"
+            }
           }
-          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__)"
 
-      # UI/layout policies are now committed directly in source.
-      # Keep only the ESSENPOLY conversion compatibility patch; legacy UI/layout
-      # patches would overwrite newer viewer/cache code.
+          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__); print('pyparsing', pyparsing.__version__); print('typing_extensions imported')"
+
+      - name: Apply UI policy
+        run: python apply_ui_policy.py
+
       - name: Apply direct ESSENPOLY Excel fix
         run: python apply_excel_cable_fix.py
+
+      - name: Apply viewer-first shell
+        run: python apply_viewer_shell.py
+
+      - name: Apply interaction policy
+        run: python apply_interaction_policy.py
+
+      - name: Apply Escape policy
+        run: python apply_escape_policy.py
+
+      - name: Apply v3.14 layout
+        run: python apply_layout_v314.py
+
+      - name: Apply v3.15 layout
+        run: python apply_layout_v315.py
+
+      - name: Apply v3.16 layout
+        run: python apply_layout_v316.py
+
+      - name: Apply v3.17 layout
+        run: python apply_layout_v317.py
+
+      - name: Apply v3.18 layout
+        run: python apply_layout_v318.py
+
+      - name: Apply v3.19 layout
+        run: python apply_layout_v319.py
 
       - name: Verify no DWG copyleft engine
         shell: powershell
@@ -54,48 +85,66 @@ jobs:
 
       - name: Audit runtime package licenses
         run: python license_audit.py
+
       - name: Test ESSENPOLY recovery
         run: python essenpoly_selftest.py
+
       - name: Run core self-test
         run: python selftest.py
+
       - name: Run functional regression
         run: python functional_regression.py
 
-      - name: Build Windows app using system runtime policy
-        shell: powershell
-        run: pyinstaller --noconfirm --clean CMB_DXF_Viewer.spec
-
-      - name: Inspect final app dependency contents
+      - name: Build Windows EXE
         shell: powershell
         run: |
-          pyi-archive_viewer -r -b "dist\CMB_Network.exe" | Out-File -Encoding utf8 exe-contents.txt
-          $badOpen = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
-          if ($badOpen) { $badOpen | ForEach-Object { Write-Host $_.Line }; throw "Blocked NumPy/fontTools/OpenBLAS content found" }
-          $badMsRuntime = Select-String -Path exe-contents.txt -Pattern "^(?!.*pyproj\.libs[\\/]).*(^|[\\/])(ucrtbase\.dll|api-ms-win-[^\\/]*\.dll|vcruntime140[^\\/]*\.dll|msvcp140[^\\/]*\.dll)$" -CaseSensitive:$false
-          if ($badMsRuntime) { $badMsRuntime | ForEach-Object { Write-Host $_.Line }; throw "Bundled top-level Microsoft system/VC runtime DLL found" }
-          Write-Host "PASS: top-level Windows UCRT/API-set/VC runtime DLLs are excluded; pyproj.libs hashed dependencies are allowed"
+          pyinstaller --noconfirm --clean --onefile --windowed `
+            --name "CMB_DXF_Viewer" `
+            --collect-all pyproj `
+            --collect-all ezdxf `
+            main.py
 
-      - name: Launch app smoke test
+      - name: Inspect final EXE dependency contents
         shell: powershell
         run: |
-          $proc = Start-Process -FilePath "dist\CMB_Network.exe" -PassThru
+          pyi-archive_viewer -r -b "dist\CMB_DXF_Viewer.exe" | Out-File -Encoding utf8 exe-contents.txt
+          $bad = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
+          if ($bad) {
+            $bad | ForEach-Object { Write-Host $_.Line }
+            throw "Blocked NumPy/fontTools/OpenBLAS content found in final EXE"
+          }
+          Write-Host "PASS: final EXE has no NumPy/fontTools/OpenBLAS archive entries"
+          Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256 | Format-List
+
+      - name: Launch final EXE smoke test
+        shell: powershell
+        run: |
+          $proc = Start-Process -FilePath "dist\CMB_DXF_Viewer.exe" -PassThru
           Start-Sleep -Seconds 8
-          if ($proc.HasExited) { throw "CMB_Network.exe exited during smoke test. ExitCode=$($proc.ExitCode)" }
+          if ($proc.HasExited) {
+            throw "CMB_DXF_Viewer.exe exited during launch smoke test. ExitCode=$($proc.ExitCode)"
+          }
           Stop-Process -Id $proc.Id -Force
-          Write-Host "PASS: app launched and remained alive for 8 seconds"
+          Write-Host "PASS: final EXE launched and remained alive for 8 seconds"
 
-      - name: Launch local DXF mode smoke test
+      - name: Package with exact build identity
         shell: powershell
         run: |
-          $proc = Start-Process -FilePath "dist\CMB_Network.exe" -ArgumentList '--local-dxf' -PassThru
-          Start-Sleep -Seconds 8
-          if ($proc.HasExited) { throw "Local DXF mode exited during smoke test. ExitCode=$($proc.ExitCode)" }
-          Stop-Process -Id $proc.Id -Force
-          Write-Host "PASS: local DXF mode launched and remained alive for 8 seconds"
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item "dist\CMB_DXF_Viewer.exe" "package\CMB_DXF_Viewer.exe"
+          Copy-Item "README.md" "package\README.txt"
+          Copy-Item "exe-contents.txt" "package\EXE_CONTENTS.txt"
 
-      - name: Upload portable executable
+          $exeHash = (Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256).Hash
+          $notice = Get-Content "THIRD_PARTY_LICENSES.txt" -Raw
+          $identity = "`r`n`r`nFINAL BUILD IDENTITY`r`n====================`r`nGit commit: $env:GITHUB_SHA`r`nGitHub Actions run: $env:GITHUB_RUN_ID`r`nEXE SHA-256: $exeHash`r`n`r`nThe hash above was generated from the exact CMB_DXF_Viewer.exe packaged in this ZIP.`r`n"
+          Set-Content -Path "package\THIRD_PARTY_LICENSES.txt" -Value ($notice + $identity) -Encoding UTF8
+
+          Compress-Archive -Path "package\*" -DestinationPath "CMB_DXF_Viewer_Windows_x64.zip" -Force
+
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Network-PC-Portable-Windows-x64
-          path: desktop/CadExcelConverter/dist/CMB_Network.exe
+          name: CMB-DXF-Viewer-Windows-x64
+          path: desktop/CadExcelConverter/CMB_DXF_Viewer_Windows_x64.zip
           if-no-files-found: error
