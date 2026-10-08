@@ -116,6 +116,17 @@ class Scene:
                 found.update(stage_grid.get((ix,iy), ()))
         return found
 
+    def query_lod_upto(self, bbox, lod):
+        """Return visible candidates from every stage 0..lod, in stage order."""
+        ordered = []
+        seen = set()
+        for group in range(max(0, int(lod)) + 1):
+            for idx in sorted(self.query_lod(bbox, group)):
+                if idx not in seen:
+                    seen.add(idx)
+                    ordered.append(idx)
+        return ordered
+
 def _expand_bbox(box, x, y):
     if box is None:
         return [x, y, x, y]
@@ -1277,16 +1288,9 @@ class DXFViewer(ttk.Frame):
             viewport = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
             lod = _zoom_lod(self)
 
-            # Determine the current stage first, then independently query and
-            # append every stage from 0 through the current stage. A zoom jump
-            # may skip wheel thresholds, but it can never skip display content.
-            indices = []
-            seen = set()
-            for group in range(lod + 1):
-                for idx in sorted(self.scene.query_lod(viewport, group)):
-                    if idx not in seen:
-                        seen.add(idx)
-                        indices.append(idx)
+            # Determine the current stage first, then query every display
+            # stage 0..current. Wheel thresholds may be skipped; content may not.
+            indices = self.scene.query_lod_upto(viewport, lod)
         else:
             # v3.29 network extraction mode keeps its exact route/pipe filter.
             indices = sorted(self.entity_filter)
