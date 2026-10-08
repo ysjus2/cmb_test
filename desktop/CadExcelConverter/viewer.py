@@ -43,10 +43,12 @@ class Scene:
     grid: dict = field(default_factory=dict)
     grid_n: int = 96
     large_entities: list = field(default_factory=list)
+    cable_entities: list = field(default_factory=list)
 
     def build_index(self):
         self.grid = {}
         self.large_entities = []
+        self.cable_entities = []
         if not self.entities:
             return
         minx, miny, maxx, maxy = self.bbox
@@ -54,6 +56,9 @@ class Scene:
         dy = max(maxy-miny, 1e-9)
         n = max(16, int(self.grid_n))
         for ent in self.entities:
+            layer_u = str(ent.layer or "").upper()
+            if _is_optical_cable_layer(ent.layer) or layer_u.startswith("CN_C_CABLE_"):
+                self.cable_entities.append(ent.index)
             b = ent.bbox
             if b is None:
                 continue
@@ -68,6 +73,10 @@ class Scene:
             for ix in range(ix1, ix2+1):
                 for iy in range(iy1, iy2+1):
                     self.grid.setdefault((ix,iy), []).append(ent.index)
+
+    @staticmethod
+    def _bbox_intersects(a, b):
+        return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
 
     def query(self, bbox):
         if not self.grid:
@@ -84,6 +93,15 @@ class Scene:
         for ix in range(ix1, ix2+1):
             for iy in range(iy1, iy2+1):
                 found.update(self.grid.get((ix,iy), ()))
+
+        # Cable continuity is visually critical. Always merge optical/coax
+        # cables intersecting the current viewport even if a spatial grid
+        # boundary or extreme drawing extent would otherwise miss them.
+        for idx in self.cable_entities:
+            if 0 <= idx < len(self.entities):
+                b = self.entities[idx].bbox
+                if b is not None and self._bbox_intersects(b, bbox):
+                    found.add(idx)
         return found
 
 def _expand_bbox(box, x, y):
