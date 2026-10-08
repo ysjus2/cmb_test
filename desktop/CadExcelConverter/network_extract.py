@@ -38,6 +38,16 @@ def is_closure(entity):
     return entity.entity_type == 'INSERT' and ('CLOSURE' in entity.layer.upper() or '함체' in entity.layer)
 
 
+def is_fiber_device(entity):
+    """Selectable optical equipment: closure/center/terminal and other CN_F devices, excluding cable/ID text."""
+    name = str(entity.layer or '').upper()
+    if not name.startswith('CN_F_'):
+        return is_closure(entity)
+    if is_fiber(entity) or '_ID' in name or name.startswith('CN_F_ID'):
+        return False
+    return entity_position(entity) is not None
+
+
 def is_background(entity):
     name = str(entity.layer or '').upper()
     if is_fiber(entity) or any(word in name for word in ('CABLE', 'CONDUIT', 'PIPELINE', '관로', '케이블', '전주', '함체')):
@@ -71,6 +81,8 @@ class FiberNetwork:
         recovered = {r['handle']:r for r in recover_essenpoly_polylines(input_path)}
         self.excluded_stubs = 0
         self.geometry_nodes = []
+        self.device_nodes = {}
+        self.device_positions = {}
         def coordinate_node(point):
             for key, existing in self.geometry_nodes:
                 if math.dist(point,existing) <= 0.1:
@@ -103,6 +115,22 @@ class FiberNetwork:
                 target=self.by_handle.get(node)
                 self.positions[node]=(entity_position(target) if target else None) or tuple(point)
                 self.adj.setdefault(node,[]).append((v if node==u else u,e.handle))
+
+        # Any optical equipment can be used as a route selector.
+        # Prefer an exact/topological match; otherwise snap to the nearest cable node.
+        if self.positions:
+            for device in scene.entities:
+                if not is_fiber_device(device):
+                    continue
+                pos = entity_position(device)
+                if pos is None:
+                    continue
+                if device.handle in self.positions:
+                    node = device.handle
+                else:
+                    node = min(self.positions, key=lambda n: math.dist(pos, self.positions[n]))
+                self.device_nodes[device.index] = node
+                self.device_positions[device.index] = pos
 
     def unique_route(self,start,end):
         if start==end:raise ValueError('시작점과 끝점이 같습니다. 다른 함체/끝점을 선택해주세요.')
