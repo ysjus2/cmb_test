@@ -817,7 +817,7 @@ class DXFViewer(ttk.Frame):
         button_frame = ttk.Frame(bar)
         button_frame.pack(side="left")
         for text, cmd in [
-            ("전체보기", self.fit_view),
+            ("전체보기", self.fit_all_view),
             ("선택", lambda: self.set_mode("select")),
             ("거리 측정", lambda: self.set_mode("distance")),
             ("좌표 확인", lambda: self.set_mode("coord")),
@@ -891,7 +891,7 @@ class DXFViewer(ttk.Frame):
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
-        self.fit_view()
+        self.fit_initial_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
             f"객체 {len(scene.entities):,}개 · 미표시 {unsupported:,}개 · 휠=확대/축소 · 우/중클릭 드래그=PAN"
@@ -1129,24 +1129,49 @@ class DXFViewer(ttk.Frame):
         maxy = max(b[3] for b in boxes)
         return (minx, miny, maxx, maxy)
 
-    def fit_view(self):
-        if not self.scene:
+    def _apply_fit_bbox(self, bbox, margin=36, zoom_factor=1.0):
+        if not self.scene or not bbox:
             return
         self.update_idletasks()
         w, h = max(100, self.canvas.winfo_width()), max(100, self.canvas.winfo_height())
-        bbox = self._visible_fit_bbox() or self.scene.bbox
         minx, miny, maxx, maxy = bbox
         dx, dy = max(maxx-minx, 1e-9), max(maxy-miny, 1e-9)
-
-        # 화면 가장자리와 도면 사이에 약간의 여백을 둔다.
-        margin = 36
         self.scale = max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
-        self.fit_scale = self.scale
+        self.scale *= max(0.1, float(zoom_factor))
         cx, cy = (minx+maxx)/2, (miny+maxy)/2
         self.ox = w/2 - cx*self.scale
         self.oy = h/2 + cy*self.scale
+        self.fit_scale = self.scale
         self.pan_start = None
         self.redraw()
+
+    def fit_initial_view(self):
+        """Initial open: center the dominant visible drawing and make cropped drawings easy to read."""
+        if not self.scene:
+            return
+        # Existing percentile-based bbox ignores isolated far-away junk entities.
+        bbox = self._visible_fit_bbox() or self.scene.bbox
+        # Slight automatic zoom-in, roughly one wheel notch, after fitting.
+        self._apply_fit_bbox(bbox, margin=28, zoom_factor=1.15)
+
+    def fit_all_view(self):
+        """Toolbar 전체보기: center the complete drawing extent in the canvas."""
+        if not self.scene:
+            return
+        # In an extraction filter, keep the selected route/pipe fitting behavior.
+        if self.entity_filter is not None:
+            bbox = self._visible_fit_bbox() or self.scene.bbox
+        else:
+            bbox = self.scene.bbox
+        self._apply_fit_bbox(bbox, margin=36, zoom_factor=1.0)
+
+    def fit_view(self):
+        """Compatibility: extraction mode fits its current scope; otherwise exact full drawing."""
+        if self.entity_filter is not None:
+            bbox = self._visible_fit_bbox() or self.scene.bbox
+            self._apply_fit_bbox(bbox, margin=36, zoom_factor=1.0)
+        else:
+            self.fit_all_view()
 
     def redraw(self):
         c = self.canvas
