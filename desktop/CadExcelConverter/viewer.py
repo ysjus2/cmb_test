@@ -713,7 +713,7 @@ def build_scene(input_path, log=None, progress=None):
     return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
 
-CACHE_VERSION = "v329-fast-local-4"
+CACHE_VERSION = "v329-fast-local-5-proxy-idfix"
 
 def _cache_dir():
     base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
