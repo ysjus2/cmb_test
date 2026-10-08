@@ -39,28 +39,9 @@ jobs:
           }
           python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__)"
 
-      - name: Apply UI policy
-        run: python apply_ui_policy.py
-      - name: Apply direct ESSENPOLY Excel fix
-        run: python apply_excel_cable_fix.py
-      - name: Apply viewer-first shell
-        run: python apply_viewer_shell.py
-      - name: Apply interaction policy
-        run: python apply_interaction_policy.py
-      - name: Apply Escape policy
-        run: python apply_escape_policy.py
-      - name: Apply v3.14 layout
-        run: python apply_layout_v314.py
-      - name: Apply v3.15 layout
-        run: python apply_layout_v315.py
-      - name: Apply v3.16 layout
-        run: python apply_layout_v316.py
-      - name: Apply v3.17 layout
-        run: python apply_layout_v317.py
-      - name: Apply v3.18 layout
-        run: python apply_layout_v318.py
-      - name: Apply v3.19 layout
-        run: python apply_layout_v319.py
+      # UI/layout policies are now committed directly in source.
+      # Legacy apply_*.py build-time patch steps were removed because they
+      # overwrite newer viewer/cache code and make builds non-reproducible.
 
       - name: Verify no DWG copyleft engine
         shell: powershell
