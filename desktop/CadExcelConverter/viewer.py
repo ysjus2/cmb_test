@@ -310,6 +310,11 @@ def _is_device_id_layer(layer_name):
     upper = str(layer_name or "").strip().upper()
     return upper.startswith("CN_C_ID") or upper.startswith("CN_F_ID")
 
+def _is_pole_annotation_layer(layer_name):
+    name = str(layer_name or "")
+    upper = name.upper()
+    return "POLE" in upper or "전주" in name
+
 def _display_color_for_layer(doc, layer_name, aci=None, true_color=None):
     # Cable colors carry field meaning (especially coax power state), so cable
     # layers must keep the original CAD color without brightness substitution.
@@ -713,7 +718,7 @@ def build_scene(input_path, log=None, progress=None):
     return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
 
 
-CACHE_VERSION = "v329-fast-local-5-proxy-idfix"
+CACHE_VERSION = "v329-fast-local-6-proxy-idfix"
 
 def _cache_dir():
     base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
@@ -1319,6 +1324,10 @@ class DXFViewer(ttk.Frame):
             # 장비/케이블 ID 레이어는 도면 가독성을 해치므로 화면에는 표시하지 않는다.
             # 전주 번호/전주 정보 레이어는 현장 식별에 필요하므로 제외하지 않는다.
             if _is_device_id_layer(ent.layer):
+                continue
+            # Keep ATTRIB records for metadata/Excel, but do not paint equipment
+            # IDs over the map. Pole attributes remain visible for field use.
+            if ent.entity_type == "ATTRIB" and not _is_pole_annotation_layer(ent.layer):
                 continue
             if ent.layer not in self.visible_layers:
                 continue
