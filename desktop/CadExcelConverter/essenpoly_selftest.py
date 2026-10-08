@@ -50,6 +50,15 @@ def main():
         assert idx["C2"].value == 1, idx["C2"].value
         assert idx["D2"].value == 3, idx["D2"].value
 
+        proxy = """  0\nSECTION\n  2\nENTITIES\n  0\nACAD_PROXY_ENTITY\n  5\nPX1\n100\nAcDbEntity\n  8\nCN_C_Cable_500F\n101\nEmbedded Object\n100\nAcDbEntity\n  8\nCN_C_Cable_500F\n 62\n1\n100\nAcDbPolyline\n 90\n        2\n 70\n     0\n 10\n210000.0\n 20\n510000.0\n 10\n210010.0\n 20\n510010.0\n  0\nENDSEC\n  0\nEOF\n"""
+        proxy_path = Path(td) / "proxy.dxf"
+        proxy_path.write_text(proxy, encoding="utf-8")
+        proxy_rows = recover_essenpoly_polylines(proxy_path)
+        assert len(proxy_rows) == 1, proxy_rows
+        assert proxy_rows[0]["entity_type"] == "ACAD_PROXY_ENTITY", proxy_rows[0]
+        assert proxy_rows[0]["layer"] == "CN_C_Cable_500F", proxy_rows[0]
+        assert proxy_rows[0]["points"] == [(210000.0, 510000.0), (210010.0, 510010.0)], proxy_rows[0]
+
     print("ESSENPOLY recovery + Excel export self-test OK")
 
 
