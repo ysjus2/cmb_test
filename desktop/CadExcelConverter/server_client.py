@@ -89,6 +89,15 @@ class CMBServerClient:
         return self._request("GET", f"/datasets/{dataset_id}/objects")
 
 
+    def list_users(self, query: str = ""):
+        path = "/admin/users"
+        if query:
+            path += "?q=" + urllib.parse.quote(query)
+        return self._request("GET", path)
+
+    def deactivate_user(self, user_id: int):
+        return self._request("POST", f"/admin/users/{int(user_id)}/deactivate", {})
+
     def create_user(self, name: str, username: str, department: str, level=None):
         payload = {
             "name": name,
