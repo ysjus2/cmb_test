@@ -1285,44 +1285,54 @@ class DXFViewer(ttk.Frame):
                                 ids.append(c.create_line(
                                     *coords, fill=color, width=max(width, 2),
                                     arrow=tk.LAST, arrowshape=(10, 12, 5),
+                                    tags=("linework",),
                                 ))
                             else:
-                                ids.append(c.create_line(*coords, fill=color, width=width))
+                                ids.append(c.create_line(*coords, fill=color, width=width, tags=("linework",)))
                     elif kind == "polygon":
                         coords = []
                         for x, y in data:
                             coords.extend(self.world_to_screen(x, y))
                         if len(coords) >= 6:
-                            ids.append(c.create_polygon(*coords, fill=color, outline=color))
+                            ids.append(c.create_polygon(*coords, fill=color, outline=color, tags=("area_fill",)))
                     elif kind == "circle":
                         x, y, r = data
                         x1, y1 = self.world_to_screen(x-r, y-r)
                         x2, y2 = self.world_to_screen(x+r, y+r)
-                        ids.append(c.create_oval(x1, y2, x2, y1, outline=color, width=width))
+                        ids.append(c.create_oval(x1, y2, x2, y1, outline=color, width=width, tags=("symbol",)))
                     elif kind == "arc":
                         x, y, r, a1, a2 = data
                         x1, y1 = self.world_to_screen(x-r, y-r)
                         x2, y2 = self.world_to_screen(x+r, y+r)
                         extent = (a2-a1) % 360
-                        ids.append(c.create_arc(x1, y2, x2, y1, start=a1, extent=extent, style="arc", outline=color, width=width))
+                        ids.append(c.create_arc(x1, y2, x2, y1, start=a1, extent=extent, style="arc", outline=color, width=width, tags=("symbol",)))
                     elif kind == "point":
                         x, y = data
                         sx, sy = self.world_to_screen(x, y)
-                        ids.append(c.create_line(sx-4, sy, sx+4, sy, fill=color, width=width))
-                        ids.append(c.create_line(sx, sy-4, sx, sy+4, fill=color, width=width))
+                        ids.append(c.create_line(sx-4, sy, sx+4, sy, fill=color, width=width, tags=("symbol",)))
+                        ids.append(c.create_line(sx, sy-4, sx, sy+4, fill=color, width=width, tags=("symbol",)))
                     elif kind == "text":
                         x, y, text = data
                         sx, sy = self.world_to_screen(x, y)
-                        ids.append(c.create_text(sx, sy, anchor="sw", fill=color, text=text, font=("Malgun Gothic", 9)))
+                        ids.append(c.create_text(sx, sy, anchor="sw", fill=color, text=text, font=("Malgun Gothic", 9), tags=("annotation",)))
                     elif kind == "insert":
                         x, y, name = data
                         sx, sy = self.world_to_screen(x, y)
-                        ids.append(c.create_rectangle(sx-3, sy-3, sx+3, sy+3, outline=color, width=width))
+                        ids.append(c.create_rectangle(sx-3, sy-3, sx+3, sy+3, outline=color, width=width, tags=("symbol",)))
                 except Exception:
                     pass
             for item in ids:
                 self.item_to_entity[item] = ent.index
             self.entity_items[ent.index] = ids
+
+        # Generic visual stacking for cumulative LOD:
+        # filled areas stay at the bottom; linework remains visible above them;
+        # equipment/symbols and annotations stay above linework.
+        c.tag_lower("area_fill")
+        c.tag_raise("linework")
+        c.tag_raise("symbol")
+        c.tag_raise("annotation")
+
         self._redraw_measure()
         if self.network_click is not None:
             for point in self.route_nodes.values():
