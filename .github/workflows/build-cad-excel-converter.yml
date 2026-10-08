@@ -117,7 +117,7 @@ jobs:
       - name: Build single installer EXE
         shell: powershell
         run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" "CMB_DXF_Viewer_Setup.nsi"
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /INPUTCHARSET UTF8 "CMB_DXF_Viewer_Setup.nsi"
           if (-not (Test-Path "CMB_Network_Setup.exe")) { throw "Setup EXE was not created" }
           Get-FileHash "CMB_Network_Setup.exe" -Algorithm SHA256 | Format-List
 
