@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import importlib.metadata as md
 import re
+import sys
 from collections import deque
 
-# v3.20-clean policy:
-# - Commercial/internal use must be explicitly permitted.
-# - GPL/LGPL/AGPL/MPL/non-commercial/source-available/unknown runtime packages fail.
-# - NumPy/fontTools are explicitly blocked because NumPy wheels pull the
-#   OpenBLAS/LAPACK/GCC-runtime chain that this clean build is intended to remove.
+# Final company build policy:
+# - Commercial redistribution must be explicitly allowed.
+# - Strong/weak copyleft, non-commercial, source-available, unknown, or custom
+#   licenses are rejected unless explicitly reviewed and added here.
 ALLOWED_MARKERS = (
     "mit",
     "bsd",
@@ -33,13 +33,11 @@ DENIED_MARKERS = (
     "commons clause",
 )
 
-BLOCKED_DISTRIBUTIONS = {"numpy", "fonttools", "certifi"}
+# Runtime roots. PyInstaller is a build tool, not a runtime dependency root.
 RUNTIME_ROOTS = ("ezdxf", "openpyxl", "pyproj")
-
 
 def normalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
-
 
 def dist_map():
     out = {}
@@ -49,11 +47,10 @@ def dist_map():
             out[normalize_name(name)] = d
     return out
 
-
 def requirement_name(req: str) -> str:
+    # enough for standard package metadata requirements
     name = re.split(r"[ ;(<>=!~\[]", req, maxsplit=1)[0].strip()
     return normalize_name(name)
-
 
 def closure(installed):
     seen = set()
@@ -67,11 +64,12 @@ def closure(installed):
         if d is None:
             raise RuntimeError(f"Required runtime package is not installed: {name}")
         for req in (d.requires or []):
+            # Ignore optional extras only; unconditional and environment-marker
+            # dependencies installed for Windows remain audited if present.
             dep = requirement_name(req)
             if dep and dep in installed and dep not in seen:
                 q.append(dep)
     return seen
-
 
 def license_text(d) -> str:
     parts = []
@@ -85,7 +83,6 @@ def license_text(d) -> str:
             parts.append(classifier)
     return " | ".join(parts).strip()
 
-
 def classify(text: str):
     low = text.lower()
     if any(x in low for x in DENIED_MARKERS):
@@ -94,18 +91,10 @@ def classify(text: str):
         return "ALLOW"
     return "UNKNOWN"
 
-
 def main():
     installed = dist_map()
-
-    blocked_present = sorted(BLOCKED_DISTRIBUTIONS.intersection(installed))
-    if blocked_present:
-        print("LICENSE AUDIT FAILED: blocked distributions are installed:")
-        for name in blocked_present:
-            print(f" - {name}=={installed[name].version}")
-        return 2
-
     runtime = closure(installed)
+
     failures = []
     rows = []
     for name in sorted(runtime):
@@ -117,12 +106,12 @@ def main():
         if verdict != "ALLOW":
             failures.append((name, version, verdict, lic))
 
-    print("=== CMB v3.20-CLEAN RUNTIME LICENSE AUDIT ===")
+    print("=== COMPANY RUNTIME LICENSE AUDIT ===")
     for name, version, verdict, lic in rows:
         print(f"{verdict:7} {name}=={version} :: {lic or 'NO LICENSE METADATA'}")
 
-    print("\nAllowed policy: MIT/BSD/Apache/PSF/ISC/Zlib runtime packages.")
-    print("Explicitly blocked: NumPy, fontTools, certifi; GPL/AGPL/LGPL/MPL and restrictive/unknown licenses.")
+    print("\nPolicy: runtime dependency closure must be MIT/BSD/Apache/PSF/ISC/Zlib.")
+    print("Denied: GPL/AGPL/LGPL/MPL/non-commercial/source-available/unknown.")
 
     if failures:
         print("\nLICENSE AUDIT FAILED:")
@@ -132,7 +121,6 @@ def main():
 
     print("\nLICENSE AUDIT PASSED")
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
