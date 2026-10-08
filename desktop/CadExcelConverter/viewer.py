@@ -506,6 +506,65 @@ def build_scene(input_path, log=None, progress=None):
     scene.build_index()
     return scene
 
+def _layer_category(ent):
+    """Business display priority based on real CMB layer naming."""
+    layer=(ent.layer or "").strip()
+    u=layer.upper()
+    typ=(ent.entity_type or "").upper()
+
+    # 6. Text always last, regardless of layer.
+    if typ in {"TEXT","MTEXT"}:
+        return 6
+
+    # 1. Administrative boundary: 시/군/구 > 읍/면/동 > 리.
+    admin_words=(
+        "시경계","군경계","구경계","시군구","행정경계","행정구역",
+        "읍경계","면경계","동경계","읍면동",
+        "리경계","법정리","행정리",
+        "SIDO","SIGUNGU","EMD","RI","BOUNDARY","ADMIN"
+    )
+    if any(w.upper() in u for w in admin_words):
+        return 1
+
+    # 2. Fiber cable only. Real data includes FOC/STUB and CN_F_Cable families.
+    fiber_cable_words=("CN_F_CABLE","FOC","FIBER_CABLE","FIBERCABLE","STUB")
+    if any(w in u for w in fiber_cable_words):
+        return 2
+
+    # 3. Cell outline / service-cell border.
+    cell_words=("CELL","셀테두리","셀경계","CELL_BORDER","CELLBOUND","CELL_BOUNDARY")
+    if any(w.upper() in u for w in cell_words):
+        return 3
+
+    # 5. Pole. Real extracts include Pole-Drop.
+    pole_words=("POLE","전주","POLE-DROP","POLE_DROP")
+    if any(w.upper() in u for w in pole_words):
+        return 5
+
+    # 4. Coax cable and all remaining network equipment.
+    coax_equipment_words=(
+        "CN_C_","COAX","CABLE_500","TAP","ONU","PASSIVE","AMP",
+        "POWER","CONNECTOR","CLOSURE","CENTER","MANHOLE","맨홀","장비"
+    )
+    if any(w.upper() in u for w in coax_equipment_words):
+        return 4
+
+    # Unknown geometry is treated as map/background detail after the primary map.
+    return 4
+
+
+def _admin_subpriority(ent):
+    """Within admin boundaries show 시/군/구, then 읍/면/동, then 리."""
+    u=(ent.layer or "").upper()
+    if any(w in u for w in ("시경계","군경계","구경계","시군구","SIGUNGU")):
+        return 1
+    if any(w in u for w in ("읍경계","면경계","동경계","읍면동","EMD")):
+        return 2
+    if any(w in u for w in ("리경계","법정리","행정리","_RI"," RI")):
+        return 3
+    return 2
+
+
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
@@ -819,14 +878,23 @@ class DXFViewer(ttk.Frame):
 
     @staticmethod
     def _entity_lod_visible(ent,lod):
-        typ=ent.entity_type
-        if typ in {"TEXT","MTEXT"}:
-            return lod >= 3
-        if typ in {"POINT","INSERT"}:
+        # LOD is driven by business layer priority, not generic DXF type:
+        # 0: 행정경계, 1:+광케이블, 2:+셀테두리, 3:+동축/기기/전주/TEXT
+        category=_layer_category(ent)
+        if category == 1:
+            # Administrative boundaries are visible from the first map view.
+            return True
+        if category == 2:
             return lod >= 1
-        if typ in {"HATCH","SOLID","TRACE","3DFACE"}:
+        if category == 3:
             return lod >= 2
-        return True
+        if category == 4:
+            return lod >= 3
+        if category == 5:
+            return lod >= 3
+        if category == 6:
+            return lod >= 3
+        return lod >= 3
 
     def redraw(self):
         c = self.canvas
@@ -840,6 +908,17 @@ class DXFViewer(ttk.Frame):
         bbox=self._viewport_bbox()
         candidate_ids=self.scene.query(bbox)
         lod=self._lod_level()
+
+        # Stable business priority: 행정경계 > 광케이블 > 셀테두리 >
+        # 동축/기기 > 전주 > TEXT. Within 행정경계: 시군구 > 읍면동 > 리.
+        candidate_ids.sort(
+            key=lambda idx: (
+                _layer_category(self.scene.entities[idx]),
+                _admin_subpriority(self.scene.entities[idx])
+                if _layer_category(self.scene.entities[idx]) == 1 else 0,
+                idx,
+            )
+        )
 
         # At map-scale zoom, cap the number of rendered entities. As the user
         # zooms in the spatial query naturally becomes smaller and detail grows.
@@ -904,9 +983,14 @@ class DXFViewer(ttk.Frame):
                     self.item_to_entity[item] = ent.index
                 self.entity_items[ent.index] = ids
 
+        stage_labels={
+            0:"행정경계",
+            1:"행정경계 + 광케이블",
+            2:"행정경계 + 광케이블 + 셀테두리",
+            3:"전체 기기/전주 + TEXT(화면내)",
+        }
         self.status_var.set(
-            f"화면 객체 {drawn:,}/{len(candidate_ids):,} · LOD {lod+1}/4"
-            + (" · TEXT 표시" if lod>=3 else " · TEXT 숨김")
+            f"화면 객체 {drawn:,}/{len(candidate_ids):,} · {stage_labels.get(lod,'상세')}"
         )
         self._redraw_measure()
 
