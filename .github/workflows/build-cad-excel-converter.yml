@@ -68,6 +68,9 @@ jobs:
       - name: Test navigation
         run: python navigation_selftest.py
 
+      - name: Test cumulative LOD
+        run: python lod_selftest.py
+
       - name: Test network extraction
         run: python network_extract_selftest.py
 
