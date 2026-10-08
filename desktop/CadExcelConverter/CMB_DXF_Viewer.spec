@@ -1,58 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
-from pathlib import PurePath
-
 from PyInstaller.utils.hooks import collect_all
 
-pyproj_datas, pyproj_binaries, pyproj_hidden = collect_all("pyproj")
-ezdxf_datas, ezdxf_binaries, ezdxf_hidden = collect_all("ezdxf")
+datas = []
+binaries = []
+hiddenimports = []
+tmp_ret = collect_all('pyproj')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('ezdxf')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-all_datas = pyproj_datas + ezdxf_datas
-all_binaries = pyproj_binaries + ezdxf_binaries
-all_hidden = pyproj_hidden + ezdxf_hidden
 
 a = Analysis(
-    ["company_launcher.py"],
+    ['main.py'],
     pathex=[],
-    binaries=all_binaries,
-    datas=all_datas + [("cmb_dev_ca.crt", ".")],
-    hiddenimports=all_hidden,
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['numpy', 'fontTools'],
     noarchive=False,
     optimize=0,
 )
-
-# Runtime policy for company Windows 10/11 PCs:
-# 1) UCRT/API-set DLLs are provided by Windows itself.
-# 2) VC++ v14 x64 Runtime is a machine prerequisite. The installer checks it
-#    and launches the official Microsoft Redistributable when missing.
-def _is_system_or_prereq_runtime(entry):
-    dest_name = str(entry[0]).replace("\\", "/")
-    base = PurePath(dest_name).name.lower()
-
-    # Only remove top-level Windows/VC runtime files.  Wheels such as pyproj
-    # ship hashed runtime DLL names inside pyproj.libs and native extensions
-    # link to those exact filenames. Removing them makes pyproj._context fail
-    # to import even when the machine VC++ redistributable is installed.
-    nested = "/" in dest_name
-    if nested:
-        return False
-    if base == "ucrtbase.dll" or base.startswith("api-ms-win-"):
-        return True
-    if base.startswith("vcruntime140") and base.endswith(".dll"):
-        return True
-    if base.startswith("msvcp140") and base.endswith(".dll"):
-        return True
-    return False
-
-removed_runtime = [entry[0] for entry in a.binaries if _is_system_or_prereq_runtime(entry)]
-a.binaries = [entry for entry in a.binaries if not _is_system_or_prereq_runtime(entry)]
-print("Excluded Windows/VC prerequisite runtime DLLs from bundle:")
-for name in sorted(removed_runtime, key=str.lower):
-    print("  ", name)
-
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -61,11 +31,13 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="CMB_Network",
+    name='CMB_DXF_Viewer',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
