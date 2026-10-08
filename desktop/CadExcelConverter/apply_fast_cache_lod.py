@@ -108,7 +108,7 @@ def layer_info_from_scene(scene):
     ]
 
 def _layer_stage(ent):
-    """0..10: region, fiber, cell, coax, pole, device, manhole, conduit, road, building, parcel."""
+    """0..10: region, fiber, cell, coax, device, road, building-group, pole/manhole, conduit, other-building, parcel."""
     layer = str(ent.layer or "").strip()
     u = layer.upper()
 
@@ -128,31 +128,37 @@ def _layer_stage(ent):
     if u.startswith("CN_C_CABLE_"):
         return 3
 
-    # 6 맨홀/핸드홀은 전주 일반분류보다 먼저 분리
-    if u.startswith("CN_L_POLE_MANHOLE") or u.startswith("CN_L_POLE_HANDHOLE"):
-        return 6
-
-    # 7 관로/지중/가공 선로
-    if u.startswith("CN_L_POLE_LINE_"):
+    # 7 전주/맨홀
+    if (
+        u.startswith("CN_L_POLE_MANHOLE")
+        or u.startswith("CN_L_POLE_HANDHOLE")
+        or u.startswith("CN_L_POLE_POLE")
+        or u.startswith("CN_L_POLE_ID")
+        or u == "CN_L_POLE"
+    ):
         return 7
 
-    # 4 전주 본체/ID
-    if u.startswith("CN_L_POLE_POLE") or u.startswith("CN_L_POLE_ID") or u == "CN_L_POLE":
-        return 4
-
-    # 8 도로
-    if u == "TL_SPRD_RW":
+    # 8 관로/지중/가공 선로
+    if u.startswith("CN_L_POLE_LINE_"):
         return 8
+
+    # 5 도로
+    if u == "TL_SPRD_RW":
+        return 5
 
     # 10 지번
     if layer == "지번":
         return 10
 
-    # 9 건물 정보
+    # 6 건물_건물군만 먼저
+    if layer == "건물_건물군":
+        return 6
+
+    # 9 나머지 건물 정보
     if layer.startswith("건물_") or u.startswith("CN_M_USER_BUILDING"):
         return 9
 
-    # 5 각종 통신 기기
+    # 4 각종 통신 기기
     device_prefixes = (
         "CN_C_ONU", "CN_C_POWER", "CN_C_AMP", "CN_C_TAP", "CN_C_PASSIVE",
         "CN_C_CONNECTOR", "CN_C_ID_ACTIVE", "CN_C_ID_TAP", "CN_C_ID_PASSIVE",
@@ -160,9 +166,9 @@ def _layer_stage(ent):
         "CN_F_ID_", "CN_C_DC_", "CN_C_SUBSCRIBERS", "CN_C_NMS_",
     )
     if u.startswith(device_prefixes):
-        return 5
+        return 4
 
-    # Other map/user/background information is deliberately delayed with buildings.
+    # Other map/user/background information is deliberately delayed with other buildings.
     return 9
 
 def _zoom_stage(viewer):
@@ -174,11 +180,11 @@ def _zoom_stage(viewer):
     if ratio < 3.80: return 2
     if ratio < 5.80: return 3
     if ratio < 8.50: return 4
-    if ratio < 12.0: return 5
-    if ratio < 17.0: return 6
-    if ratio < 23.0: return 7
-    if ratio < 31.0: return 8
-    if ratio < 42.0: return 9
+    if ratio < 12.5: return 5
+    if ratio < 18.5: return 6
+    if ratio < 27.0: return 7
+    if ratio < 37.0: return 8
+    if ratio < 50.0: return 9
     return 10
 
 def _bbox_intersects(a, b):
@@ -213,8 +219,8 @@ new_loop = '''        stage = _zoom_stage(self)
         x2, y2 = self.screen_to_world(self.canvas.winfo_width(), 0)
         viewport = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
         stage_names = (
-            "지역구분", "광케이블", "셀경계", "동축케이블", "전주",
-            "각종 기기", "맨홀", "관로", "도로", "건물", "지번",
+            "지역구분", "광케이블", "셀경계", "동축케이블", "각종 기기",
+            "도로", "건물_건물군", "전주/맨홀", "관로", "나머지 건물", "지번",
         )
         for ent in self.scene.entities:
             if ent.layer not in self.visible_layers:
