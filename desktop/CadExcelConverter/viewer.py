@@ -728,31 +728,31 @@ def _lod_group(ent):
     if u.startswith("CN_C_ONU"):
         return 3
 
-    # 4: 동축케이블
-    if u.startswith("CN_C_CABLE_"):
+    # 4: 도로 - 지형 파악용으로 동축케이블보다 먼저
+    if u == "TL_SPRD_RW":
         return 4
 
-    # 5: 증폭기
-    if u.startswith("CN_C_AMP") or "AMP" in u and u.startswith("CN_C_"):
+    # 5: 동축케이블
+    if u.startswith("CN_C_CABLE_"):
         return 5
 
-    # 6: 광기기
-    if u.startswith(("CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL")):
+    # 6: 증폭기
+    if u.startswith("CN_C_AMP") or ("AMP" in u and u.startswith("CN_C_")):
         return 6
 
-    # 7: 기타 동축기기
+    # 7: 광기기
+    if u.startswith(("CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL")):
+        return 7
+
+    # 8: 기타 동축기기
     if u.startswith((
         "CN_C_POWER","CN_C_TAP","CN_C_PASSIVE","CN_C_CONNECTOR",
         "CN_C_DC_","CN_C_SUBSCRIBERS","CN_C_NMS_"
     )):
-        return 7
-
-    # 8: 건물군
-    if layer == "건물_건물군":
         return 8
 
-    # 9: 도로
-    if u == "TL_SPRD_RW":
+    # 9: 건물군
+    if layer == "건물_건물군":
         return 9
 
     # 10: 사용자 작성 CN_M_User_* 전체
