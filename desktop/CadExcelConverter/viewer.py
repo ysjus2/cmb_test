@@ -707,42 +707,47 @@ def build_scene(input_path, log=None, progress=None):
     return scene
 
 def _lod_group(ent):
-    layer = str(ent.layer or "")
+    layer = str(ent.layer or "").strip()
     u = layer.upper()
 
-    # 0: first view = terrain/region + fiber cable
+    # 0: region only
     if u in {"TL_SCCO_SIG","TL_SCCO_EMD","TL_SCCO_END"}:
         return 0
-    if u == "TL_SCCO_LI":
-        return 9
-    if _is_optical_cable_layer(layer):
-        return 0
 
-    # 1: cell
-    if u.startswith("CN_C_CELLBOUND") or u.startswith("CN_C_ID_CELL") or u.startswith("CN_C_CELLNO"):
+    # 1: fiber cable only
+    if _is_optical_cable_layer(layer):
         return 1
 
-    # 2: coax
-    if u.startswith("CN_C_CABLE_"):
+    # 2: CellBound only
+    if u == "CN_C_CELLBOUND" or u.startswith("CN_C_CELLBOUND_"):
         return 2
 
-    # 3: equipment
+    # 3: fiber equipment only
     if u.startswith((
-        "CN_C_ONU","CN_C_POWER","CN_C_AMP","CN_C_TAP","CN_C_PASSIVE",
-        "CN_C_CONNECTOR","CN_C_ID_ACTIVE","CN_C_ID_TAP","CN_C_ID_PASSIVE",
-        "CN_C_ID_DROP","CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL","CN_F_ID_"
+        "CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL","CN_F_ID_"
     )):
         return 3
 
-    # 4: road
-    if u == "TL_SPRD_RW":
+    # 4: coax cable + coax equipment + other cell info
+    if u.startswith("CN_C_CABLE_"):
+        return 4
+    if u.startswith((
+        "CN_C_ONU","CN_C_POWER","CN_C_AMP","CN_C_TAP","CN_C_PASSIVE",
+        "CN_C_CONNECTOR","CN_C_ID_ACTIVE","CN_C_ID_TAP","CN_C_ID_PASSIVE",
+        "CN_C_ID_DROP","CN_C_ID_CELL","CN_C_CELLNO","CN_C_DC_",
+        "CN_C_SUBSCRIBERS","CN_C_NMS_"
+    )):
         return 4
 
-    # 5: building group only
-    if layer == "건물_건물군":
+    # 5: road
+    if u == "TL_SPRD_RW":
         return 5
 
-    # 6: poles/manholes - intentionally much later
+    # 6: building group only
+    if layer == "건물_건물군":
+        return 6
+
+    # 7: poles/manholes
     if (
         u.startswith("CN_L_POLE_POLE")
         or u.startswith("CN_L_POLE_ID")
@@ -750,46 +755,37 @@ def _lod_group(ent):
         or u.startswith("CN_L_POLE_HANDHOLE")
         or u == "CN_L_POLE"
     ):
-        return 6
-
-    # 7: conduit/aerial
-    if u.startswith("CN_L_POLE_LINE_"):
         return 7
 
-    # 8: remaining buildings
-    if layer.startswith("건물_") or u.startswith("CN_M_USER_BUILDING"):
+    # 8: conduit/aerial
+    if u.startswith("CN_L_POLE_LINE_"):
         return 8
 
-    # 9: parcel number/text
-    if layer == "지번":
-        return 9
-
-    # Generic background geometry appears with building group.
-    if not u.startswith("CN_"):
-        return 5
-    return 8
+    # 9: final maximum-detail stage
+    # TL_SCCO_LI, distribution/power, layer 0, remaining buildings,
+    # parcel numbers, and every layer not explicitly assigned above.
+    return 9
 
 def _zoom_lod(viewer):
     fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
     ratio = viewer.scale / fit
 
-    # Advance one display group only after about 3 mouse-wheel notches.
-    # One notch is 1.15x, therefore 3 notches ~= 1.52x.
-    step = 1.15 ** 3
-    if ratio < step ** 1: return 0   # terrain/admin + fiber
-    if ratio < step ** 2: return 1   # + cell
-    if ratio < step ** 3: return 2   # + coax
-    if ratio < step ** 4: return 3   # + equipment
-    if ratio < step ** 5: return 4   # + road
-    if ratio < step ** 6: return 5   # + building group
+    # General progression: one new group per 5 wheel notches.
+    step5 = 1.15 ** 5
 
-    # Keep poles/manholes later than the normal 3-notch progression.
-    # Building group remains alone for an extra 3-wheel interval.
-    if ratio < step ** 8: return 5
-    if ratio < step ** 9: return 6   # + pole/manhole
-    if ratio < step ** 10: return 7  # + conduit
-    if ratio < step ** 11: return 8  # + remaining buildings
-    return 9                         # + parcel/LI, final maximum-detail stage
+    if ratio < step5 ** 1: return 0   # region only
+    if ratio < step5 ** 2: return 1   # + fiber cable
+    if ratio < step5 ** 3: return 2   # + CellBound
+    if ratio < step5 ** 4: return 3   # + fiber equipment
+    if ratio < step5 ** 5: return 4   # + coax cable/equipment
+    if ratio < step5 ** 6: return 5   # + road
+    if ratio < step5 ** 7: return 6   # + building group
+
+    # Extra-wide gap: 10 wheel notches between building group and poles/manholes.
+    if ratio < step5 ** 9: return 6
+    if ratio < step5 ** 10: return 7  # + pole/manhole
+    if ratio < step5 ** 11: return 8  # + conduit
+    return 9                          # max detail: every remaining layer
 
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
