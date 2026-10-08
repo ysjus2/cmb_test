@@ -711,8 +711,10 @@ def _lod_group(ent):
     u = layer.upper()
 
     # 0: first view = terrain/region + fiber cable
-    if u in {"TL_SCCO_SIG","TL_SCCO_EMD","TL_SCCO_END","TL_SCCO_LI"}:
+    if u in {"TL_SCCO_SIG","TL_SCCO_EMD","TL_SCCO_END"}:
         return 0
+    if u == "TL_SCCO_LI":
+        return 9
     if _is_optical_cable_layer(layer):
         return 0
 
@@ -770,18 +772,24 @@ def _lod_group(ent):
 def _zoom_lod(viewer):
     fit = max(float(getattr(viewer, "fit_scale", 1.0)), 1e-12)
     ratio = viewer.scale / fit
-    if ratio < 1.8: return 0
-    if ratio < 3.2: return 1
-    if ratio < 5.2: return 2
-    if ratio < 8.0: return 3
-    if ratio < 12.0: return 4
-    if ratio < 20.0: return 5
-    # Big gap after building group: poles stay hidden until far deeper zoom.
-    if ratio < 48.0: return 5
-    if ratio < 70.0: return 6
-    if ratio < 95.0: return 7
-    if ratio < 125.0: return 8
-    return 9
+
+    # Advance one display group only after about 3 mouse-wheel notches.
+    # One notch is 1.15x, therefore 3 notches ~= 1.52x.
+    step = 1.15 ** 3
+    if ratio < step ** 1: return 0   # terrain/admin + fiber
+    if ratio < step ** 2: return 1   # + cell
+    if ratio < step ** 3: return 2   # + coax
+    if ratio < step ** 4: return 3   # + equipment
+    if ratio < step ** 5: return 4   # + road
+    if ratio < step ** 6: return 5   # + building group
+
+    # Keep poles/manholes later than the normal 3-notch progression.
+    # Building group remains alone for an extra 3-wheel interval.
+    if ratio < step ** 8: return 5
+    if ratio < step ** 9: return 6   # + pole/manhole
+    if ratio < step ** 10: return 7  # + conduit
+    if ratio < step ** 11: return 8  # + remaining buildings
+    return 9                         # + parcel/LI, final maximum-detail stage
 
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
