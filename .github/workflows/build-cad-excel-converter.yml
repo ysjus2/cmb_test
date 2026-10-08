@@ -40,8 +40,10 @@ jobs:
           python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__)"
 
       # UI/layout policies are now committed directly in source.
-      # Legacy apply_*.py build-time patch steps were removed because they
-      # overwrite newer viewer/cache code and make builds non-reproducible.
+      # Keep only the ESSENPOLY conversion compatibility patch; legacy UI/layout
+      # patches would overwrite newer viewer/cache code.
+      - name: Apply direct ESSENPOLY Excel fix
+        run: python apply_excel_cable_fix.py
 
       - name: Verify no DWG copyleft engine
         shell: powershell
