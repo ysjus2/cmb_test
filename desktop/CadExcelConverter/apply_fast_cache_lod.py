@@ -276,5 +276,126 @@ main, n = pattern.subn(replacement, main, count=1)
 if n != 1:
     raise RuntimeError("FAST patch target not found: main scan/build worker")
 
+
+# Restore dedicated quick Excel export actions from the later PC workflow.
+# They export actual DXF data through the same proven convert_selected_layers()
+# path, so ESSENPOLY fiber recovery and coordinates remain identical to v3.20.
+
+# Add menu commands.
+main = replace_once(
+    main,
+    '''        file_menu.add_command(label="Excel로 출력...", command=self._run_excel, accelerator="Ctrl+E")
+        file_menu.add_separator()
+''',
+    '''        file_menu.add_command(label="Excel로 출력...", command=self._run_excel, accelerator="Ctrl+E")
+        file_menu.add_separator()
+        file_menu.add_command(label="광 구간 Excel 추출...", command=lambda: self._run_quick_excel("fiber"))
+        file_menu.add_command(label="주관로 Excel 추출...", command=lambda: self._run_quick_excel("conduit"))
+        file_menu.add_separator()
+''',
+    "quick export menu",
+)
+
+# Add visible buttons directly above the viewer surface.
+main = replace_once(
+    main,
+    '''        self.viewer = DXFViewer(root)
+        self.viewer.pack(fill="both", expand=True)
+        self.viewer.set_source_epsg(self.epsg_var.get())
+''',
+    '''        quickbar = ttk.Frame(root)
+        quickbar.pack(fill="x", pady=(0, 3))
+        ttk.Button(
+            quickbar, text="광 구간 Excel 추출",
+            command=lambda: self._run_quick_excel("fiber")
+        ).pack(side="left", padx=(0, 4))
+        ttk.Button(
+            quickbar, text="주관로 Excel 추출",
+            command=lambda: self._run_quick_excel("conduit")
+        ).pack(side="left")
+
+        self.viewer = DXFViewer(root)
+        self.viewer.pack(fill="both", expand=True)
+        self.viewer.set_source_epsg(self.epsg_var.get())
+''',
+    "quick export buttons",
+)
+
+quick_method = r'''
+    def _run_quick_excel(self, kind):
+        if self.busy:
+            return
+        if not self.input_path or not os.path.isfile(self.input_path):
+            messagebox.showerror(APP_NAME, "먼저 DXF 파일을 열어주세요.")
+            return
+
+        available = sorted({row[0] for row in self.layer_rows.values()})
+        if kind == "fiber":
+            selected = [
+                name for name in available
+                if name.upper().startswith("CN_F_CABLE")
+                or "FOC" in name.upper()
+                or "FIBER" in name.upper()
+            ]
+            label = "광 구간"
+            suffix = "_광구간.xlsx"
+        else:
+            exact = [name for name in available if name.upper() == "CN_L_POLE_LINE_CONDUIT"]
+            selected = exact or [
+                name for name in available
+                if "CONDUIT" in name.upper() or "관로" in name
+            ]
+            label = "주관로"
+            suffix = "_주관로.xlsx"
+
+        if not selected:
+            messagebox.showerror(APP_NAME, f"{label} 추출 대상 레이어를 찾지 못했습니다.")
+            return
+
+        default_name = Path(self.input_path).stem + suffix
+        out = filedialog.asksaveasfilename(
+            title=f"{label} Excel 추출",
+            defaultextension=".xlsx",
+            initialfile=default_name,
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not out:
+            return
+
+        try:
+            epsg = int(self.epsg_var.get())
+        except ValueError:
+            messagebox.showerror(APP_NAME, "좌표계 설정을 확인해주세요.")
+            return
+
+        self.busy = True
+        self._show_progress()
+        self._set_progress(0, f"{label} Excel 추출 준비")
+        self._log(f"{label} 추출 레이어: " + ", ".join(selected))
+
+        def worker():
+            try:
+                stats = convert_selected_layers(
+                    self.input_path,
+                    out,
+                    selected,
+                    epsg,
+                    None,
+                    log=lambda m: self.q.put(("log", m)),
+                    progress=lambda p, t: self.q.put(("progress", (p, t))),
+                )
+                self.q.put(("done", (stats, out)))
+            except Exception as e:
+                self.q.put(("error", str(e)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+'''
+insert_at='''    def _run_excel(self):
+'''
+if insert_at not in main:
+    raise RuntimeError("FAST patch target not found: _run_excel")
+main = main.replace(insert_at, quick_method + insert_at, 1)
+
 main_path.write_text(main, encoding="utf-8")
-print("v3.20 fast cache + 11-stage progressive display policy applied")
+print("v3.20 fast cache + progressive display + fiber/conduit quick Excel export applied")
