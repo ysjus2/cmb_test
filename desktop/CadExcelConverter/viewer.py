@@ -507,62 +507,59 @@ def build_scene(input_path, log=None, progress=None):
     return scene
 
 def _layer_category(ent):
-    """Business display priority based on real CMB layer naming."""
+    """Exact CMB display priority based on production layer names."""
     layer=(ent.layer or "").strip()
     u=layer.upper()
     typ=(ent.entity_type or "").upper()
 
-    # 6. Text always last, regardless of layer.
+    # 1. Administrative boundaries: always visible from full extent.
+    if u in {"TL_SCCO_SIG","TL_SCCO_END","TL_SCCO_LI"}:
+        return 1
+
+    # 6. Road boundary is intentionally delayed with text.
+    if u == "TL_SPRD_RW":
+        return 6
+
+    # 6. Text is always last and viewport-only.
     if typ in {"TEXT","MTEXT"}:
         return 6
 
-    # 1. Administrative boundary: 시/군/구 > 읍/면/동 > 리.
-    admin_words=(
-        "시경계","군경계","구경계","시군구","행정경계","행정구역",
-        "읍경계","면경계","동경계","읍면동",
-        "리경계","법정리","행정리",
-        "SIDO","SIGUNGU","EMD","RI","BOUNDARY","ADMIN"
-    )
-    if any(w.upper() in u for w in admin_words):
-        return 1
-
-    # 2. Fiber cable only. Real data includes FOC/STUB and CN_F_Cable families.
-    fiber_cable_words=("CN_F_CABLE","FOC","FIBER_CABLE","FIBERCABLE","STUB")
-    if any(w in u for w in fiber_cable_words):
+    # 2. Fiber cable.
+    if u.startswith("CN_F_CABLE") or "FOC" in u or "FIBER_CABLE" in u or "STUB" in u:
         return 2
 
-    # 3. Cell outline / service-cell border.
-    cell_words=("CELL","셀테두리","셀경계","CELL_BORDER","CELLBOUND","CELL_BOUNDARY")
-    if any(w.upper() in u for w in cell_words):
+    # 3. Cell outline / cell id family.
+    if u.startswith("CN_C_ID_CELL") or "CELL_BORDER" in u or "CELL_BOUNDARY" in u or "셀테두리" in layer or "셀경계" in layer:
         return 3
 
-    # 5. Pole. Real extracts include Pole-Drop.
-    pole_words=("POLE","전주","POLE-DROP","POLE_DROP")
-    if any(w.upper() in u for w in pole_words):
+    # 5. Poles/manholes.
+    if u.startswith("CN_L_POLE_") or "POLE" in u or "전주" in layer or "MANHOLE" in u or "맨홀" in layer:
         return 5
 
-    # 4. Coax cable and all remaining network equipment.
-    coax_equipment_words=(
-        "CN_C_","COAX","CABLE_500","TAP","ONU","PASSIVE","AMP",
-        "POWER","CONNECTOR","CLOSURE","CENTER","MANHOLE","맨홀","장비"
-    )
-    if any(w.upper() in u for w in coax_equipment_words):
+    # 4. Coax cable and all network devices/equipment.
+    if (
+        u.startswith("CN_C_")
+        or u.startswith("CN_F_CLOSURE")
+        or u.startswith("CN_F_CENTER")
+        or "COAX" in u
+        or "CABLE_500" in u
+    ):
         return 4
 
-    # Unknown geometry is treated as map/background detail after the primary map.
+    # Non-network/background geometry is delayed to detail view.
     return 4
 
 
 def _admin_subpriority(ent):
-    """Within admin boundaries show 시/군/구, then 읍/면/동, then 리."""
+    """Within admin boundary layers: 시군구 > 읍면동 > 리."""
     u=(ent.layer or "").upper()
-    if any(w in u for w in ("시경계","군경계","구경계","시군구","SIGUNGU")):
+    if u == "TL_SCCO_SIG":
         return 1
-    if any(w in u for w in ("읍경계","면경계","동경계","읍면동","EMD")):
+    if u == "TL_SCCO_END":
         return 2
-    if any(w in u for w in ("리경계","법정리","행정리","_RI"," RI")):
+    if u == "TL_SCCO_LI":
         return 3
-    return 2
+    return 9
 
 
 class DXFViewer(ttk.Frame):
@@ -871,29 +868,26 @@ class DXFViewer(ttk.Frame):
 
     def _lod_level(self):
         ratio=self.scale/max(self.fit_scale,1e-12)
-        if ratio < 2.2: return 0
-        if ratio < 5.0: return 1
-        if ratio < 12.0: return 2
-        return 3
+        if ratio < 1.8: return 0
+        if ratio < 3.8: return 1
+        if ratio < 8.0: return 2
+        if ratio < 18.0: return 3
+        return 4
 
     @staticmethod
     def _entity_lod_visible(ent,lod):
-        # LOD is driven by business layer priority, not generic DXF type:
-        # 0: 행정경계, 1:+광케이블, 2:+셀테두리, 3:+동축/기기/전주/TEXT
+        # 5-step fast rendering:
+        # 0 행정경계
+        # 1 +광케이블
+        # 2 +셀테두리
+        # 3 +동축/기기 + 전주
+        # 4 +도로경계 + TEXT/MTEXT
         category=_layer_category(ent)
-        if category == 1:
-            # Administrative boundaries are visible from the first map view.
-            return True
-        if category == 2:
-            return lod >= 1
-        if category == 3:
-            return lod >= 2
-        if category == 4:
-            return lod >= 3
-        if category == 5:
-            return lod >= 3
-        if category == 6:
-            return lod >= 3
+        if category == 1: return True
+        if category == 2: return lod >= 1
+        if category == 3: return lod >= 2
+        if category in {4,5}: return lod >= 3
+        if category == 6: return lod >= 4
         return lod >= 3
 
     def redraw(self):
@@ -922,7 +916,7 @@ class DXFViewer(ttk.Frame):
 
         # At map-scale zoom, cap the number of rendered entities. As the user
         # zooms in the spatial query naturally becomes smaller and detail grows.
-        caps={0:14000,1:24000,2:45000,3:80000}
+        caps={0:8000,1:14000,2:22000,3:42000,4:65000}
         cap=caps[lod]
         if len(candidate_ids)>cap:
             step=max(1,len(candidate_ids)//cap)
@@ -940,7 +934,7 @@ class DXFViewer(ttk.Frame):
             for kind, data in ent.primitives:
                 # Text primitives are deliberately the last LOD and are only
                 # reached for entities returned by the current viewport index.
-                if kind=="text" and lod < 3:
+                if kind=="text" and lod < 4:
                     continue
                 try:
                     if kind in {"line", "polyline"}:
@@ -987,7 +981,8 @@ class DXFViewer(ttk.Frame):
             0:"행정경계",
             1:"행정경계 + 광케이블",
             2:"행정경계 + 광케이블 + 셀테두리",
-            3:"전체 기기/전주 + TEXT(화면내)",
+            3:"동축/기기 + 전주",
+            4:"도로경계 + TEXT(화면내)",
         }
         self.status_var.set(
             f"화면 객체 {drawn:,}/{len(candidate_ids):,} · {stage_labels.get(lod,'상세')}"
