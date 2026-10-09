@@ -511,11 +511,14 @@ async function loadObjects(){{
     // 지역 전체 최초 화면은 광만 우선 표시한다.
     // 동축은 충분히 줌인한 뒤부터 표시하여 초기 화면 혼잡을 줄인다.
     if(group==='COAX' && rawLod<5) return false;
+    if(group==='POLE' && rawLod<8) return false;
+    if(group==='CONDUIT' && rawLod<10) return false;
 
     const geomType=String((f.geometry||{{}}).type||'');
     if(['LineString','MultiLineString'].includes(geomType) && group==='FIBER') return true;
     if(['LineString','MultiLineString'].includes(geomType) && group==='COAX') return rawLod>=5;
-    if(['LineString','MultiLineString'].includes(geomType) && group==='CONDUIT') return rawLod>=8;
+    if(group==='POLE') return rawLod>=8;
+    if(['LineString','MultiLineString'].includes(geomType) && group==='CONDUIT') return rawLod>=10;
 
     return layerLevel(p.layer||'')<=lod;
   }});
