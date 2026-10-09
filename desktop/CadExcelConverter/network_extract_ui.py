@@ -1,10 +1,14 @@
 from __future__ import annotations
+import json
 import math
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox, filedialog
 from converter import ConversionStats
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from pyproj import Transformer
 from layer_defaults import is_default_hidden
 from network_extract import FiberNetwork, conduit_records, export_network, is_fiber, is_closure, network_export_indices
 from catv_poles import catv_pole_rows, export_catv_poles
@@ -25,6 +29,7 @@ class NetworkExtractionMixin:
                 ('100mm 주관로 추출',self._begin_main_conduit),
                 ('자가주 좌표 추출',self._run_catv_pole_excel),
                 ('관로 속성 확인',self._inspect_conduits),
+                ('사용자 지정 영역 추출',self._begin_custom_area_extract),
                 ('Excel 추출',self._run_excel),
                 ('전체 도면 보기',self._reset_network_filter),
             ]
@@ -213,10 +218,136 @@ class NetworkExtractionMixin:
             ttk.Button(controls,text=label,command=command).pack(side='left',padx=3)
         refresh()
 
+    @staticmethod
+    def _point_in_polygon(point, polygon):
+        x,y=point;inside=False;j=len(polygon)-1
+        for i in range(len(polygon)):
+            xi,yi=polygon[i];xj,yj=polygon[j]
+            if ((yi>y)!=(yj>y)) and (x < (xj-xi)*(y-yi)/((yj-yi) or 1e-15)+xi):
+                inside=not inside
+            j=i
+        return inside
+
+    @staticmethod
+    def _segments_intersect(a,b,c,d):
+        def orient(p,q,r):
+            v=(q[1]-p[1])*(r[0]-q[0])-(q[0]-p[0])*(r[1]-q[1])
+            if abs(v)<1e-9:return 0
+            return 1 if v>0 else 2
+        o1,o2,o3,o4=orient(a,b,c),orient(a,b,d),orient(c,d,a),orient(c,d,b)
+        return o1!=o2 and o3!=o4
+
+    def _primitive_hits_polygon(self,kind,data,polygon):
+        if kind in {'insert','point'}:
+            try:return self._point_in_polygon((float(data[0]),float(data[1])),polygon)
+            except Exception:return False
+        if kind=='circle':
+            try:
+                x,y,r=float(data[0]),float(data[1]),abs(float(data[2]))
+                if self._point_in_polygon((x,y),polygon):return True
+                for px,py in polygon:
+                    if (px-x)*(px-x)+(py-y)*(py-y)<=r*r:return True
+            except Exception:pass
+            return False
+        if kind in {'line','polyline','polygon'}:
+            try:pts=[(float(x),float(y)) for x,y in data]
+            except Exception:return False
+            if any(self._point_in_polygon(p,polygon) for p in pts):return True
+            edges=list(zip(polygon,polygon[1:]+polygon[:1]))
+            segs=list(zip(pts,pts[1:]))
+            if kind=='polygon' and len(pts)>=3:segs.append((pts[-1],pts[0]))
+            return any(self._segments_intersect(a,b,c,d) for a,b in segs for c,d in edges)
+        return False
+
+    def _entity_hits_polygon(self,e,polygon):
+        if not e.bbox:return False
+        minx,miny,maxx,maxy=e.bbox
+        pminx=min(p[0] for p in polygon);pmaxx=max(p[0] for p in polygon)
+        pminy=min(p[1] for p in polygon);pmaxy=max(p[1] for p in polygon)
+        if maxx<pminx or minx>pmaxx or maxy<pminy or miny>pmaxy:return False
+        if any(self._primitive_hits_polygon(k,d,polygon) for k,d in e.primitives):return True
+        center=((minx+maxx)/2,(miny+maxy)/2)
+        return self._point_in_polygon(center,polygon)
+
+    def _begin_custom_area_extract(self):
+        if not getattr(self,'can_extract',False):return
+        if self.busy:return
+        if not self.viewer.scene or not self.input_path:
+            messagebox.showinfo('사용자 지정 영역 추출','먼저 DXF 도면을 열어주세요.');return
+        self._reset_network_filter()
+        self.extract_hint.set('영역 꼭짓점을 순서대로 클릭하세요. Enter=폐합/완료, ESC=취소')
+        def finished(points):
+            indices={
+                e.index for e in self.viewer.scene.entities
+                if self._entity_hits_polygon(e,points)
+            }
+            if not indices:
+                messagebox.showinfo('사용자 지정 영역 추출','지정 영역 안에 추출 가능한 객체가 없습니다.')
+                self._reset_network_filter();return
+            scope={'kind':'custom','indices':indices,'polygon':list(points)}
+            self._show_scope(scope)
+            self.extract_hint.set(f'사용자 지정 영역 · 객체 {len(indices):,}개 표시 / Excel 추출을 누르세요.')
+            self.status_var.set(f'사용자 지정 영역 추출 대상 {len(indices):,}개')
+        self.viewer.begin_area_select(finished)
+
+    def _run_custom_area_excel(self):
+        if self.busy:return
+        scope=self.export_scope or {}
+        indices=set(scope.get('indices') or [])
+        if not indices:
+            messagebox.showinfo('사용자 지정 영역 Excel','추출 대상이 없습니다.');return
+        out=filedialog.asksaveasfilename(
+            title='사용자 지정 영역 Excel 추출',
+            defaultextension='.xlsx',
+            initialfile=Path(self.input_path).stem+'_사용자지정영역.xlsx',
+            filetypes=[('Excel','*.xlsx')],
+        )
+        if not out:return
+        self.busy=True;self._show_progress();self._set_progress(10,'사용자 지정 영역 정보 정리')
+        scene=self.viewer.scene;epsg=int(self.epsg_var.get())
+        def worker():
+            try:
+                transform=Transformer.from_crs(f'EPSG:{epsg}','EPSG:4326',always_xy=True)
+                headers=['순수 객체ID','레이어','객체종류','블록','SEQ','X','Y','경도','위도','문자','전주정보','블록속성','XDATA']
+                rows=[]
+                for idx in sorted(indices):
+                    e=scene.entities[idx]
+                    points=[]
+                    for kind,data in e.primitives:
+                        if kind in {'line','polyline','polygon'}:
+                            points=[(float(x),float(y)) for x,y in data];break
+                        if kind in {'insert','point'}:
+                            points=[(float(data[0]),float(data[1]))];break
+                    if not points and e.bbox:
+                        x1,y1,x2,y2=e.bbox;points=[((x1+x2)/2,(y1+y2)/2)]
+                    if not points:points=[(None,None)]
+                    pole=json.dumps(e.pole_info or {},ensure_ascii=False)
+                    attrs=json.dumps(e.attributes or {},ensure_ascii=False)
+                    xdata=json.dumps(dict(e.xdata or []),ensure_ascii=False)
+                    for seq,(x,y) in enumerate(points,1):
+                        lon=lat=None
+                        if x is not None and y is not None:
+                            try:lon,lat=transform.transform(x,y)
+                            except Exception:pass
+                        rows.append([e.handle,e.layer,e.entity_type,e.block_name,seq,x,y,lon,lat,e.text,pole,attrs,xdata])
+                wb=Workbook();ws=wb.active;ws.title='사용자지정영역'
+                ws.append(headers)
+                for cell in ws[1]:
+                    cell.font=Font(color='FFFFFF',bold=True);cell.fill=PatternFill('solid',fgColor='176D85')
+                for row in rows:ws.append(row)
+                ws.freeze_panes='A2';ws.auto_filter.ref=ws.dimensions
+                wb.save(out)
+                self.q.put(('done',(ConversionStats(entities=len(indices),rows=len(rows)),out)))
+            except Exception as exc:self.q.put(('error',str(exc)))
+        threading.Thread(target=worker,daemon=True).start()
+
     def _run_network_excel(self):
         if not getattr(self,'can_extract',False): return
         if self.busy:return
         scope=self.export_scope
+        if not scope:return
+        if scope['kind']=='custom':
+            self._run_custom_area_excel();return
         if scope['kind']=='catv':
             self._run_catv_pole_excel();return
         if scope['kind']=='pipe':
