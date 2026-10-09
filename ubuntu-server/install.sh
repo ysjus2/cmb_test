@@ -8,6 +8,8 @@ ENV_FILE=/etc/cmb-server.env
 CERT_DIR=/etc/cmb-server/tls
 SERVER_IP="${CMB_SERVER_IP:-192.168.246.54}"
 DEV_TOKEN="${CMB_DEV_TOKEN:-cmb-local-test}"
+EXISTING_CERT="${CMB_TLS_CERT:-}"
+EXISTING_KEY="${CMB_TLS_KEY:-}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "sudo bash install.sh 로 실행해주세요."
@@ -34,7 +36,14 @@ python3 -m venv "${APP_DIR}/venv"
 "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 
 echo "[4/8] HTTPS 인증서 준비"
-if [[ ! -f "${CERT_DIR}/server.crt" || ! -f "${CERT_DIR}/server.key" ]]; then
+if [[ -n "${EXISTING_CERT}" && -n "${EXISTING_KEY}" && -f "${EXISTING_CERT}" && -f "${EXISTING_KEY}" ]]; then
+  echo "기존 서버 인증서를 유지합니다: ${EXISTING_CERT}"
+  cp "${EXISTING_CERT}" "${CERT_DIR}/server.crt"
+  cp "${EXISTING_KEY}" "${CERT_DIR}/server.key"
+  chmod 600 "${CERT_DIR}/server.key"
+elif [[ ! -f "${CERT_DIR}/server.crt" || ! -f "${CERT_DIR}/server.key" ]]; then
+  echo "주의: 기존 인증서 경로가 지정되지 않아 시험용 self-signed 인증서를 생성합니다."
+  echo "Windows EXE가 기존 CMB CA를 신뢰하므로 실제 연동에는 CMB_TLS_CERT/CMB_TLS_KEY 지정이 권장됩니다."
 cat > "${CERT_DIR}/openssl.cnf" <<EOF
 [req]
 distinguished_name=req_dn
@@ -93,7 +102,9 @@ echo
 echo "완료"
 echo "SERVER = https://${SERVER_IP}:8443"
 echo "TEST TOKEN = ${DEV_TOKEN}"
-echo "CA 배포용 인증서 = ${CERT_DIR}/server.crt"
+echo "사용 인증서 = ${CERT_DIR}/server.crt"
+echo "기존 CMB 인증서를 쓰려면:"
+echo "  sudo CMB_TLS_CERT=/현재/server.crt CMB_TLS_KEY=/현재/server.key bash install.sh"
 echo
 echo "Windows 테스트 환경변수 예:"
 echo "  set CMB_ACCESS_TOKEN=${DEV_TOKEN}"
