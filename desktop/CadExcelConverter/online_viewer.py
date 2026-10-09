@@ -96,7 +96,36 @@ class Api:
 
     def regions(self):
         try:
-            return {"ok": True, "items": self.c.online_regions() or []}
+            raw = self.c.online_regions() or []
+            if isinstance(raw, dict):
+                raw = raw.get("items") or raw.get("regions") or []
+
+            items = []
+            seen = set()
+            for row in raw:
+                if not isinstance(row, dict):
+                    continue
+                region_id = str(
+                    row.get("id")
+                    or row.get("region_id")
+                    or row.get("region_code")
+                    or row.get("code")
+                    or ""
+                ).strip()
+                if not region_id or region_id in seen:
+                    continue
+                seen.add(region_id)
+                items.append({
+                    "id": region_id,
+                    "name": str(
+                        row.get("name")
+                        or row.get("region_name")
+                        or row.get("display_name")
+                        or region_id
+                    ).strip(),
+                })
+
+            return {"ok": True, "items": items}
         except Exception as exc:
             return {"ok": False, "error": str(exc), "items": []}
 
@@ -153,7 +182,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 <div id='top'>
   <div class='card' id='tools'>
     <b>CMB 온라인 Viewer</b>
-    <select id='region'><option value=''>지역 선택</option></select>
+    <select id='region' title='로그인 계정에 배정된 도면'><option value=''>권한 도면 선택</option></select>
     <button class='layerBtn on' data-group='FIBER'>광</button>
     <button class='layerBtn on' data-group='COAX'>동축</button>
     <button class='layerBtn on' data-group='POLE'>전주</button>
@@ -555,16 +584,25 @@ async function loadObjects(){{
 
 async function loadRegions(){{
   const r=await pywebview.api.regions();
-  if(!r.ok){{setStatus(r.error||'지역 조회 실패');return}}
+  if(!r.ok){{setStatus(r.error||'권한 도면 조회 실패');return}}
   const sel=document.getElementById('region');
-  sel.innerHTML='<option value="">지역 선택</option>';
-  (r.items||[]).forEach(x=>{{
+  const items=(r.items||[]).filter(x=>x&&x.id);
+  sel.innerHTML='<option value="">권한 도면 선택</option>';
+  items.forEach(x=>{{
     const o=document.createElement('option');
-    o.value=x.id;
-    o.text=x.name||x.id;
+    o.value=String(x.id);
+    o.text=(x.name&&x.name!==x.id) ? (x.name+' ('+x.id+')') : String(x.id);
     sel.appendChild(o);
   }});
-  setStatus((r.items||[]).length+'개 지역');
+  if(!items.length){{
+    setStatus('배정된 도면이 없습니다 · 관리자에서 지역 권한을 확인하세요');
+    return;
+  }}
+  setStatus(items.length+'개 권한 도면');
+  if(items.length===1){{
+    sel.value=String(items[0].id);
+    sel.dispatchEvent(new Event('change'));
+  }}
 }}
 
 async function bootstrapAuth(){{
