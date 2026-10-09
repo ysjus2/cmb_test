@@ -206,3 +206,13 @@ class CMBServerClient:
             f"/admin/users/{int(user_id)}/regions",
             {"region_ids": list(region_ids or [])},
         )
+
+    def admin_session_timeout(self):
+        return self._request("GET", "/admin/settings/session-timeout")
+
+    def set_admin_session_timeout(self, minutes):
+        return self._request(
+            "POST",
+            "/admin/settings/session-timeout",
+            {"minutes": int(minutes)},
+        )
