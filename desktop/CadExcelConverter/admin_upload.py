@@ -113,6 +113,9 @@ def build_payload(scene, source_path, group, epsg):
         attrs = dict(e.attributes or {})
         attrs["_cmb_symbol_kind"] = _symbol_kind(e)
         attrs["_cmb_rotation_deg"] = _rotation_deg(e)
+        attrs["_cmb_dxf_data"] = dict(getattr(e, "dxf_data", {}) or {})
+        attrs["_cmb_pole_info"] = dict(getattr(e, "pole_info", {}) or {})
+        attrs["_cmb_text"] = str(getattr(e, "text", "") or "")
 
         objects.append({
             "source_handle": e.handle,
