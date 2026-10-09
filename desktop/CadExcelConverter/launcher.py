@@ -10,6 +10,9 @@ from tkinter import ttk, messagebox
 
 from server_client_windows import CMBServerClient
 from admin_users import UserAdminWindow
+from session_guard import TkIdleSessionGuard
+
+SESSION_ENDED_EXIT_CODE = 41
 
 
 class Launcher(tk.Tk):
@@ -21,6 +24,7 @@ class Launcher(tk.Tk):
 
         self.client = CMBServerClient()
         self.user = None
+        self.session_guard = None
 
         root = ttk.Frame(self, padding=24)
         root.pack(fill="both", expand=True)
@@ -130,6 +134,11 @@ class Launcher(tk.Tk):
                 f"맵추출 뷰어: {map_note}\n"
                 f"관리자 전용: {'사용 가능' if level == 1 else '1등급 관리자만 사용'}"
             )
+            self.session_guard = TkIdleSessionGuard(
+                self,
+                self._session_expired,
+                client=self.client,
+            )
         except Exception as exc:
             self.user = None
             self.online_btn.configure(state="disabled")
@@ -144,6 +153,22 @@ class Launcher(tk.Tk):
         env["CMB_AUTH_USER"] = json.dumps(self.user or {}, ensure_ascii=False)
         return env
 
+    def _reset_login_state(self, message="로그인이 필요합니다."):
+        self.user = None
+        self.client.access_token = ""
+        self.client.refresh_token = ""
+        self.password.set("")
+        self.login_status.set(message)
+        self.online_btn.configure(state="disabled")
+        self.map_btn.configure(state="disabled")
+        self.admin_btn.configure(state="disabled")
+        self.mode_note.set("")
+        self.session_guard = None
+
+    def _session_expired(self):
+        self._reset_login_state("세션이 종료되었습니다. 다시 로그인해주세요.")
+        self._restore_launcher()
+
     def _restore_launcher(self):
         if not self.winfo_exists():
             return
@@ -155,9 +180,14 @@ class Launcher(tk.Tk):
             pass
 
     def _watch_child(self, process):
-        if process.poll() is None:
+        code = process.poll()
+        if code is None:
             self.after(300, lambda: self._watch_child(process))
             return
+        if code == SESSION_ENDED_EXIT_CODE:
+            self._reset_login_state("세션이 종료되었습니다. 다시 로그인해주세요.")
+        elif self.session_guard is not None:
+            self.session_guard.resume()
         self._restore_launcher()
 
     def _spawn(self, flag):
@@ -167,6 +197,8 @@ class Launcher(tk.Tk):
         else:
             cmd = [sys.executable, str(Path(__file__).resolve().with_name("main.py")), flag]
 
+        if self.session_guard is not None:
+            self.session_guard.pause()
         process = subprocess.Popen(cmd, env=env)
         self.withdraw()
         self.after(300, lambda: self._watch_child(process))
