@@ -150,10 +150,33 @@ class CMBServerClient:
     def admin_users(self):
         return self._request("GET", "/admin/users")
 
-    def reset_user_password(self, username, new_password):
-        q = urllib.parse.quote(str(username), safe="")
+    def create_user(self, username, name="", department="", level=5):
         return self._request(
             "POST",
-            f"/admin/users/{q}/reset-password",
+            "/admin/users",
+            {
+                "username": str(username).strip(),
+                "name": str(name).strip() or None,
+                "department": str(department).strip() or None,
+                "level": int(level),
+            },
+        )
+
+    def deactivate_user(self, user_id):
+        return self._request(
+            "POST",
+            f"/admin/users/{int(user_id)}/deactivate",
+        )
+
+    def activate_user(self, user_id):
+        return self._request(
+            "POST",
+            f"/admin/users/{int(user_id)}/activate",
+        )
+
+    def reset_user_password(self, user_id, new_password):
+        return self._request(
+            "POST",
+            f"/admin/users/{int(user_id)}/reset-password",
             {"new_password": str(new_password)},
         )
