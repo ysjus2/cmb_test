@@ -69,8 +69,8 @@ def main():
         assert set(mapping) == set(selected)
 
         pole_ws = wb[mapping["CN_L_Pole_Pole-Joint"]]
-        lon = pole_ws.cell(2, 7).value
-        lat = pole_ws.cell(2, 8).value
+        lon = pole_ws.cell(2, 8).value
+        lat = pole_ws.cell(2, 9).value
         assert abs(lon - 126.5208008) < 0.0001, lon
         assert abs(lat - 35.0649176) < 0.0001, lat
 
@@ -79,7 +79,7 @@ def main():
         assert fiber_ws.cell(2,1).value == "LWPOLYLINE"
 
         anno_ws = wb[mapping["ANNO"]]
-        assert anno_ws.cell(2,10).value == "TEST"
+        assert anno_ws.cell(2,11).value == "TEST"
 
         print("SELFTEST OK")
 

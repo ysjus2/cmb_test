@@ -28,3 +28,14 @@ desktop.ini
 # Regional customer/network source data stays on the phone or local PC
 *.xlsx
 build_*.zip
+
+# Local drawings, caches and generated diagnostics
+*.dxf
+*.dwg
+*.exe
+*.log
+*.spec
+__pycache__/
+**/dist/
+**/performance-cache/
+*.pickle

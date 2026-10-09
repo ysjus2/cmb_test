@@ -2,10 +2,6 @@ from __future__ import annotations
 
 import math
 import re
-import hashlib
-import os
-import pickle
-import tempfile
 import tkinter as tk
 from dataclasses import dataclass, field
 from tkinter import ttk, messagebox
@@ -14,7 +10,9 @@ from ezdxf.path import make_path
 from ezdxf.colors import aci2rgb
 from pyproj import Transformer
 
+from conduit_info import conduit_info
 from converter import load_dxf_document
+from zoom_policy import detail_level, layer_level, intersects, MAX_LEVEL
 from essenpoly_recovery import recover_linker_polylines
 from essenpoly_recovery import recover_essenpoly_polylines
 
@@ -40,92 +38,7 @@ class Scene:
     bbox: tuple
     unsupported: dict
     diagnostics: list = field(default_factory=list)
-    grid: dict = field(default_factory=dict)
-    grid_n: int = 96
-    large_entities: list = field(default_factory=list)
-    lod_grids: dict = field(default_factory=dict)
-    lod_large_entities: dict = field(default_factory=dict)
-
-    def build_index(self):
-        self.grid = {}
-        self.large_entities = []
-        self.lod_grids = {}
-        self.lod_large_entities = {}
-        if not self.entities:
-            return
-        minx, miny, maxx, maxy = self.bbox
-        dx = max(maxx-minx, 1e-9)
-        dy = max(maxy-miny, 1e-9)
-        n = max(16, int(self.grid_n))
-        for ent in self.entities:
-            b = ent.bbox
-            if b is None:
-                continue
-            ix1 = max(0, min(n-1, int((b[0]-minx)/dx*n)))
-            iy1 = max(0, min(n-1, int((b[1]-miny)/dy*n)))
-            ix2 = max(0, min(n-1, int((b[2]-minx)/dx*n)))
-            iy2 = max(0, min(n-1, int((b[3]-miny)/dy*n)))
-            cells = (ix2-ix1+1)*(iy2-iy1+1)
-            group = _lod_group(ent)
-            stage_grid = self.lod_grids.setdefault(group, {})
-            stage_large = self.lod_large_entities.setdefault(group, [])
-
-            if cells > 48:
-                self.large_entities.append(ent.index)
-                stage_large.append(ent.index)
-                continue
-
-            for ix in range(ix1, ix2+1):
-                for iy in range(iy1, iy2+1):
-                    self.grid.setdefault((ix,iy), []).append(ent.index)
-                    stage_grid.setdefault((ix,iy), []).append(ent.index)
-
-    def query(self, bbox):
-        if not self.grid:
-            self.build_index()
-        minx, miny, maxx, maxy = self.bbox
-        dx = max(maxx-minx, 1e-9)
-        dy = max(maxy-miny, 1e-9)
-        n = max(16, int(self.grid_n))
-        ix1 = max(0, min(n-1, int((bbox[0]-minx)/dx*n)))
-        iy1 = max(0, min(n-1, int((bbox[1]-miny)/dy*n)))
-        ix2 = max(0, min(n-1, int((bbox[2]-minx)/dx*n)))
-        iy2 = max(0, min(n-1, int((bbox[3]-miny)/dy*n)))
-        found = set(self.large_entities)
-        for ix in range(ix1, ix2+1):
-            for iy in range(iy1, iy2+1):
-                found.update(self.grid.get((ix,iy), ()))
-        return found
-
-    def query_lod(self, bbox, group):
-        """Query one LOD group independently so earlier groups cannot be lost."""
-        if not self.grid or not self.lod_grids:
-            self.build_index()
-        minx, miny, maxx, maxy = self.bbox
-        dx = max(maxx-minx, 1e-9)
-        dy = max(maxy-miny, 1e-9)
-        n = max(16, int(self.grid_n))
-        ix1 = max(0, min(n-1, int((bbox[0]-minx)/dx*n)))
-        iy1 = max(0, min(n-1, int((bbox[1]-miny)/dy*n)))
-        ix2 = max(0, min(n-1, int((bbox[2]-minx)/dx*n)))
-        iy2 = max(0, min(n-1, int((bbox[3]-miny)/dy*n)))
-        found = set(self.lod_large_entities.get(group, ()))
-        stage_grid = self.lod_grids.get(group, {})
-        for ix in range(ix1, ix2+1):
-            for iy in range(iy1, iy2+1):
-                found.update(stage_grid.get((ix,iy), ()))
-        return found
-
-    def query_lod_upto(self, bbox, lod):
-        """Return visible candidates from every stage 0..lod, in stage order."""
-        ordered = []
-        seen = set()
-        for group in range(max(0, int(lod)) + 1):
-            for idx in sorted(self.query_lod(bbox, group)):
-                if idx not in seen:
-                    seen.add(idx)
-                    ordered.append(idx)
-        return ordered
+    layer_names: list = field(default_factory=list)
 
 def _expand_bbox(box, x, y):
     if box is None:
@@ -305,10 +218,19 @@ def _is_cable_layer(layer_name):
     upper = name.upper()
     return _is_optical_cable_layer(name) or "CABLE" in upper or "케이블" in name or "선로" in name
 
-def _is_device_id_layer(layer_name):
-    """Hide equipment/cable ID annotation layers while preserving pole information."""
-    upper = str(layer_name or "").strip().upper()
-    return upper.startswith("CN_C_ID") or upper.startswith("CN_F_ID")
+
+def _optical_arrow_primitive(primitives):
+    # Proxy graphics split one cable into multiple line primitives. Only the
+    # final open path receives an arrow; closed symbol outlines are excluded.
+    for index in range(len(primitives) - 1, -1, -1):
+        kind, points = primitives[index]
+        if kind not in {"line", "polyline"} or len(points) < 2:
+            continue
+        if math.dist(points[0], points[-1]) <= 1e-9:
+            continue
+        if all(math.isfinite(value) for point in points for value in point):
+            return index
+    return None
 
 def _display_color_for_layer(doc, layer_name, aci=None, true_color=None):
     # Cable colors carry field meaning (especially coax power state), so cable
@@ -496,6 +418,22 @@ from geometry_complete import render_entity
 _legacy_entity_primitives = _entity_primitives
 
 def _entity_primitives(entity, inherited_layer=None, depth=0, issues=None, parts=None):
+    if entity.dxftype() == "ACAD_PROXY_ENTITY" and getattr(entity, "proxy_graphic", None):
+        from ezdxf.proxygraphic import ProxyGraphic
+        layer = str(getattr(entity.dxf, "layer", inherited_layer or "0"))
+        primitives = []
+        try:
+            for child in ProxyGraphic(entity.proxy_graphic, entity.doc).virtual_entities():
+                _, child_primitives = render_entity(child, layer, depth + 1, _legacy_entity_primitives, [], issues if issues is not None else [])
+                for primitive in child_primitives:
+                    box = _primitive_bbox(primitive)
+                    if box is None or all(math.isfinite(value) for value in box):
+                        primitives.append(primitive)
+        except Exception as error:
+            if issues is not None:
+                issues.append("Proxy graphics: " + str(error))
+        if primitives:
+            return layer, primitives
     return render_entity(entity, inherited_layer, depth, _legacy_entity_primitives,
                          parts if parts is not None else [], issues if issues is not None else [])
 
@@ -621,18 +559,15 @@ def build_scene(input_path, log=None, progress=None):
 
         target = by_handle.get(item.get("handle", ""))
         if target is not None and not target.primitives:
-            missing_type = target.entity_type
             target.layer = layer
             target.primitives = [("polyline", points)]
             target.bbox = tuple(box)
             target.color = color
             target.attributes.update(item.get("attributes", {}))
-            # Remove the actual recovered entity type from unsupported counts.
-            # Production cable objects may be ESSENPOLY or ACAD proxy entities.
-            if unsupported.get(missing_type, 0) > 0:
-                unsupported[missing_type] -= 1
-                if unsupported[missing_type] <= 0:
-                    unsupported.pop(missing_type, None)
+            if unsupported.get("ESSENPOLY", 0) > 0:
+                unsupported["ESSENPOLY"] -= 1
+                if unsupported["ESSENPOLY"] <= 0:
+                    unsupported.pop("ESSENPOLY", None)
         elif target is None:
             idx = len(entities)
             entity = VisualEntity(
@@ -703,169 +638,10 @@ def build_scene(input_path, log=None, progress=None):
     progress(100, "Viewer 준비 완료")
     # Recovered custom objects are no longer missing geometry.
     repaired = {e.handle for e in entities if e.primitives}
-    geometry_issues = [
-        issue for issue in geometry_issues
-        if not (
-            issue['type'] in {'ESSENPOLY', 'ACAD_PROXY', 'ACAD_PROXY_ENTITY', 'ASDKESSENLINKER'}
-            and issue['handle'] in repaired
-        )
-    ]
-    return Scene(entities, tuple(scene_box), unsupported, geometry_issues)
+    geometry_issues = [issue for issue in geometry_issues if not (issue['type'] in {'ESSENPOLY', 'ASDKESSENLINKER'} and issue['handle'] in repaired)]
+    return Scene(entities, tuple(scene_box), unsupported, geometry_issues,
+                 [str(layer.dxf.name) for layer in doc.layers])
 
-
-CACHE_VERSION = "v329-fast-local-4"
-
-def _cache_dir():
-    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
-    root = os.path.join(base, "CMB_DXF_Viewer", "cache")
-    os.makedirs(root, exist_ok=True)
-    return root
-
-def _cache_file(path):
-    key = hashlib.sha256(os.path.abspath(path).encode("utf-8", "ignore")).hexdigest()
-    return os.path.join(_cache_dir(), key + ".pkl")
-
-def _cache_signature(path):
-    st = os.stat(path)
-    return (CACHE_VERSION, os.path.abspath(path), int(st.st_size), int(st.st_mtime_ns))
-
-_original_build_scene = build_scene
-
-def build_scene(input_path, log=None, progress=None):
-    log = log or (lambda msg: None)
-    progress = progress or (lambda percent, task: None)
-    cp = _cache_file(str(input_path))
-    sig = _cache_signature(str(input_path))
-    try:
-        if os.path.exists(cp):
-            with open(cp, "rb") as f:
-                payload = pickle.load(f)
-            if payload.get("sig") == sig:
-                scene = payload.get("scene")
-                if scene is not None:
-                    scene.build_index()
-                    log("CMB 캐시 사용")
-                    progress(100, "캐시 로딩 완료")
-                    return scene
-    except Exception as exc:
-        log(f"캐시 읽기 생략: {exc}")
-    scene = _original_build_scene(input_path, log=log, progress=progress)
-    scene.build_index()
-    try:
-        tmp = cp + ".tmp"
-        with open(tmp, "wb") as f:
-            pickle.dump({"sig": sig, "scene": scene}, f, protocol=pickle.HIGHEST_PROTOCOL)
-        os.replace(tmp, cp)
-        log("CMB 캐시 저장 완료")
-    except Exception as exc:
-        log(f"캐시 저장 생략: {exc}")
-    return scene
-
-def _lod_group(ent):
-    layer = str(ent.layer or "").strip()
-    u = layer.upper()
-
-    # 0: 시군구 + 모든 케이블
-    # 케이블은 네트워크의 기준 선형이므로 전체보기부터 항상 표시한다.
-    if u == "TL_SCCO_SIG":
-        return 0
-    if _is_cable_layer(layer):
-        return 0
-
-    # 1: 셀경계
-    if u == "CN_C_CELLBOUND" or u.startswith("CN_C_CELLBOUND_"):
-        return 1
-
-    # 2: CellNo
-    if u.startswith("CN_C_CELLNO"):
-        return 2
-
-    # 3: ONU
-    if u.startswith("CN_C_ONU"):
-        return 3
-
-    # 4: 도로 - 지형 파악용으로 동축케이블보다 먼저
-    if u == "TL_SPRD_RW":
-        return 4
-
-    # 5: reserved (동축케이블은 0단계에서 이미 표시)
-
-    # 6: 증폭기
-    if u.startswith("CN_C_AMP") or ("AMP" in u and u.startswith("CN_C_")):
-        return 6
-
-    # 7: 광기기
-    if u.startswith(("CN_F_CLOSURE","CN_F_CENTER","CN_F_TERMINAL")):
-        return 7
-
-    # 8: 기타 동축기기
-    if u.startswith((
-        "CN_C_POWER","CN_C_TAP","CN_C_PASSIVE","CN_C_CONNECTOR",
-        "CN_C_DC_","CN_C_SUBSCRIBERS","CN_C_NMS_"
-    )):
-        return 8
-
-    # 9: 건물군
-    if layer == "건물_건물군":
-        return 9
-
-    # 10: 사용자 작성 CN_M_User_* 전체
-    if u.startswith("CN_M_USER_"):
-        return 10
-
-    # 11: 전주 + 맨홀 + 관로
-    if (
-        u.startswith("CN_L_POLE_POLE")
-        or u.startswith("CN_L_POLE_MANHOLE")
-        or u.startswith("CN_L_POLE_HANDHOLE")
-        or u.startswith("CN_L_POLE_LINE_")
-        or u == "CN_L_POLE"
-    ):
-        return 11
-
-    # 12: 0 레이어
-    if u == "0":
-        return 12
-
-    # 13: reserved intermediate stage
-
-    # 14: final text stage
-    # 장비/케이블 ID(CN_C_ID*, CN_F_ID*)는 redraw에서 표시하지 않는다.
-    # 전주 ID/전주 정보는 유지한다.
-    return 14
-def _zoom_lod(viewer):
-    # Determine the current LOD directly from actual magnification.
-    # Wheel stages may be skipped when the view is already zoomed in.
-    # Rendering remains cumulative: all groups <= current LOD stay visible.
-    fit = max(float(getattr(viewer, "lod_reference_scale", getattr(viewer, "fit_scale", 1.0))), 1e-12)
-    ratio = max(1.0, viewer.scale / fit)
-
-    # Up to coax cable: keep 5-wheel spacing.
-    step5 = 1.15 ** 5
-    if ratio < step5 ** 1: return 0
-    if ratio < step5 ** 2: return 1
-    if ratio < step5 ** 3: return 2
-    if ratio < step5 ** 4: return 3
-    if ratio < step5 ** 5: return 4
-
-    # From coax cable onward: advance every 2 wheel notches.
-    base = step5 ** 5
-    step2 = 1.15 ** 2
-    if ratio < base * step2 ** 1: return 5
-    if ratio < base * step2 ** 2: return 6
-    if ratio < base * step2 ** 3: return 7
-    if ratio < base * step2 ** 4: return 8
-    if ratio < base * step2 ** 5: return 9
-    if ratio < base * step2 ** 6: return 10
-    if ratio < base * step2 ** 7: return 11
-    if ratio < base * step2 ** 8: return 12
-    if ratio < base * step2 ** 9: return 13
-
-    # Final text/ID stage: 5 wheel notches instead of 2.
-    # This is 3 additional wheel notches beyond the current spacing.
-    final5 = 1.15 ** 5
-    if ratio < base * step2 ** 9 * final5: return 13
-    return 14
 class DXFViewer(ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
@@ -876,8 +652,6 @@ class DXFViewer(ttk.Frame):
         self.route_start_marker = None
         self.visible_layers = set()
         self.scale = 1.0
-        self.fit_scale = 1.0
-        self.lod_reference_scale = 1.0
         self.ox = 0.0
         self.oy = 0.0
         self.item_to_entity = {}
@@ -906,7 +680,7 @@ class DXFViewer(ttk.Frame):
         button_frame = ttk.Frame(bar)
         button_frame.pack(side="left")
         for text, cmd in [
-            ("전체보기", self.fit_initial_view),
+            ("전체보기", self.fit_view),
             ("선택", lambda: self.set_mode("select")),
             ("거리 측정", lambda: self.set_mode("distance")),
             ("좌표 확인", lambda: self.set_mode("coord")),
@@ -975,18 +749,16 @@ class DXFViewer(ttk.Frame):
 
     def load_scene(self, scene):
         self.scene = scene
+        self.lod_reference_scale = None
+        self.lod_groups = [[] for _ in range(MAX_LEVEL + 1)]
+        for ent in scene.entities:
+            self.lod_groups[layer_level(ent.layer)].append(ent)
         self.visible_layers = {e.layer for e in scene.entities}
         self.selected.clear()
         self.measure_points = []
         self.completed_measurements = []
         self.selected_measurement = None
-        # LOD reference is anchored to stage 0 itself (SIG + optical cable),
-        # not to the raw full-scene bbox. Remote text/ID/junk entities must not
-        # make the initial view look artificially over-zoomed and jump straight
-        # to the final ID/TEXT stage.
-        stage0_bbox = self._lod_group_bbox(0) or scene.bbox
-        self.lod_reference_scale = self._bbox_fit_scale(stage0_bbox, margin=28) * 1.15
-        self.fit_initial_view()
+        self.fit_view()
         unsupported = sum(scene.unsupported.values())
         self.status_var.set(
             f"객체 {len(scene.entities):,}개 · 미표시 {unsupported:,}개 · 휠=확대/축소 · 우/중클릭 드래그=PAN"
@@ -1077,6 +849,13 @@ class DXFViewer(ttk.Frame):
             for key, value in base:
                 if self._detail_value_present(value):
                     rows.append((key, str(value).strip()))
+
+            if 'CONDUIT' in ent.layer.upper():
+                info = conduit_info(ent)
+                rows.extend([('관경', f"{info['diameter']}mm" if info['diameter'] else '미확인'),
+                             ('본수', str(info['count']) if info['count'] else '미확인'),
+                             ('원본관경표기', info['raw'] or '미기재'),
+                             ('관로코드', info['code']), ('판독근거', info['source'])])
 
             # 전주 정보는 가장 중요한 업무 정보이므로 위쪽에 별도 표시.
             for key, value in (ent.pole_info or {}).items():
@@ -1190,19 +969,33 @@ class DXFViewer(ttk.Frame):
         frac = pos - lo
         return values[lo] * (1 - frac) + values[hi] * frac
 
+    def _display_entities(self):
+        if not self.scene:
+            return []
+        if self.entity_filter is None:
+            return self.scene.entities
+        return (self.scene.entities[index] for index in sorted(self.entity_filter)
+                if 0 <= index < len(self.scene.entities))
+
     def _visible_fit_bbox(self):
         if not self.scene:
             return None
         boxes = [
-            e.bbox for e in self.scene.entities
+            e.bbox for e in self._display_entities()
             if e.layer in self.visible_layers and e.bbox is not None and (self.entity_filter is None or e.index in self.entity_filter)
         ]
+        if self.entity_filter is None:
+            overview = [e.bbox for e in self.scene.entities
+                        if e.layer in self.visible_layers and e.bbox is not None
+                        and layer_level(e.layer) == 0]
+            if overview:
+                boxes = overview
         if not boxes:
             return self.scene.bbox
 
         # 객체가 충분히 많으면 멀리 떨어진 단독 잡객체가 전체 도면을
         # 한쪽으로 밀지 않도록 객체 중심점의 2~98% 분포를 기준으로 잡는다.
-        if len(boxes) >= 30:
+        if self.entity_filter is None and len(boxes) >= 30:
             centers_x = [(b[0] + b[2]) / 2 for b in boxes]
             centers_y = [(b[1] + b[3]) / 2 for b in boxes]
             qx1 = self._percentile(centers_x, 0.02)
@@ -1224,69 +1017,24 @@ class DXFViewer(ttk.Frame):
         maxy = max(b[3] for b in boxes)
         return (minx, miny, maxx, maxy)
 
-    def _lod_group_bbox(self, group):
+    def fit_view(self):
         if not self.scene:
-            return None
-        boxes = [
-            e.bbox for e in self.scene.entities
-            if e.bbox is not None and _lod_group(e) == group
-        ]
-        if not boxes:
-            return None
-        return (
-            min(b[0] for b in boxes),
-            min(b[1] for b in boxes),
-            max(b[2] for b in boxes),
-            max(b[3] for b in boxes),
-        )
-
-    def _bbox_fit_scale(self, bbox, margin=36):
-        if not bbox:
-            return 1.0
-        self.update_idletasks()
-        w, h = max(100, self.canvas.winfo_width()), max(100, self.canvas.winfo_height())
-        minx, miny, maxx, maxy = bbox
-        dx, dy = max(maxx-minx, 1e-9), max(maxy-miny, 1e-9)
-        return max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
-
-    def _apply_fit_bbox(self, bbox, margin=36, zoom_factor=1.0):
-        if not self.scene or not bbox:
             return
         self.update_idletasks()
         w, h = max(100, self.canvas.winfo_width()), max(100, self.canvas.winfo_height())
+        bbox = self._visible_fit_bbox() or self.scene.bbox
         minx, miny, maxx, maxy = bbox
-        self.scale = self._bbox_fit_scale(bbox, margin)
-        self.scale *= max(0.1, float(zoom_factor))
+        dx, dy = max(maxx-minx, 1e-9), max(maxy-miny, 1e-9)
+
+        # 화면 가장자리와 도면 사이에 약간의 여백을 둔다.
+        margin = 36
+        self.scale = max(1e-9, min((w-margin*2)/dx, (h-margin*2)/dy))
         cx, cy = (minx+maxx)/2, (miny+maxy)/2
         self.ox = w/2 - cx*self.scale
         self.oy = h/2 + cy*self.scale
-        self.fit_scale = self.scale
         self.pan_start = None
+        self.lod_reference_scale = self.scale
         self.redraw()
-
-    def fit_initial_view(self):
-        """Initial open: center the dominant visible drawing and make cropped drawings easy to read."""
-        if not self.scene:
-            return
-        # Existing percentile-based bbox ignores isolated far-away junk entities.
-        bbox = self._visible_fit_bbox() or self.scene.bbox
-        # Slight automatic zoom-in, roughly one wheel notch, after fitting.
-        self._apply_fit_bbox(bbox, margin=28, zoom_factor=1.15)
-
-    def fit_all_view(self):
-        """Exact complete drawing extent, kept only as an internal utility."""
-        if not self.scene:
-            return
-        bbox = self.scene.bbox
-        self._apply_fit_bbox(bbox, margin=36, zoom_factor=1.0)
-
-    def fit_view(self):
-        """Extraction mode fits its scope; normal mode restores the comfortable initial view."""
-        if getattr(self, "entity_filter", None) is not None:
-            bbox = self._visible_fit_bbox() or self.scene.bbox
-            self._apply_fit_bbox(bbox, margin=36, zoom_factor=1.0)
-        else:
-            self.fit_initial_view()
 
     def redraw(self):
         c = self.canvas
@@ -1296,29 +1044,17 @@ class DXFViewer(ttk.Frame):
         if not self.scene:
             c.create_text(30, 30, anchor="nw", fill="#b7c0cc", text="DXF 파일을 열어주세요.", font=("Malgun Gothic", 14))
             return
-        if self.entity_filter is None:
-            x1, y1 = self.screen_to_world(0, self.canvas.winfo_height())
-            x2, y2 = self.screen_to_world(self.canvas.winfo_width(), 0)
-            viewport = (min(x1,x2), min(y1,y2), max(x1,x2), max(y1,y2))
-            lod = _zoom_lod(self)
-
-            # Determine the current stage first, then query every display
-            # stage 0..current. Wheel thresholds may be skipped; content may not.
-            indices = self.scene.query_lod_upto(viewport, lod)
-        else:
-            # v3.29 network extraction mode keeps its exact route/pipe filter.
-            indices = sorted(self.entity_filter)
-            lod = 99
-
-        for idx in indices:
-            if idx < 0 or idx >= len(self.scene.entities):
+        reference = getattr(self, "lod_reference_scale", None) or self.scale
+        lod = MAX_LEVEL if self.entity_filter is not None else detail_level(self.scale, reference)
+        a = self.screen_to_world(-20, self.canvas.winfo_height() + 20)
+        b = self.screen_to_world(self.canvas.winfo_width() + 20, -20)
+        viewport = (min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]))
+        groups = getattr(self, "lod_groups", [self.scene.entities])
+        candidates = self._display_entities() if self.entity_filter is not None else (ent for group in groups[:lod + 1] for ent in group)
+        for ent in candidates:
+            if not intersects(ent.bbox, viewport):
                 continue
-            ent = self.scene.entities[idx]
             if self.entity_filter is not None and ent.index not in self.entity_filter:
-                continue
-            # 장비/케이블 ID 레이어는 도면 가독성을 해치므로 화면에는 표시하지 않는다.
-            # 전주 번호/전주 정보 레이어는 현장 식별에 필요하므로 제외하지 않는다.
-            if _is_device_id_layer(ent.layer):
                 continue
             if ent.layer not in self.visible_layers:
                 continue
@@ -1326,7 +1062,10 @@ class DXFViewer(ttk.Frame):
             color = "#22a7ff" if selected else ent.color
             width = 3 if selected else 1
             ids = []
-            for kind, data in ent.primitives:
+            arrow_primitive = _optical_arrow_primitive(ent.primitives) if _is_optical_cable_layer(ent.layer) else None
+            for primitive_index, (kind, data) in enumerate(ent.primitives):
+                if kind == "text" and (lod < MAX_LEVEL or getattr(self, "hide_extraction_text", False)):
+                    continue
                 try:
                     if kind in {"line", "polyline"}:
                         coords = []
@@ -1337,14 +1076,13 @@ class DXFViewer(ttk.Frame):
                             # 광케이블은 CAD 내부 Polyline 정점 순서의 마지막 점을
                             # 현재 도면의 IN 방향으로 간주해 화살표를 표시한다.
                             # 동축 및 기타 케이블에는 방향 화살표를 표시하지 않는다.
-                            if _is_optical_cable_layer(ent.layer):
+                            if primitive_index == arrow_primitive:
                                 ids.append(c.create_line(
                                     *coords, fill=color, width=max(width, 2),
-                                    arrow=tk.LAST, arrowshape=(10, 12, 5),
-                                    tags=("linework",),
+                                    arrow=tk.LAST, arrowshape=(10, 12, 5), tags=("cable",),
                                 ))
                             else:
-                                ids.append(c.create_line(*coords, fill=color, width=width, tags=("linework",)))
+                                ids.append(c.create_line(*coords, fill=color, width=max(width, 2) if _is_cable_layer(ent.layer) else width, tags=("cable",) if _is_cable_layer(ent.layer) else ("linework",)))
                     elif kind == "polygon":
                         coords = []
                         for x, y in data:
@@ -1355,18 +1093,18 @@ class DXFViewer(ttk.Frame):
                         x, y, r = data
                         x1, y1 = self.world_to_screen(x-r, y-r)
                         x2, y2 = self.world_to_screen(x+r, y+r)
-                        ids.append(c.create_oval(x1, y2, x2, y1, outline=color, width=width, tags=("symbol",)))
+                        ids.append(c.create_oval(x1, y2, x2, y1, outline=color, width=width))
                     elif kind == "arc":
                         x, y, r, a1, a2 = data
                         x1, y1 = self.world_to_screen(x-r, y-r)
                         x2, y2 = self.world_to_screen(x+r, y+r)
                         extent = (a2-a1) % 360
-                        ids.append(c.create_arc(x1, y2, x2, y1, start=a1, extent=extent, style="arc", outline=color, width=width, tags=("symbol",)))
+                        ids.append(c.create_arc(x1, y2, x2, y1, start=a1, extent=extent, style="arc", outline=color, width=width))
                     elif kind == "point":
                         x, y = data
                         sx, sy = self.world_to_screen(x, y)
-                        ids.append(c.create_line(sx-4, sy, sx+4, sy, fill=color, width=width, tags=("symbol",)))
-                        ids.append(c.create_line(sx, sy-4, sx, sy+4, fill=color, width=width, tags=("symbol",)))
+                        ids.append(c.create_line(sx-4, sy, sx+4, sy, fill=color, width=width))
+                        ids.append(c.create_line(sx, sy-4, sx, sy+4, fill=color, width=width))
                     elif kind == "text":
                         x, y, text = data
                         sx, sy = self.world_to_screen(x, y)
@@ -1374,21 +1112,15 @@ class DXFViewer(ttk.Frame):
                     elif kind == "insert":
                         x, y, name = data
                         sx, sy = self.world_to_screen(x, y)
-                        ids.append(c.create_rectangle(sx-3, sy-3, sx+3, sy+3, outline=color, width=width, tags=("symbol",)))
+                        ids.append(c.create_rectangle(sx-3, sy-3, sx+3, sy+3, outline=color, width=width))
                 except Exception:
                     pass
             for item in ids:
                 self.item_to_entity[item] = ent.index
             self.entity_items[ent.index] = ids
-
-        # Generic visual stacking for cumulative LOD:
-        # filled areas stay at the bottom; linework remains visible above them;
-        # equipment/symbols and annotations stay above linework.
         c.tag_lower("area_fill")
-        c.tag_raise("linework")
-        c.tag_raise("symbol")
+        c.tag_raise("cable")
         c.tag_raise("annotation")
-
         self._redraw_measure()
         if self.network_click is not None:
             for point in self.route_nodes.values():
@@ -1690,6 +1422,13 @@ class DXFViewer(ttk.Frame):
         for idx in sorted(self.selected)[:8]:
             e = self.scene.entities[idx]
             extra = []
+            if 'CONDUIT' in e.layer.upper():
+                info = conduit_info(e)
+                extra.append(f"관경={info['diameter']}mm" if info['diameter'] else '관경=미확인')
+                if info['count']:
+                    extra.append(f"본수={info['count']}")
+                if info['raw']:
+                    extra.append(f"원본={info['raw']}")
             if e.block_name:
                 extra.append(f"블록={e.block_name}")
             if e.text:

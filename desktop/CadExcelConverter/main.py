@@ -9,10 +9,11 @@ from tkinter import filedialog, messagebox, ttk
 
 from converter import LayerInfo, convert_selected_layers, scan_layers
 from viewer import DXFViewer, build_scene
+from drawing_cache import open_drawing
 from layer_defaults import is_default_hidden
 from network_extract_ui import NetworkExtractionMixin
 
-APP_NAME = "CMB DXF Viewer + Excel v3.29"
+APP_NAME = "CMB DXF Viewer + Excel v3.36"
 
 
 class App(NetworkExtractionMixin, tk.Tk):
@@ -385,20 +386,11 @@ class App(NetworkExtractionMixin, tk.Tk):
 
         def worker():
             try:
-                scene = build_scene(
+                layers, scene = open_drawing(
                     inp,
                     log=lambda m: self.q.put(("log", m)),
-                    progress=lambda p, t: self.q.put(("progress", (int(p), t))),
+                    progress=lambda p, t: self.q.put(("progress", (p, t))),
                 )
-                counts = {}
-                types = {}
-                for ent in scene.entities:
-                    counts[ent.layer] = counts.get(ent.layer, 0) + 1
-                    types.setdefault(ent.layer, set()).add(ent.entity_type)
-                layers = [
-                    LayerInfo(name, counts[name], ", ".join(sorted(types[name])))
-                    for name in sorted(counts, key=str.lower)
-                ]
                 self.q.put(("loaded", (layers, scene)))
             except Exception as e:
                 self.q.put(("error", str(e)))
@@ -592,7 +584,7 @@ class App(NetworkExtractionMixin, tk.Tk):
             self.layer_names[iid] = layer.name
             self.layer_rows[iid] = (layer.name, scene_counts.get(layer.name, 0), ", ".join(sorted(scene_types.get(layer.name, set()))))
             # 지번은 첫 화면 가독성을 위해 기본 OFF.
-            if not is_default_hidden(layer.name):
+            if True:  # Zoom controls detail; ID layers must remain available at close range.
                 self.visible_layers.add(layer.name)
                 self.checked_layers.add(layer.name)
             self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
@@ -638,7 +630,6 @@ class App(NetworkExtractionMixin, tk.Tk):
                     self._populate_layers(layers, scene)
                     self.viewer.set_source_epsg(self.epsg_var.get())
                     self.viewer.load_scene(scene)
-                    self.viewer.set_visible_layers(self.visible_layers)
                     self.busy = False
                     self._update_status()
                     self._set_progress(100, f"DXF Viewer 준비 완료 · 객체 {len(scene.entities):,}개")

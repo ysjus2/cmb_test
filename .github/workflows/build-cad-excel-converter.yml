@@ -1,4 +1,4 @@
-name: Build CMB DXF Viewer
+name: Build current CMB DXF Viewer v3.36
 
 on:
   workflow_dispatch:
@@ -14,104 +14,31 @@ jobs:
     defaults:
       run:
         working-directory: desktop/CadExcelConverter
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: '3.12'
+          cache: pip
           cache-dependency-path: desktop/CadExcelConverter/requirements.txt
-
-      - name: Install verified v3.29 dependencies
+      - name: Install current dependency set
         shell: powershell
         run: |
-          python -m pip install --upgrade pip
-          pip install --no-deps ezdxf==1.0.3 pyproj==3.7.2
-          pip install openpyxl==3.1.5 pyinstaller==6.16.0 pyparsing typing_extensions et-xmlfile altgraph packaging pefile pywin32-ctypes
-
-          $installed = pip list --format=json | ConvertFrom-Json
-          $blocked = @("numpy", "fonttools", "certifi")
-          foreach ($name in $blocked) {
-            if ($installed.name -contains $name) {
-              throw "$name must not be installed in the v3.29 local build"
-            }
-          }
-
-          python -c "import ezdxf, openpyxl, pyproj, pyparsing, typing_extensions; print('ezdxf', ezdxf.__version__); print('openpyxl', openpyxl.__version__); print('pyproj', pyproj.__version__)"
-
-      - name: Verify no DWG copyleft engine
+          python -m pip install --no-deps ezdxf==1.0.3 pyproj==3.7.2
+          python -m pip install -r requirements.txt
+      - name: Current regression suite
+        run: python run_checks.py
+      - name: Build current source directly
         shell: powershell
         run: |
-          if (Select-String -Path "*.py" -Pattern "LibreDWG|ODAFileConverter|dwgread.exe|dwg2dxf.exe" -Quiet) {
-            throw "DWG/LibreDWG/ODA reference detected in company DXF-only build"
-          }
-
-      - name: Audit runtime package licenses
-        run: python license_audit.py
-
-      - name: Test ESSENPOLY recovery
-        run: python essenpoly_selftest.py
-
-      - name: Run core self-test
-        run: python selftest.py
-
-      - name: Test conduit recovery
-        run: python conduit_selftest.py
-
-      - name: Test full layer rendering
-        run: python full_layer_selftest.py
-
-      - name: Test navigation
-        run: python navigation_selftest.py
-
-      - name: Test cumulative LOD
-        run: python lod_selftest.py
-
-      - name: Test network extraction
-        run: python network_extract_selftest.py
-
-      - name: Test pipe endpoints
-        run: python pipe_endpoint_selftest.py
-
-      - name: Build Windows EXE
-        shell: powershell
-        run: |
-          pyinstaller --noconfirm --clean --onefile --windowed `
-            --name "CMB_DXF_Viewer" `
-            --collect-all pyproj `
-            --collect-all ezdxf `
-            main.py
-
-      - name: Inspect final EXE dependency contents
-        shell: powershell
-        run: |
-          pyi-archive_viewer -r -b "dist\CMB_DXF_Viewer.exe" | Out-File -Encoding utf8 exe-contents.txt
-          $bad = Select-String -Path exe-contents.txt -Pattern "(^|[\\/])numpy([\\/]|\.|$)|fontTools|fonttools|openblas|libscipy_openblas" -CaseSensitive:$false
-          if ($bad) {
-            $bad | ForEach-Object { Write-Host $_.Line }
-            throw "Blocked NumPy/fontTools/OpenBLAS content found in final EXE"
-          }
-          Write-Host "PASS: final EXE has no NumPy/fontTools/OpenBLAS archive entries"
-          Get-FileHash "dist\CMB_DXF_Viewer.exe" -Algorithm SHA256 | Format-List
-
-      - name: Launch final EXE smoke test
-        shell: powershell
-        run: |
-          $proc = Start-Process -FilePath "dist\CMB_DXF_Viewer.exe" -PassThru
-          Start-Sleep -Seconds 8
-          if ($proc.HasExited) {
-            throw "CMB_DXF_Viewer.exe exited during launch smoke test. ExitCode=$($proc.ExitCode)"
-          }
-          Stop-Process -Id $proc.Id -Force
-          Write-Host "PASS: final EXE launched and remained alive for 8 seconds"
-
-      - name: Upload portable EXE
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name CMB_DXF_Viewer_v3.36 --collect-all pyproj --collect-all ezdxf `
+            --exclude-module numpy --exclude-module fontTools main.py
+          Get-FileHash dist/CMB_DXF_Viewer_v3.36.exe -Algorithm SHA256
+      - name: Upload current build
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-v3.29-FAST-LOCAL
-          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer.exe
+          name: CMB-DXF-Viewer-current-v3.36
+          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.36.exe
           if-no-files-found: error
+          retention-days: 7

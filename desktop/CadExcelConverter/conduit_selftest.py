@@ -50,10 +50,10 @@ def main():
         assert ws.max_row == 4, ws.max_row
         assert ws["A2"].value == "ASDKESSENLINKER", ws["A2"].value
         assert ws["B2"].value == "ABC1", ws["B2"].value
-        assert ws["D2"].value == 1, ws["D2"].value
-        assert ws["E2"].value == 200000.0, ws["E2"].value
-        assert ws["F2"].value == 500000.0, ws["F2"].value
-        assert "CABLE-A" in str(ws["K2"].value), ws["K2"].value
+        assert ws["E2"].value == 1, ws["E2"].value
+        assert ws["F2"].value == 200000.0, ws["F2"].value
+        assert ws["G2"].value == 500000.0, ws["G2"].value
+        assert "CABLE-A" in str(ws["L2"].value), ws["L2"].value
 
         idx = wb["LAYER_INDEX"]
         assert idx["C2"].value == 1, idx["C2"].value

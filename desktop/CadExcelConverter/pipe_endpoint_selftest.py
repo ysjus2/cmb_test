@@ -27,11 +27,11 @@ def main():
         wb=load_workbook(out,data_only=True)
         assert wb.sheetnames==['100mm_주관로'] and rows==1
         ws=wb['100mm_주관로']
-        assert ws.max_row==2 and ws['D2'].value=='맨홀' and ws['E2'].value=='맨홀1'
-        assert ws['H2'].value=='전주' and ws['I2'].value=='7887X123'
+        assert ws.max_row==2 and ws['G2'].value=='맨홀' and ws['H2'].value=='맨홀1'
+        assert ws['K2'].value=='전주' and ws['L2'].value=='7887X123'
         transform=Transformer.from_crs('EPSG:5174','EPSG:4326',always_xy=True)
-        assert abs(ws['F2'].value-transform.transform(0,0)[0])<1e-9
-        assert abs(ws['K2'].value-transform.transform(10,0)[1])<1e-9
+        assert abs(ws['I2'].value-transform.transform(0,0)[0])<1e-9
+        assert abs(ws['N2'].value-transform.transform(10,0)[1])<1e-9
     scene.entities.append(VisualEntity(index=3,entity_type='INSERT',layer='CN_L_Pole_Manhole-Drop',handle='MH2',dxf_data={'insert':'0, 0, 0'}))
     assert PipeEndpointResolver(scene).resolve((0,0))['type']=='복수시설'
     print('Pipe endpoint test OK: manhole GPS, endpoint pole code, hidden-node lookup, single sheet, missing/overlapping nodes flagged')

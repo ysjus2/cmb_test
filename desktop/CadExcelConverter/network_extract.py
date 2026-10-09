@@ -7,6 +7,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from pyproj import Transformer
 from essenpoly_recovery import recover_essenpoly_polylines, recover_linker_polylines
+from drawing_identity import export_object_id
+from conduit_info import conduit_info, conduit_points
 
 
 def xvalues(entity, appid, code):
@@ -36,16 +38,6 @@ def is_fiber(entity):
 
 def is_closure(entity):
     return entity.entity_type == 'INSERT' and ('CLOSURE' in entity.layer.upper() or '함체' in entity.layer)
-
-
-def is_fiber_device(entity):
-    """Selectable optical equipment: closure/center/terminal and other CN_F devices, excluding cable/ID text."""
-    name = str(entity.layer or '').upper()
-    if not name.startswith('CN_F_'):
-        return is_closure(entity)
-    if is_fiber(entity) or '_ID' in name or name.startswith('CN_F_ID'):
-        return False
-    return entity_position(entity) is not None
 
 
 def is_background(entity):
@@ -81,8 +73,6 @@ class FiberNetwork:
         recovered = {r['handle']:r for r in recover_essenpoly_polylines(input_path)}
         self.excluded_stubs = 0
         self.geometry_nodes = []
-        self.device_nodes = {}
-        self.device_positions = {}
         def coordinate_node(point):
             for key, existing in self.geometry_nodes:
                 if math.dist(point,existing) <= 0.1:
@@ -116,22 +106,6 @@ class FiberNetwork:
                 self.positions[node]=(entity_position(target) if target else None) or tuple(point)
                 self.adj.setdefault(node,[]).append((v if node==u else u,e.handle))
 
-        # Any optical equipment can be used as a route selector.
-        # Prefer an exact/topological match; otherwise snap to the nearest cable node.
-        if self.positions:
-            for device in scene.entities:
-                if not is_fiber_device(device):
-                    continue
-                pos = entity_position(device)
-                if pos is None:
-                    continue
-                if device.handle in self.positions:
-                    node = device.handle
-                else:
-                    node = min(self.positions, key=lambda n: math.dist(pos, self.positions[n]))
-                self.device_nodes[device.index] = node
-                self.device_positions[device.index] = pos
-
     def unique_route(self,start,end):
         if start==end:raise ValueError('시작점과 끝점이 같습니다. 다른 함체/끝점을 선택해주세요.')
         def find(skip=None):
@@ -162,26 +136,16 @@ class FiberNetwork:
 
 def conduit_records(scene,input_path,diameters=None):
     diameters=diameters or {}
-    by_handle={e.handle:e for e in scene.entities}
+    entities=[e for e in scene.entities if 'CONDUIT' in e.layer.upper()]
+    recovered={item['handle']:item for item in recover_linker_polylines(input_path)} if any(e.entity_type=='ASDKESSENLINKER' for e in entities) else {}
     records=[]
-    for item in recover_linker_polylines(input_path):
-        if 'CONDUIT' not in item['layer'].upper():continue
-        e=by_handle.get(item['handle'])
-        if e is None:continue
-        codes=item.get('xdata',{}).get('EXMAP_PIPELINE',[])
-        code=next((v.split(':',1)[1].strip() for v in codes if v.startswith('1000:')),'')
-        diameter=None
-        # Never treat a cable length or an undocumented numeric XDATA field as diameter.
-        for key,value in {**e.attributes,**item.get('attributes',{})}.items():
-            if any(k in key.lower() for k in ('diameter','관경','지름','직경')):
-                match=re.fullmatch(r'\s*(100|50)\s*(?:mm|㎜)?\s*',str(value),re.I)
-                if match:diameter=int(match.group(1))
-        if diameter is None:
-            strings=[v.split(':',1)[1] for v in codes if v.startswith('1000:')]
-            matches={int(m) for text in strings for m in re.findall(r'(?<!\d)(100|50)\s*(?:mm|㎜)',text,re.I)}
-            if len(matches)==1:diameter=matches.pop()
-        if diameter is None:diameter=diameters.get(item['handle'])
-        records.append({'entity':e,'item':item,'code':code,'diameter':diameter})
+    for e in entities:
+        item=recovered.get(e.handle)
+        if item is None:
+            item={'handle':e.handle,'layer':e.layer,'points':conduit_points(e),'attributes':e.attributes,'xdata':dict(e.xdata or [])}
+        info=conduit_info(e,item)
+        diameter=info['diameter'] if info['diameter'] is not None else diameters.get(e.handle)
+        records.append({'entity':e,'item':item,'code':info['code'],'diameter':diameter,'count':info['count'],'raw':info['raw']})
     return records
 
 
@@ -195,14 +159,29 @@ def _node_name(network,node):
     return node
 
 
-def export_network(path,scene,scope,visible_indices,epsg=5174):
+def network_export_indices(scene, scope, visible_layers, shown, entity_items):
+    if scope['kind']=='pipe':
+        return {r['entity'].index for r in scope['records']
+                if r['diameter']==100 and len(r['item']['points'])>=2}
+    return {e.index for e in scene.entities if e.index in scope['indices']
+            and (shown is None or e.index in shown) and e.layer in visible_layers
+            and entity_items.get(e.index)}
+
+
+def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
     visible_indices=set(visible_indices) & set(scope.get("indices", visible_indices))
     wb=Workbook();wb.remove(wb.active)
     rows=0
     geometry=[]
     def sheet(name,headers,data):
         nonlocal rows
-        ws=wb.create_sheet(name);ws.append(headers)
+        ws=wb.create_sheet(name)
+        id_column=headers.index('객체ID')
+        headers=list(headers)
+        headers[id_column:id_column+1]=['순수 객체ID','지역객체ID']
+        ws.append(headers)
+        for row in data:
+            row.insert(id_column+1,export_object_id(source_path,row[id_column]))
         for row in data:ws.append(row);rows+=1
         ws.freeze_panes='A2';ws.auto_filter.ref=ws.dimensions
         for cell in ws[1]:cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor='176D85')
@@ -237,23 +216,23 @@ def export_network(path,scene,scope,visible_indices,epsg=5174):
         if not data:raise ValueError('화면에 표시된 주간선 광케이블이 없습니다.')
         sheet('광주간선',['순서','케이블번호','심수','도면기재길이_m','경로길이_m','시작함체','끝함체','객체ID','시작경도','시작위도','끝경도','끝위도'],data)
         ws=wb['광주간선']
-        for row in ws.iter_rows(min_row=2,min_col=9,max_col=12):
+        for row in ws.iter_rows(min_row=2,min_col=10,max_col=13):
             for cell in row:cell.number_format='0.0000000'
     else:
         from pipe_endpoints import PipeEndpointResolver
         resolver=PipeEndpointResolver(scene)
         data=[]
         for r in scope['records']:
-            if r['diameter']!=100 or r['entity'].index not in visible_indices:continue
+            if r['diameter']!=100 or r['entity'].index not in visible_indices or len(r['item']['points'])<2:continue
             pts=r['item']['points']
             start=resolver.resolve(pts[0]);end=resolver.resolve(pts[-1])
             start_lon,start_lat=transform.transform(*start['point'])
             end_lon,end_lat=transform.transform(*end['point'])
-            data.append([r['entity'].handle,100,round(cable_length(pts),3),start['type'],start['name'],start_lon,start_lat,end['type'],end['name'],end_lon,end_lat])
-        if not data:raise ValueError('화면에 표시된 100mm 주관로가 없습니다. 지름 미확인/50mm 관로는 추출하지 않습니다.')
-        sheet('100mm_주관로',['객체ID','지름_mm','길이_m','시작시설','시작시설명_전주코드','시작경도','시작위도','끝시설','끝시설명_전주코드','끝경도','끝위도'],data)
+            data.append([r['entity'].handle,100,r.get('count'),r.get('raw',''),round(cable_length(pts),3),start['type'],start['name'],start_lon,start_lat,end['type'],end['name'],end_lon,end_lat])
+        if not data:raise ValueError('추출 가능한 100mm 주관로가 없습니다. 지름 미확인/50mm 관로는 추출하지 않습니다.')
+        sheet('100mm_주관로',['객체ID','지름_mm','본수','원본관경표기','길이_m','시작시설','시작시설명_전주코드','시작경도','시작위도','끝시설','끝시설명_전주코드','끝경도','끝위도'],data)
         for row in wb['100mm_주관로'].iter_rows(min_row=2):
-            for col in (6,7,10,11):row[col-1].number_format='0.0000000'
+            for col in (9,10,13,14):row[col-1].number_format='0.0000000'
     wb.properties.description = f"CAD 좌표계 EPSG:{epsg}; 경위도 EPSG:4326"
     wb.save(path)
     return rows

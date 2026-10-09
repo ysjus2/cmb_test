@@ -15,9 +15,10 @@ from openpyxl.utils import get_column_letter
 from pyproj import Transformer
 
 from essenpoly_recovery import recover_essenpoly_polylines, recover_linker_polylines
+from drawing_identity import export_object_id
 
 LAYER_HEADERS = [
-    "ENTITY_TYPE","ENTITY_ID","BLOCK_NAME","SEQ",
+    "ENTITY_TYPE","순수 객체ID","지역객체ID","BLOCK_NAME","SEQ",
     "CAD_X","CAD_Y","경도","위도",
     "길이","TEXT","ATTRIBUTES","XDATA"
 ]
@@ -405,6 +406,8 @@ def convert_selected_layers(
     for layer_index, layer in enumerate(selected, 1):
         sheet_name = _safe_sheet_name(layer, used)
         ws = wb.create_sheet(sheet_name)
+        for row in grouped[layer]:
+            row.insert(2, export_object_id(input_path, row[1]))
         _write_sheet(ws, LAYER_HEADERS, grouped[layer])
         index_rows.append([layer, sheet_name, entity_counts[layer], len(grouped[layer])])
         progress(78 + int(layer_index / max(1, len(selected)) * 14), f"시트 {layer_index}/{len(selected)}")

@@ -35,8 +35,8 @@ def main():
         stats=convert_selected_layers(src,out,['LABEL'])
         assert stats.rows==1
         ws=load_workbook(out,data_only=True)['LABEL']
-        assert ws['J2'].value=='NODE-A'
-        assert 'ID=NODE-A' in ws['K2'].value
+        assert ws['K2'].value=='NODE-A'
+        assert 'ID=NODE-A' in ws['L2'].value
         doc.modelspace().add_mesh()
         doc.saveas(src)
         broken=build_scene(src)

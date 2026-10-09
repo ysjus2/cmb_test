@@ -1,7 +1,10 @@
-ezdxf==1.4.2
 openpyxl==3.1.5
 pyinstaller==6.16.0
-
-# pyproj is intentionally installed separately with --no-deps in the
-# company build. Its optional HTTPS CA-bundle dependency certifi (MPL-2.0)
-# is not needed for local EPSG coordinate transformations and is excluded.
+pyparsing==3.3.3
+typing_extensions==4.16.0
+et-xmlfile==2.0.0
+altgraph==0.17.5
+packaging==26.3
+pefile==2023.2.7
+pywin32-ctypes==0.2.3
+# Install separately with --no-deps: ezdxf==1.0.3 pyproj==3.7.2

@@ -26,16 +26,16 @@ def main():
         assert wb.sheetnames==['광주간선']
         from pyproj import Transformer
         transform=Transformer.from_crs('EPSG:5174','EPSG:4326',always_xy=True)
-        assert abs(wb['광주간선']['I2'].value-transform.transform(0,0)[0])<1e-9
-        assert abs(wb['광주간선']['L3'].value-transform.transform(20,0)[1])<1e-9
-        assert wb['광주간선']['K2'].value==wb['광주간선']['I3'].value
+        assert abs(wb['광주간선']['J2'].value-transform.transform(0,0)[0])<1e-9
+        assert abs(wb['광주간선']['M3'].value-transform.transform(20,0)[1])<1e-9
         assert wb['광주간선']['L2'].value==wb['광주간선']['J3'].value
-        assert abs(wb['광주간선']['L2'].value-transform.transform(10,2)[1])<1e-9
+        assert wb['광주간선']['M2'].value==wb['광주간선']['K3'].value
+        assert abs(wb['광주간선']['M2'].value-transform.transform(10,2)[1])<1e-9
         reverse=net.unique_route('C','A')
         export_network(out,scene,reverse,reverse['indices'])
         rev=load_workbook(out,data_only=True)['광주간선']
-        assert abs(rev['I2'].value-transform.transform(20,0)[0])<1e-9
-        assert abs(rev['L3'].value-transform.transform(0,0)[1])<1e-9
+        assert abs(rev['J2'].value-transform.transform(20,0)[0])<1e-9
+        assert abs(rev['M3'].value-transform.transform(0,0)[1])<1e-9
         assert wb['광주간선']['H2'].value=='AB' and wb['광주간선']['H3'].value=='BC'
         try:net.unique_route('A','NOT_CONNECTED')
         except ValueError:pass
@@ -56,10 +56,10 @@ def main():
         out=Path(td)/'pipes.xlsx';export_network(out,pipe_scene,{'kind':'pipe','records':records},{0,1,2})
         ws=load_workbook(out,data_only=True)['100mm_주관로']
         assert ws.max_row==2 and ws['A2'].value=='AA1'
-        assert ws['B2'].value==100
+        assert ws['C2'].value==100
         assert load_workbook(out,data_only=True).sheetnames==['100mm_주관로']
-        assert ws['D2'].value=='미확인' and ws['H2'].value=='미확인'
-        assert isinstance(ws['F2'].value,float)
+        assert ws['G2'].value=='미확인' and ws['K2'].value=='미확인'
+        assert isinstance(ws['I2'].value,float)
         unknown=conduit_records(pipe_scene,path,{'AA3':100})
         assert unknown[2]['diameter']==100
     print('Network extraction test OK: off-route branches/STUB excluded; ambiguity/disconnection blocked; 50mm and unknown excluded')

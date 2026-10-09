@@ -1,0 +1,29 @@
+{
+  "version": "3.36",
+  "release_date": "2026-10-09",
+  "platform": "Windows x64",
+  "execution": "portable onefile",
+  "filename": "CMB_DXF_Viewer_v3.36.exe",
+  "bytes": 38531335,
+  "sha256": "b26d225c0343a171e2d5d23cff7ed2c2f23cc5f457b4faac1e87bcc888630312",
+  "source_directory": "desktop/CadExcelConverter",
+  "server_connected": false,
+  "source_sha256": {
+    "catv_poles.py": "913a3dfbd0cbf4d4bf4f925168fe7835ec60014eadaa5cda5344946674d39e28",
+    "certifi.py": "86339b01da94bdbd7f76882bb2b6c14804e834fc71918ef5884b31b59d070e39",
+    "conduit_info.py": "3272f19c12421d7463286f74d7af5430e36d3a272feea713d7bb4640b7c8ab21",
+    "converter.py": "8e3232ce2f833d7c1f0dd505b9039f8ea830095179323076160ec279955e72da",
+    "drawing_cache.py": "b000adb5351159dcd1ca407edecc4d899c46e1f2f6d08fe21dde13f1a60b80ba",
+    "drawing_identity.py": "9c8484f0a0ab449fc5cba3f3a786448ab928beb2569449c0e0936cb4a34183f3",
+    "essenpoly_recovery.py": "49978696567a176463662c22268203d4ccef01f7eecbb990f2446ac495ea6178",
+    "geometry_complete.py": "6889caa2aed258fd8b6c21f2c54f440f5d506af140f8eb98bfe4f9a900e5cb74",
+    "layer_defaults.py": "5eb8a4334a2dd0ae971ee0e51f38bc5348309e86d10b8b38b0d141a14aa0a483",
+    "main.py": "4159891b315aa394da53506f23744502a5198493fe68d073e79dc38a5b5f82c8",
+    "network_extract.py": "842b609a49b7fb45044661f23af4b0d0b90e6d42859ae86009dbd4d2ea60d38f",
+    "network_extract_ui.py": "d331c801e01e0c30faa9825134846ffcc77f950f4f5eddd7ded261a28ca454e2",
+    "pipe_endpoints.py": "55376e14f0bb0d4fb43e03b0d868386fcec9c6f9d1fac534fe51514a358e0f5b",
+    "viewer.py": "496caf98393035bb72273d9343e3d3c521ce55067ec14e620428e658ed65a34a",
+    "zoom_policy.py": "a87f85ac7a549d62d595fe5cb146b84c56ed70e9b887553b6352e0758313de9d"
+  },
+  "source_sha256_mode": "UTF-8 with LF line endings"
+}
