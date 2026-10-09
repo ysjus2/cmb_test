@@ -180,3 +180,19 @@ class CMBServerClient:
             f"/admin/users/{int(user_id)}/reset-password",
             {"new_password": str(new_password)},
         )
+
+    def admin_regions(self):
+        return self._request("GET", "/admin/regions")
+
+    def user_regions(self, user_id):
+        return self._request(
+            "GET",
+            f"/admin/users/{int(user_id)}/regions",
+        )
+
+    def set_user_regions(self, user_id, region_ids):
+        return self._request(
+            "POST",
+            f"/admin/users/{int(user_id)}/regions",
+            {"region_ids": list(region_ids or [])},
+        )
