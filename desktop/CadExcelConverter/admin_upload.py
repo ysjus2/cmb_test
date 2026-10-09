@@ -112,6 +112,19 @@ def build_payload(scene, source_path, group, epsg):
 
         attrs = dict(e.attributes or {})
         dxf = dict(getattr(e, "dxf_data", {}) or {})
+
+        # 비상 복구 DXF가 원본 도면과 정확히 겹치도록
+        # 변환 전 CAD 원좌표와 원본 좌표계를 함께 보존한다.
+        attrs["_cmb_source_epsg"] = int(epsg)
+        attrs["_cmb_source_geometry"] = {
+            "type": "Point" if len(pts) == 1 else "LineString",
+            "coordinates": (
+                [float(pts[0][0]), float(pts[0][1])]
+                if len(pts) == 1
+                else [[float(x), float(y)] for x, y in pts]
+            ),
+        }
+
         symbol_kind = _symbol_kind(e)
         attrs["_cmb_symbol_kind"] = symbol_kind
         attrs["_cmb_rotation_deg"] = _rotation_deg(e)
