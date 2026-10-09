@@ -13,13 +13,15 @@ from admin_users import UserAdminWindow
 from session_guard import TkIdleSessionGuard
 
 SESSION_ENDED_EXIT_CODE = 41
+DEFAULT_GEOMETRY = "620x430"
+ADMIN_GEOMETRY = "620x500"
 
 
 class Launcher(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("CMB 통합 도면 시스템")
-        self.geometry("620x430")
+        self.geometry(DEFAULT_GEOMETRY)
         self.minsize(560, 390)
 
         self.client = CMBServerClient()
@@ -126,8 +128,10 @@ class Launcher(tk.Tk):
             if level == 1:
                 self.admin_btn.configure(state="normal")
                 self.admin_btn.pack(fill="x", ipady=7, pady=4)
+                self.geometry(ADMIN_GEOMETRY)
             else:
                 self.admin_btn.pack_forget()
+                self.geometry(DEFAULT_GEOMETRY)
 
             if level <= 3:
                 map_note = "도면 보기 + 추출/Excel 기능"
@@ -168,6 +172,7 @@ class Launcher(tk.Tk):
         self.map_btn.configure(state="disabled")
         self.admin_btn.configure(state="disabled")
         self.admin_btn.pack_forget()
+        self.geometry(DEFAULT_GEOMETRY)
         self.mode_note.set("")
         self.session_guard = None
 
