@@ -107,6 +107,8 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 .card{{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:7px 9px;box-shadow:0 2px 8px rgba(0,0,0,.16);pointer-events:auto}}
 #tools{{display:flex;gap:6px;align-items:center}}
 #tools select,#tools button{{height:30px}}
+.layerBtn{{border:1px solid #94a3b8;background:#fff;border-radius:5px;padding:0 9px;cursor:pointer}}
+.layerBtn.on{{background:#2563eb;color:#fff;border-color:#1d4ed8}}
 #status{{font-size:12px;color:#334155;min-width:100px}}
 #login{{position:absolute;z-index:20;inset:0;background:rgba(15,23,42,.38);display:flex;align-items:center;justify-content:center}}
 #loginBox{{width:320px;background:#fff;border-radius:10px;padding:18px;box-shadow:0 8px 28px rgba(0,0,0,.3)}}
@@ -127,6 +129,10 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
   <div class='card' id='tools'>
     <b>CMB 온라인 Viewer</b>
     <select id='region'><option value=''>지역 선택</option></select>
+    <button class='layerBtn on' data-group='FIBER'>광</button>
+    <button class='layerBtn on' data-group='COAX'>동축</button>
+    <button class='layerBtn on' data-group='POLE'>전주</button>
+    <button class='layerBtn on' data-group='CONDUIT'>관로</button>
     <button id='reload'>새로고침</button>
     <button id='logout'>로그아웃</button>
     <span id='status'>로그인 필요</span>
@@ -152,6 +158,8 @@ let selectedOverlay=null;
 let lodReferenceSpan=null;
 const MAX_LEVEL=14;
 const ZOOM_STEP=1.35;
+const MIN_NETWORK_LEVEL=8;
+const groupEnabled={{FIBER:true,COAX:true,POLE:true,CONDUIT:true,USER:true}};
 
 function layerLevel(layer){{
   const name=String(layer||'').trim().toUpperCase();
@@ -439,8 +447,14 @@ async function loadObjects(){{
   if(r.error){{setStatus(r.error);return}}
   clearOverlays();
   const allFeatures=r.features||[];
-  const lod=detailLevel();
-  const features=allFeatures.filter(f=>layerLevel(((f.properties||{{}}).layer)||'')<=lod);
+  const rawLod=detailLevel();
+  const lod=Math.max(MIN_NETWORK_LEVEL,rawLod);
+  const features=allFeatures.filter(f=>{{
+    const p=f.properties||{{}};
+    const group=String(p.group_id||'').toUpperCase();
+    if(group && groupEnabled[group]===false)return false;
+    return layerLevel(p.layer||'')<=lod;
+  }});
   const pointFeatures=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
@@ -467,7 +481,8 @@ async function loadObjects(){{
     }}
   }});
 
-  setStatus(features.length+'개 · 상세 L'+lod+' · 심볼 '+devices.length+' · 선로 '+snapped);
+  const visibleGroups=Object.keys(groupEnabled).filter(k=>groupEnabled[k]&&k!=='USER').join('/');
+  setStatus(features.length+'개 · 상세 L'+rawLod+'→L'+lod+' · '+visibleGroups+' · 심볼 '+devices.length+' · 선로 '+snapped);
 }}
 
 async function loadRegions(){{
@@ -501,6 +516,15 @@ function bindUi(){{
   document.getElementById('loginBtn').onclick=login;
   document.getElementById('pass').addEventListener('keydown',e=>{{if(e.key==='Enter')login()}});
   document.getElementById('reload').onclick=()=>loadObjects();
+
+  document.querySelectorAll('.layerBtn').forEach(btn=>{{
+    btn.onclick=()=>{{
+      const g=btn.dataset.group;
+      groupEnabled[g]=!groupEnabled[g];
+      btn.classList.toggle('on',groupEnabled[g]);
+      loadObjects();
+    }};
+  }});
 
   document.getElementById('region').onchange=async e=>{{
     clearOverlays();
