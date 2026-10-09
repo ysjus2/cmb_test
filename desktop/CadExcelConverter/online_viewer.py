@@ -11,6 +11,7 @@ from tkinter import simpledialog
 from server_client_windows import CMBServerClient
 
 CFG = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer" / "online.json"
+SESSION_ENDED_EXIT_CODE = 41
 
 
 def key():
@@ -46,6 +47,8 @@ class Api:
         self.c = CMBServerClient()
         self.region = ""
         self.user = None
+        self.window = None
+        self.session_ended = False
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
@@ -73,18 +76,6 @@ class Api:
                 "error": str(exc),
             }
 
-    def login(self, username, password):
-        try:
-            self.user = self.c.login(username, password)
-            policy = self.c.session_policy() or {}
-            return {
-                "ok": True,
-                "user": self.user,
-                "idle_minutes": int(policy.get("idle_minutes", 10)),
-            }
-        except Exception as exc:
-            return {"ok": False, "error": str(exc)}
-
     def session_policy(self):
         try:
             policy = self.c.session_policy() or {}
@@ -102,14 +93,23 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def logout(self):
+    def end_session(self):
         try:
             self.c.logout()
         except Exception:
             pass
         self.user = None
         self.region = ""
+        self.session_ended = True
+        try:
+            if self.window is not None:
+                self.window.destroy()
+        except Exception:
+            pass
         return True
+
+    def logout(self):
+        return self.end_session()
 
     def regions(self):
         try:
@@ -158,12 +158,6 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 .layerBtn{{border:1px solid #94a3b8;background:#fff;border-radius:5px;padding:0 9px;cursor:pointer}}
 .layerBtn.on{{background:#2563eb;color:#fff;border-color:#1d4ed8}}
 #status{{font-size:12px;color:#334155;min-width:100px}}
-#login{{position:absolute;z-index:20;inset:0;background:rgba(15,23,42,.38);display:none;align-items:center;justify-content:center}}
-#loginBox{{width:320px;background:#fff;border-radius:10px;padding:18px;box-shadow:0 8px 28px rgba(0,0,0,.3)}}
-#loginBox h3{{margin:0 0 14px}}
-#loginBox input{{width:100%;box-sizing:border-box;height:36px;margin:5px 0;padding:0 8px}}
-#loginBox button{{width:100%;height:36px;margin-top:8px}}
-#error{{color:#b91c1c;font-size:12px;min-height:18px;margin-top:8px}}
 #detail{{position:absolute;z-index:8;top:60px;right:10px;max-width:360px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:8px;display:none;max-height:50vh;overflow:auto;font-size:12px}}
 .row{{display:grid;grid-template-columns:max-content 1fr;gap:4px 9px;margin:2px 0}}
 .key{{color:#64748b}}
@@ -183,21 +177,11 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
     <button class='layerBtn on' data-group='CONDUIT'>관로</button>
     <button id='reload'>새로고침</button>
     <button id='logout'>로그아웃</button>
-    <span id='status'>로그인 필요</span>
+    <span id='status'>세션 확인 중</span>
   </div>
 </div>
 
 <div id='detail'></div>
-
-<div id='login'>
-  <div id='loginBox'>
-    <h3>CMB 서버 로그인</h3>
-    <input id='user' autocomplete='username' placeholder='아이디'>
-    <input id='pass' type='password' autocomplete='current-password' placeholder='비밀번호'>
-    <button id='loginBtn'>로그인</button>
-    <div id='error'></div>
-  </div>
-</div>
 
 <script>
 let map;
@@ -270,13 +254,8 @@ function noteActivity(){{
 async function forceIdleLogout(){{
   if(!authenticated)return;
   authenticated=false;
-  try{{await pywebview.api.logout();}}catch(e){{}}
-  clearOverlays();
-  document.getElementById('region').innerHTML='<option value="">지역 선택</option>';
-  document.getElementById('detail').style.display='none';
-  document.getElementById('login').style.display='flex';
-  document.getElementById('error').textContent='장시간 사용이 없어 자동 로그아웃되었습니다.';
-  setStatus('유휴시간 만료 · 다시 로그인 필요');
+  setStatus('유휴시간 만료 · 최초 로그인 화면으로 이동');
+  try{{await pywebview.api.end_session();}}catch(e){{}}
 }}
 
 function startIdleWatch(){{
@@ -592,43 +571,23 @@ async function loadRegions(){{
 }}
 
 async function bootstrapAuth(){{
-  const loginBox=document.getElementById('login');
   try{{
     const r=await pywebview.api.bootstrap();
     if(r&&r.authenticated){{
       authenticated=true;
       await loadSessionPolicy();
       startIdleWatch();
-      loginBox.style.display='none';
       await loadRegions();
       return true;
     }}
   }}catch(e){{}}
   authenticated=false;
-  loginBox.style.display='flex';
-  setStatus('로그인 필요');
+  setStatus('세션 만료 · 최초 로그인 화면으로 이동');
+  try{{await pywebview.api.end_session();}}catch(e){{}}
   return false;
 }}
 
-async function login(){{
-  const u=document.getElementById('user').value.trim();
-  const p=document.getElementById('pass').value;
-  const e=document.getElementById('error');
-  e.textContent='';
-  if(!u||!p){{e.textContent='아이디와 비밀번호를 입력해주세요.';return}}
-  const r=await pywebview.api.login(u,p);
-  if(!r.ok){{e.textContent=r.error||'로그인 실패';return}}
-  authenticated=true;
-  idleMinutes=Number(r.idle_minutes||10);
-  startIdleWatch();
-  document.getElementById('pass').value='';
-  document.getElementById('login').style.display='none';
-  await loadRegions();
-}}
-
 function bindUi(){{
-  document.getElementById('loginBtn').onclick=login;
-  document.getElementById('pass').addEventListener('keydown',e=>{{if(e.key==='Enter')login()}});
   document.getElementById('reload').onclick=()=>loadObjects();
 
   document.querySelectorAll('.layerBtn').forEach(btn=>{{
@@ -667,12 +626,8 @@ function bindUi(){{
 
   document.getElementById('logout').onclick=async()=>{{
     authenticated=false;
-    await pywebview.api.logout();
-    clearOverlays();
-    document.getElementById('region').innerHTML='<option value="">지역 선택</option>';
-    document.getElementById('detail').style.display='none';
-    document.getElementById('login').style.display='flex';
-    setStatus('로그인 필요');
+    setStatus('로그아웃 · 최초 로그인 화면으로 이동');
+    await pywebview.api.end_session();
   }};
 }}
 
@@ -688,11 +643,10 @@ function initMap(){{
         level:8
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
-      setStatus('로그인 필요');
+      setStatus('세션 확인 중');
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
-    document.getElementById('error').textContent=String(err);
   }}
 }}
 
@@ -709,23 +663,7 @@ let authBootstrapped=false;
 async function runBootstrapOnce(){{
   if(authBootstrapped)return;
   authBootstrapped=true;
-  const ok=await bootstrapAuth();
-  if(!ok){{
-    // WebView 초기화 직후 API가 늦게 붙는 환경에서 한 번 더 확인
-    setTimeout(async()=>{{
-      if(authenticated)return;
-      try{{
-        const r=await pywebview.api.bootstrap();
-        if(r&&r.authenticated){{
-          authenticated=true;
-          await loadSessionPolicy();
-          startIdleWatch();
-          document.getElementById('login').style.display='none';
-          await loadRegions();
-        }}
-      }}catch(e){{}}
-    }},700);
-  }}
+  await bootstrapAuth();
 }}
 
 window.addEventListener('pywebviewready',runBootstrapOnce);
@@ -766,17 +704,19 @@ def run_online_viewer():
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:
-        webview.create_window(
+        api = Api()
+        window = webview.create_window(
             "CMB 온라인 Viewer",
             url="http://127.0.0.1:8765/",
-            js_api=Api(),
+            js_api=api,
             width=1450,
             height=900,
             min_size=(900, 600),
         )
+        api.window = window
         webview.start(gui="edgechromium", debug=False)
     finally:
         server.shutdown()
         server.server_close()
 
-    return 0
+    return SESSION_ENDED_EXIT_CODE if api.session_ended else 0
