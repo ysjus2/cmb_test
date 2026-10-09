@@ -216,3 +216,6 @@ class CMBServerClient:
             "/admin/settings/session-timeout",
             {"minutes": int(minutes)},
         )
+
+    def session_policy(self):
+        return self._request("GET", "/session/policy")
