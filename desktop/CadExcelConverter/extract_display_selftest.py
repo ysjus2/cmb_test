@@ -12,7 +12,7 @@ entities = [
 ]
 scene = Scene(entities, (-1, -1, 100, 2), {})
 entities[0].primitives.append(('text', (50, 0, 'FO-001 cable code')))
-app = App()
+app = App(session_user={'id': 1, 'username': 'selftest', 'level': 1})
 app.input_path = 'display-test.dxf'
 app._populate_layers([LayerInfo(e.layer, 1, e.entity_type) for e in entities], scene)
 app.viewer.load_scene(scene)
