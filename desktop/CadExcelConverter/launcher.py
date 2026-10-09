@@ -144,13 +144,33 @@ class Launcher(tk.Tk):
         env["CMB_AUTH_USER"] = json.dumps(self.user or {}, ensure_ascii=False)
         return env
 
+    def _restore_launcher(self):
+        if not self.winfo_exists():
+            return
+        self.deiconify()
+        self.lift()
+        try:
+            self.focus_force()
+        except Exception:
+            pass
+
+    def _watch_child(self, process):
+        if process.poll() is None:
+            self.after(300, lambda: self._watch_child(process))
+            return
+        self._restore_launcher()
+
     def _spawn(self, flag):
         env = self._child_env()
         if getattr(sys, "frozen", False):
             cmd = [sys.executable, flag]
         else:
             cmd = [sys.executable, str(Path(__file__).resolve().with_name("main.py")), flag]
-        subprocess.Popen(cmd, env=env)
+
+        process = subprocess.Popen(cmd, env=env)
+        self.withdraw()
+        self.after(300, lambda: self._watch_child(process))
+        return process
 
     def open_online(self):
         if not self.user:
@@ -171,8 +191,17 @@ class Launcher(tk.Tk):
     def open_admin(self):
         if not self.user or int(self.user.get("level", 5)) != 1:
             return
-        UserAdminWindow(
+
+        self.withdraw()
+        window = UserAdminWindow(
             self,
             client=self.client,
             current_user=self.user,
         )
+
+        def restore(event=None):
+            if event is not None and event.widget is not window:
+                return
+            self._restore_launcher()
+
+        window.bind("<Destroy>", restore, add="+")
