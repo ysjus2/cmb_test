@@ -55,10 +55,25 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.lookup_btn.pack(side="left")
 
+        self.new_btn = ttk.Button(
+            tools, text="신규 등록", command=self.create_user, state="disabled"
+        )
+        self.new_btn.pack(side="left", padx=(6, 0))
+
         self.reset_btn = ttk.Button(
             tools, text="비밀번호 초기화", command=self.reset_password, state="disabled"
         )
         self.reset_btn.pack(side="left", padx=(6, 0))
+
+        self.deactivate_btn = ttk.Button(
+            tools, text="퇴사처리", command=self.deactivate_user, state="disabled"
+        )
+        self.deactivate_btn.pack(side="left", padx=(6, 0))
+
+        self.activate_btn = ttk.Button(
+            tools, text="재입사/재사용", command=self.activate_user, state="disabled"
+        )
+        self.activate_btn.pack(side="left", padx=(6, 0))
 
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True)
@@ -101,14 +116,20 @@ class UserAdminWindow(tk.Toplevel):
                 self.current_user = None
                 self.login_status.set("1등급 관리자만 사용자 관리가 가능합니다.")
                 self.lookup_btn.configure(state="disabled")
+                self.new_btn.configure(state="disabled")
                 self.reset_btn.configure(state="disabled")
+                self.deactivate_btn.configure(state="disabled")
+                self.activate_btn.configure(state="disabled")
                 return
             self.current_user = user
             self.login_status.set(
                 f"{user.get('name') or user.get('username')} · 1등급 관리자"
             )
             self.lookup_btn.configure(state="normal")
+            self.new_btn.configure(state="normal")
             self.reset_btn.configure(state="normal")
+            self.deactivate_btn.configure(state="normal")
+            self.activate_btn.configure(state="normal")
             self.load_users()
         except Exception as exc:
             self.current_user = None
@@ -156,13 +177,138 @@ class UserAdminWindow(tk.Toplevel):
         if q:
             self.status.set(f"검색 결과 {shown}명 / 전체 {len(self.users)}명")
 
-    def reset_password(self):
+    def _selected_user(self):
         selected = self.tree.selection()
         if not selected:
+            return None
+        try:
+            return self.users[int(selected[0])]
+        except Exception:
+            return None
+
+    def create_user(self):
+        if not self.current_user:
+            return
+
+        win = tk.Toplevel(self)
+        win.title("신규 사용자 등록")
+        win.geometry("420x300")
+        win.transient(self)
+        win.grab_set()
+
+        frame = ttk.Frame(win, padding=14)
+        frame.pack(fill="both", expand=True)
+
+        username = tk.StringVar()
+        name = tk.StringVar()
+        department = tk.StringVar()
+        level = tk.StringVar(value="5")
+
+        rows = [
+            ("아이디", username),
+            ("이름", name),
+            ("부서", department),
+            ("등급", level),
+        ]
+        for i, (label, var) in enumerate(rows):
+            ttk.Label(frame, text=label).grid(row=i, column=0, sticky="w", pady=5)
+            ttk.Entry(frame, textvariable=var, width=32).grid(row=i, column=1, sticky="ew", padx=(8, 0), pady=5)
+
+        frame.columnconfigure(1, weight=1)
+
+        def save():
+            u = username.get().strip()
+            if not u:
+                messagebox.showinfo("신규 등록", "아이디를 입력해주세요.", parent=win)
+                return
+            try:
+                lv = int(level.get().strip())
+            except Exception:
+                messagebox.showinfo("신규 등록", "등급은 숫자로 입력해주세요.", parent=win)
+                return
+            if lv < 1 or lv > 5:
+                messagebox.showinfo("신규 등록", "등급은 1~5 범위로 입력해주세요.", parent=win)
+                return
+            try:
+                result = self.client.create_user(
+                    u,
+                    name.get(),
+                    department.get(),
+                    lv,
+                )
+                temp = str((result or {}).get("temporary_password") or "")
+                win.destroy()
+                self.load_users()
+                msg = f"{u} 사용자가 등록되었습니다."
+                if temp:
+                    msg += f"\n\n임시 비밀번호: {temp}\n\n이 비밀번호는 지금 한 번만 표시됩니다."
+                messagebox.showinfo("신규 등록 완료", msg, parent=self)
+            except Exception as exc:
+                messagebox.showerror("신규 등록 오류", str(exc), parent=win)
+
+        ttk.Button(frame, text="등록", command=save).grid(
+            row=len(rows), column=0, columnspan=2, pady=(14, 0)
+        )
+
+    def deactivate_user(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("퇴사처리", "사용자를 선택해주세요.", parent=self)
+            return
+        user_id = user.get("id")
+        username = str(user.get("username") or "")
+        active = user.get("active")
+        if active is None:
+            active = user.get("is_active")
+        if active is False:
+            messagebox.showinfo("퇴사처리", "이미 비활성화된 사용자입니다.", parent=self)
+            return
+        if not messagebox.askyesno(
+            "퇴사처리",
+            f"{username} 사용자를 퇴사처리(비활성화)하시겠습니까?\n\n기존 로그인 세션도 종료됩니다.",
+            parent=self,
+        ):
+            return
+        try:
+            self.client.deactivate_user(user_id)
+            self.load_users()
+            self.status.set(f"{username} 퇴사처리 완료")
+        except Exception as exc:
+            messagebox.showerror("퇴사처리 오류", str(exc), parent=self)
+
+    def activate_user(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("재입사/재사용", "사용자를 선택해주세요.", parent=self)
+            return
+        user_id = user.get("id")
+        username = str(user.get("username") or "")
+        active = user.get("active")
+        if active is None:
+            active = user.get("is_active")
+        if active is not False:
+            messagebox.showinfo("재입사/재사용", "현재 활성 사용자입니다.", parent=self)
+            return
+        if not messagebox.askyesno(
+            "재입사/재사용",
+            f"{username} 사용자를 다시 활성화하시겠습니까?",
+            parent=self,
+        ):
+            return
+        try:
+            self.client.activate_user(user_id)
+            self.load_users()
+            self.status.set(f"{username} 재활성화 완료")
+        except Exception as exc:
+            messagebox.showerror("재활성화 오류", str(exc), parent=self)
+
+    def reset_password(self):
+        user = self._selected_user()
+        if not user:
             messagebox.showinfo("비밀번호 초기화", "사용자를 선택해주세요.", parent=self)
             return
 
-        user = self.users[int(selected[0])]
+        user_id = user.get("id")
         username = str(user.get("username") or "").strip()
         if not username:
             return
@@ -197,7 +343,7 @@ class UserAdminWindow(tk.Toplevel):
             return
 
         try:
-            self.client.reset_user_password(username, p1)
+            self.client.reset_user_password(user_id, p1)
             self.status.set(f"{username} 비밀번호 초기화 완료")
             messagebox.showinfo(
                 "비밀번호 초기화",
