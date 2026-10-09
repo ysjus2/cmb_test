@@ -257,7 +257,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         self.upload_one_btn = ttk.Button(
             row,
-            text="선택 그룹 서버 업로드",
+            text="선택 그룹/정보 업로드",
             command=self.upload_selected,
             state="disabled",
         )
@@ -265,7 +265,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         self.upload_all_btn = ttk.Button(
             row,
-            text="전체 5그룹 순차 업로드",
+            text="현재 도면 전체 업로드",
             command=self.upload_all,
             state="disabled",
         )
@@ -279,7 +279,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         ttk.Button(
             row,
-            text="Revision 조회",
+            text="현재 업로드 정보 조회",
             command=self.show_revisions,
         ).pack(side="left", padx=6)
 
