@@ -158,7 +158,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 .layerBtn{{border:1px solid #94a3b8;background:#fff;border-radius:5px;padding:0 9px;cursor:pointer}}
 .layerBtn.on{{background:#2563eb;color:#fff;border-color:#1d4ed8}}
 #status{{font-size:12px;color:#334155;min-width:100px}}
-#login{{position:absolute;z-index:20;inset:0;background:rgba(15,23,42,.38);display:flex;align-items:center;justify-content:center}}
+#login{{position:absolute;z-index:20;inset:0;background:rgba(15,23,42,.38);display:none;align-items:center;justify-content:center}}
 #loginBox{{width:320px;background:#fff;border-radius:10px;padding:18px;box-shadow:0 8px 28px rgba(0,0,0,.3)}}
 #loginBox h3{{margin:0 0 14px}}
 #loginBox input{{width:100%;box-sizing:border-box;height:36px;margin:5px 0;padding:0 8px}}
@@ -592,19 +592,22 @@ async function loadRegions(){{
 }}
 
 async function bootstrapAuth(){{
+  const loginBox=document.getElementById('login');
   try{{
     const r=await pywebview.api.bootstrap();
     if(r&&r.authenticated){{
       authenticated=true;
       await loadSessionPolicy();
       startIdleWatch();
-      document.getElementById('login').style.display='none';
+      loginBox.style.display='none';
       await loadRegions();
-      return;
+      return true;
     }}
   }}catch(e){{}}
-  document.getElementById('login').style.display='flex';
+  authenticated=false;
+  loginBox.style.display='flex';
   setStatus('로그인 필요');
+  return false;
 }}
 
 async function login(){{
@@ -701,7 +704,34 @@ document.addEventListener('visibilitychange',()=>{{
 }});
 bindUi();
 initMap();
-setTimeout(()=>bootstrapAuth(),250);
+
+let authBootstrapped=false;
+async function runBootstrapOnce(){{
+  if(authBootstrapped)return;
+  authBootstrapped=true;
+  const ok=await bootstrapAuth();
+  if(!ok){{
+    // WebView 초기화 직후 API가 늦게 붙는 환경에서 한 번 더 확인
+    setTimeout(async()=>{{
+      if(authenticated)return;
+      try{{
+        const r=await pywebview.api.bootstrap();
+        if(r&&r.authenticated){{
+          authenticated=true;
+          await loadSessionPolicy();
+          startIdleWatch();
+          document.getElementById('login').style.display='none';
+          await loadRegions();
+        }}
+      }}catch(e){{}}
+    }},700);
+  }}
+}}
+
+window.addEventListener('pywebviewready',runBootstrapOnce);
+setTimeout(()=>{{
+  if(window.pywebview&&pywebview.api)runBootstrapOnce();
+}},1200);
 </script>
 </body>
 </html>"""
