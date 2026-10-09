@@ -571,15 +571,53 @@ public class MapActivity extends Activity {
         body.setGravity(Gravity.CENTER_VERTICAL);body.setBackgroundColor(Color.rgb(246,248,251));
         TextView heading=new TextView(this);heading.setText("CMB 시설 조회");heading.setTextSize(28);heading.setTextColor(Color.rgb(15,23,42));body.addView(heading);
         TextView description=new TextView(this);description.setText("서버에 로그인하면 허용된 지역의 도면을 조회할 수 있습니다.");description.setPadding(0,dp(12),0,dp(24));body.addView(description);
-        TextView address=new TextView(this);address.setText(ServerApiClient.BASE_URL);body.addView(address);
+        TextView connectionInfo=new TextView(this);connectionInfo.setText("CMB 보안 서버 연결");connectionInfo.setTextColor(Color.rgb(71,85,105));body.addView(connectionInfo);
         getSharedPreferences("server_prefs",MODE_PRIVATE).edit().remove("url").apply();
-        android.widget.EditText username=new android.widget.EditText(this);username.setSingleLine(true);username.setHint("앱 계정");username.setText("ysjus");body.addView(username);
-        android.widget.EditText password=new android.widget.EditText(this);password.setSingleLine(true);password.setHint("앱 비밀번호");
+
+        android.widget.EditText username=new android.widget.EditText(this);
+        username.setSingleLine(true);
+        username.setHint("아이디");
+        username.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        if(android.os.Build.VERSION.SDK_INT>=26){
+            username.setAutofillHints(android.view.View.AUTOFILL_HINT_USERNAME);
+            username.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_YES);
+        }
+        body.addView(username);
+
+        android.widget.EditText password=new android.widget.EditText(this);
+        password.setSingleLine(true);
+        password.setHint("비밀번호");
         password.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        password.setSaveEnabled(false);if(android.os.Build.VERSION.SDK_INT>=26)password.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);body.addView(password);
+        password.setSaveEnabled(true);
+        if(android.os.Build.VERSION.SDK_INT>=26){
+            password.setAutofillHints(android.view.View.AUTOFILL_HINT_PASSWORD);
+            password.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_YES);
+        }
+        body.addView(password);
+
+        Button savedLogin=new Button(this);
+        savedLogin.setText("저장된 로그인 정보 / 지문");
+        body.addView(savedLogin);
+
         loginMessage=new TextView(this);loginMessage.setPadding(0,dp(12),0,dp(12));body.addView(loginMessage);
         Button login=new Button(this);login.setText("로그인");body.addView(login);
         loginScreen.addView(body);screen.addView(loginScreen);
+
+        savedLogin.setOnClickListener(v->{
+            loginMessage.setText("휴대폰의 저장된 로그인 정보를 확인하는 중…");
+            MobileCredentialHelper.requestSavedLogin(this,new MobileCredentialHelper.LoginCallback(){
+                @Override public void onCredential(String savedUser,String savedPassword){
+                    username.setText(savedUser);
+                    password.setText(savedPassword);
+                    loginMessage.setText("저장된 계정을 불러왔습니다.");
+                    login.performClick();
+                }
+                @Override public void onUnavailable(){
+                    loginMessage.setText("저장된 로그인 정보가 없습니다. 아이디와 비밀번호를 직접 입력해주세요.");
+                }
+            });
+        });
+
         login.setOnClickListener(v->{
             final String user=username.getText().toString().trim(),secret=password.getText().toString();
             if(user.isEmpty()||secret.isEmpty()){password.setError("계정과 비밀번호를 입력하세요.");return;}
@@ -592,6 +630,7 @@ public class MapActivity extends Activity {
                     runOnUiThread(()->{
                         if(destroyed||generation!=serverGeneration){candidate.clear();return;}
                         server=candidate;allRecords.clear();renderMarkers();markServerOnline();logoutButton.setEnabled(true);
+                        MobileCredentialHelper.offerSaveLogin(this,user,secret);
                         serverButton.setEnabled(true);serverButton.setText("서버 · "+user);
                         screen.removeView(loginScreen);loginScreen=null;mapScreen.setVisibility(android.view.View.VISIBLE);
                         startMap();if(foreground){map.resume();requestLocation();}chooseServerDataset();
