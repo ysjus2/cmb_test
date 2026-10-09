@@ -49,18 +49,23 @@ class Launcher(tk.Tk):
         self.login_status = tk.StringVar(value="로그인이 필요합니다.")
 
         ttk.Label(self.login_frame, text="아이디").grid(row=0, column=0, sticky="w")
-        ttk.Entry(self.login_frame, textvariable=self.username, width=28).grid(
+        self.username_entry = ttk.Entry(
+            self.login_frame,
+            textvariable=self.username,
+            width=28,
+        )
+        self.username_entry.grid(
             row=0, column=1, padx=(8, 14), pady=4
         )
         ttk.Label(self.login_frame, text="비밀번호").grid(row=1, column=0, sticky="w")
-        pw = ttk.Entry(
+        self.password_entry = ttk.Entry(
             self.login_frame,
             textvariable=self.password,
             show="*",
             width=28,
         )
-        pw.grid(row=1, column=1, padx=(8, 14), pady=4)
-        pw.bind("<Return>", lambda e: self.login())
+        self.password_entry.grid(row=1, column=1, padx=(8, 14), pady=4)
+        self.password_entry.bind("<Return>", lambda e: self.login())
 
         self.login_btn = ttk.Button(
             self.login_frame,
@@ -122,6 +127,9 @@ class Launcher(tk.Tk):
             level = int(user.get("level", 5))
             name = user.get("name") or user.get("username") or username
             self.login_status.set(f"{name} · {level}등급 로그인")
+            self.username_entry.configure(state="disabled")
+            self.password_entry.configure(state="disabled")
+            self.login_btn.configure(state="disabled")
 
             self.online_btn.configure(state="normal")
             self.map_btn.configure(state="normal")
@@ -150,6 +158,9 @@ class Launcher(tk.Tk):
             )
         except Exception as exc:
             self.user = None
+            self.username_entry.configure(state="normal")
+            self.password_entry.configure(state="normal")
+            self.login_btn.configure(state="normal")
             self.online_btn.configure(state="disabled")
             self.map_btn.configure(state="disabled")
             self.admin_btn.configure(state="disabled")
@@ -168,6 +179,9 @@ class Launcher(tk.Tk):
         self.client.refresh_token = ""
         self.password.set("")
         self.login_status.set(message)
+        self.username_entry.configure(state="normal")
+        self.password_entry.configure(state="normal")
+        self.login_btn.configure(state="normal")
         self.online_btn.configure(state="disabled")
         self.map_btn.configure(state="disabled")
         self.admin_btn.configure(state="disabled")
