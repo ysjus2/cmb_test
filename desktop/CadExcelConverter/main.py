@@ -737,5 +737,10 @@ if __name__ == "__main__":
     if "--online-viewer" in sys.argv:
         from online_viewer import run_online_viewer
         raise SystemExit(run_online_viewer())
-    App().mainloop()
+
+    if "--map-viewer" in sys.argv:
+        App().mainloop()
+    else:
+        from launcher import Launcher
+        Launcher().mainloop()
 
