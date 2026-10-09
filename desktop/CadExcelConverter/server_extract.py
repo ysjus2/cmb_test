@@ -98,54 +98,17 @@ def export_dxf(path, features, target_epsg=5174):
             except Exception:
                 layer = "SERVER"
 
-        attrs = p.get("attributes") or {}
-        fields = attrs.get("fields") if isinstance(attrs, dict) else None
-        if not isinstance(fields, dict):
-            fields = attrs if isinstance(attrs, dict) else {}
-
-        source_geom = fields.get("_cmb_source_geometry")
-        source_epsg = fields.get("_cmb_source_epsg")
-
-        # 신규 업로드 자료: 변환 전 원본 CAD 좌표를 그대로 사용한다.
-        if isinstance(source_geom, dict):
-            typ = source_geom.get("type")
-            coords = source_geom.get("coordinates") or []
-
-            if typ == "Point" and len(coords) >= 2:
-                msp.add_point(
-                    (float(coords[0]), float(coords[1])),
-                    dxfattribs={"layer": layer},
-                )
-                continue
-
-            if typ == "LineString" and len(coords) >= 2:
-                pts = [(float(x), float(y)) for x, y in coords]
-                msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
-                continue
-
-        # 과거 업로드 자료: 원 CAD 좌표가 없으므로 WGS84를 역변환한다.
         g = feature.get("geometry") or {}
         typ = g.get("type")
         coords = g.get("coordinates") or []
 
-        fallback_transform = transform
-        try:
-            if source_epsg:
-                fallback_transform = Transformer.from_crs(
-                    "EPSG:4326",
-                    f"EPSG:{int(source_epsg)}",
-                    always_xy=True,
-                )
-        except Exception:
-            fallback_transform = transform
-
         if typ == "Point" and len(coords) >= 2:
-            x, y = fallback_transform.transform(float(coords[0]), float(coords[1]))
+            x, y = transform.transform(float(coords[0]), float(coords[1]))
             msp.add_point((x, y), dxfattribs={"layer": layer})
 
         elif typ == "LineString" and len(coords) >= 2:
             pts = [
-                fallback_transform.transform(float(x), float(y))
+                transform.transform(float(x), float(y))
                 for x, y in coords
             ]
             msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
@@ -155,7 +118,7 @@ def export_dxf(path, features, target_epsg=5174):
                 if len(part) < 2:
                     continue
                 pts = [
-                    fallback_transform.transform(float(x), float(y))
+                    transform.transform(float(x), float(y))
                     for x, y in part
                 ]
                 msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
