@@ -111,11 +111,25 @@ def build_payload(scene, source_path, group, epsg):
             continue
 
         attrs = dict(e.attributes or {})
-        attrs["_cmb_symbol_kind"] = _symbol_kind(e)
+        dxf = dict(getattr(e, "dxf_data", {}) or {})
+        symbol_kind = _symbol_kind(e)
+        attrs["_cmb_symbol_kind"] = symbol_kind
         attrs["_cmb_rotation_deg"] = _rotation_deg(e)
-        attrs["_cmb_dxf_data"] = dict(getattr(e, "dxf_data", {}) or {})
-        attrs["_cmb_pole_info"] = dict(getattr(e, "pole_info", {}) or {})
-        attrs["_cmb_text"] = str(getattr(e, "text", "") or "")
+        attrs["_cmb_is_device"] = bool(
+            str(e.entity_type or "").upper() in {"INSERT", "POINT"}
+            or symbol_kind != "generic"
+        )
+        for src_key, dst_key in (
+            ("xscale", "_cmb_xscale"),
+            ("yscale", "_cmb_yscale"),
+            ("zscale", "_cmb_zscale"),
+        ):
+            value = dxf.get(src_key)
+            if value not in (None, ""):
+                attrs[dst_key] = value
+        pole_info = dict(getattr(e, "pole_info", {}) or {})
+        if pole_info:
+            attrs["_cmb_pole_info"] = pole_info
 
         objects.append({
             "source_handle": e.handle,
