@@ -105,13 +105,13 @@ class Api:
             for row in raw:
                 if not isinstance(row, dict):
                     continue
+                # 서버 경계에서만 과거 키를 흡수하고, 뷰어 내부에서는 id 하나만 사용한다.
                 region_id = str(
                     row.get("id")
                     or row.get("region_id")
                     or row.get("region_code")
-                    or row.get("code")
                     or ""
-                ).strip()
+                ).strip().upper()
                 if not region_id or region_id in seen:
                     continue
                 seen.add(region_id)
