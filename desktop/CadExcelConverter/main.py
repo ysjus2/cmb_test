@@ -4,6 +4,8 @@ import os
 import queue
 import threading
 import tkinter as tk
+import subprocess
+import sys
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -12,6 +14,7 @@ from viewer import DXFViewer, build_scene
 from drawing_cache import open_drawing
 from layer_defaults import is_default_hidden
 from network_extract_ui import NetworkExtractionMixin
+from admin_upload import AdminUploadWindow
 
 APP_NAME = "CMB DXF Viewer + Excel v3.36"
 
@@ -86,6 +89,14 @@ class App(NetworkExtractionMixin, tk.Tk):
             )
         settings_menu.add_cascade(label="좌표계", menu=epsg_menu)
         menubar.add_cascade(label="설정", menu=settings_menu)
+
+        online_menu = tk.Menu(menubar, tearoff=False)
+        online_menu.add_command(label="온라인 지도 열기", command=self._open_online_viewer)
+        menubar.add_cascade(label="온라인", menu=online_menu)
+
+        admin_menu = tk.Menu(menubar, tearoff=False)
+        admin_menu.add_command(label="도면 서버 업로드", command=self._open_admin_upload)
+        menubar.add_cascade(label="관리자", menu=admin_menu)
 
         self.config(menu=menubar)
         self.bind_all("<Control-o>", lambda e: self._pick_input())
@@ -331,6 +342,23 @@ class App(NetworkExtractionMixin, tk.Tk):
     def _show_layer_window(self):
         # 메뉴에서 다시 표시할 때는 항상 내부 좌측 도킹 상태로 복원한다.
         self._build_docked_layer_panel()
+
+    def _open_online_viewer(self):
+        # pywebview/WebView2는 Tk 이벤트 루프와 분리된 프로세스로 실행한다.
+        try:
+            if getattr(sys, "frozen", False):
+                subprocess.Popen([sys.executable, "--online-viewer"])
+            else:
+                subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--online-viewer"])
+            self.status_var.set("온라인 Viewer 새 창 실행")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"온라인 Viewer 실행 실패\n{exc}")
+
+    def _open_admin_upload(self):
+        if not self.input_path or not os.path.isfile(self.input_path) or self.viewer.scene is None:
+            messagebox.showinfo(APP_NAME, "먼저 서버에 올릴 DXF 도면을 열어주세요.")
+            return
+        AdminUploadWindow(self, self.viewer.scene, self.input_path, self.epsg_var.get())
 
     def _epsg_changed(self):
         self.viewer.set_source_epsg(self.epsg_var.get())
@@ -701,5 +729,8 @@ class App(NetworkExtractionMixin, tk.Tk):
 
 
 if __name__ == "__main__":
+    if "--online-viewer" in sys.argv:
+        from online_viewer import run_online_viewer
+        raise SystemExit(run_online_viewer())
     App().mainloop()
 
