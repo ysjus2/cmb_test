@@ -80,6 +80,11 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.region_btn.pack(side="left", padx=(6, 0))
 
+        self.session_btn = ttk.Button(
+            tools, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
+        )
+        self.session_btn.pack(side="left", padx=(6, 0))
+
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True)
 
@@ -130,6 +135,7 @@ class UserAdminWindow(tk.Toplevel):
         self.deactivate_btn.configure(state="normal")
         self.activate_btn.configure(state="normal")
         self.region_btn.configure(state="normal")
+        self.session_btn.configure(state="normal")
         self.load_users()
 
     def login(self):
@@ -151,6 +157,7 @@ class UserAdminWindow(tk.Toplevel):
                 self.deactivate_btn.configure(state="disabled")
                 self.activate_btn.configure(state="disabled")
                 self.region_btn.configure(state="disabled")
+                self.session_btn.configure(state="disabled")
                 return
             self.current_user = user
             self.login_status.set(
@@ -162,6 +169,7 @@ class UserAdminWindow(tk.Toplevel):
             self.deactivate_btn.configure(state="normal")
             self.activate_btn.configure(state="normal")
             self.region_btn.configure(state="normal")
+            self.session_btn.configure(state="normal")
             self.load_users()
         except Exception as exc:
             self.current_user = None
