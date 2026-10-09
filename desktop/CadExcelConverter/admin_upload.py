@@ -217,12 +217,15 @@ class AdminUploadWindow(tk.Toplevel):
             if g:
                 counts[g] += 1
 
+        self.group_counts = counts
+
         for g in GROUPS:
+            scope = desc[g] if counts[g] > 0 else desc[g] + " · 객체 없음(업로드 제외)"
             self.tree.insert(
                 "",
                 "end",
                 iid=g,
-                values=(g, f"{counts[g]:,}", desc[g]),
+                values=(g, f"{counts[g]:,}", scope),
             )
 
         self.tree.selection_set("FIBER")
@@ -358,6 +361,11 @@ class AdminUploadWindow(tk.Toplevel):
             self.epsg,
         )
 
+        if payload["object_count"] <= 0:
+            raise RuntimeError(
+                f"{group} 그룹에 업로드 가능한 객체가 없습니다. 빈 Revision 생성은 차단됩니다."
+            )
+
         self.status.set(
             f"{group} · {payload['object_count']:,}개 업로드 중..."
         )
@@ -392,13 +400,40 @@ class AdminUploadWindow(tk.Toplevel):
         try:
             self._require_admin()
 
+            uploaded = []
+            skipped = []
+
             for group in GROUPS:
+                if int(self.group_counts.get(group, 0)) <= 0:
+                    skipped.append(group)
+                    continue
                 self._upload(group)
+                uploaded.append(group)
+
+            if not uploaded:
+                raise RuntimeError(
+                    "업로드 가능한 객체가 있는 그룹이 없습니다. 빈 Revision 생성은 차단됩니다."
+                )
+
+            skipped_text = (
+                "\n\n객체 없음으로 건너뜀: " + ", ".join(skipped)
+                if skipped else ""
+            )
 
             messagebox.showinfo(
                 "업로드",
-                "5개 그룹 업로드가 완료되었습니다.",
+                f"{len(uploaded)}개 그룹 업로드가 완료되었습니다."
+                + skipped_text,
                 parent=self,
+            )
+
+            self.status.set(
+                "업로드 완료 · "
+                + ", ".join(uploaded)
+                + (
+                    " · 객체 없음 건너뜀: " + ", ".join(skipped)
+                    if skipped else ""
+                )
             )
 
         except Exception as exc:
