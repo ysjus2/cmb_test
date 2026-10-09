@@ -26,6 +26,10 @@ import com.example.celldb.network.KakaoNetworkRenderer;
 import com.example.celldb.network.NetworkModels.*;
 
 public class MapActivity extends Activity {
+    // Temporary online-viewer test mode:
+    // open the Kakao/server viewer immediately without blocking on login UI.
+    // Server authentication itself is intentionally not bypassed here.
+    private static final boolean ONLINE_VIEW_TEST_MODE = true;
     private final ArrayList<CadRecord> visibleRecords = new ArrayList<>();
     private final ArrayList<MapPoint> visiblePoints = new ArrayList<>();
     private final ArrayList<MapPoint> boundsPoints = new ArrayList<>();
@@ -203,7 +207,31 @@ public class MapActivity extends Activity {
         screen=new android.widget.FrameLayout(this);screen.addView(mapScreen);setContentView(screen);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
-        showLoginScreen();
+        if (ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
+        else showLoginScreen();
+    }
+
+    private void enterOnlineViewTestMode(){
+        if(loginScreen!=null){
+            screen.removeView(loginScreen);
+            loginScreen=null;
+        }
+        mapScreen.setVisibility(android.view.View.VISIBLE);
+        header.setText("CMB 온라인 지도 · 테스트");
+        status.setText("온라인 Viewer 테스트 모드 · 로그인 검증 생략");
+        connectionStatus.setText("● 테스트 모드 · 서버 인증은 아직 연결하지 않음");
+        connectionStatus.setTextColor(Color.rgb(180,110,0));
+        regionStatus.setText("카카오맵 배경 + CMB 서버 Overlay 연결 준비");
+        serverButton.setText("서버 연결(선택)");
+        logoutButton.setEnabled(false);
+        startMap();
+        mapScreen.postDelayed(()->{
+            if(destroyed)return;
+            if(foreground){
+                map.resume();
+                requestLocation();
+            }
+        },150);
     }
 
     private void startMap(){
@@ -300,7 +328,10 @@ public class MapActivity extends Activity {
         loadMarkers();
         if(server!=null)requestLocation();
         foreground=true;serverHandler.removeCallbacks(serverPoll);serverHandler.post(serverPoll);
-        if(server==null){serverButton.setEnabled(true);showLoginScreen();}
+        if(server==null){
+            serverButton.setEnabled(true);
+            if(!ONLINE_VIEW_TEST_MODE) showLoginScreen();
+        }
     }
 
     @Override protected void onPause() {
@@ -587,7 +618,9 @@ public class MapActivity extends Activity {
         allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
         regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
         if(previous!=null)serverWorker.execute(previous::logout);
-        loadMarkers();stopLocation();showLoginScreen();
+        loadMarkers();stopLocation();
+        if(ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
+        else showLoginScreen();
     }
 
     private void chooseServerDataset(){
