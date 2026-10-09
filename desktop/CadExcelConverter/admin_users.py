@@ -621,8 +621,9 @@ class UserAdminWindow(tk.Toplevel):
         ttk.Label(
             root,
             text=(
-                "도면명은 서버에 업로드할 DXF 파일명에서 .dxf를 제외한 값입니다. "
-                "예: CMB_GN_KSG.dxf → CMB_GN_KSG"
+                "지역명과 고유 지역코드를 최초 1회 등록합니다. "
+                "고유코드는 사용자 권한·도면 업로드·온라인 조회에서 공통으로 사용하는 "
+                "변경하지 않는 식별자입니다. 예: CMB_GN_HP"
             ),
             wraplength=520,
         ).pack(anchor="w", pady=(2, 12))
@@ -630,15 +631,15 @@ class UserAdminWindow(tk.Toplevel):
         form = ttk.LabelFrame(root, text="신규 지역", padding=10)
         form.pack(fill="x")
 
-        drawing_name = tk.StringVar()
+        region_code = tk.StringVar()
         region_name = tk.StringVar()
 
-        ttk.Label(form, text="도면명").grid(
+        ttk.Label(form, text="고유 지역코드").grid(
             row=0, column=0, sticky="w", pady=5
         )
         ttk.Entry(
             form,
-            textvariable=drawing_name,
+            textvariable=region_code,
             width=38,
         ).grid(
             row=0,
@@ -670,7 +671,7 @@ class UserAdminWindow(tk.Toplevel):
             show="headings",
             height=8,
         )
-        existing.heading("drawing", text="등록 도면명")
+        existing.heading("drawing", text="고유 지역코드")
         existing.heading("name", text="지역명")
         existing.column("drawing", width=250)
         existing.column("name", width=220)
@@ -704,15 +705,16 @@ class UserAdminWindow(tk.Toplevel):
                 )
 
         def save_region():
-            rid = drawing_name.get().strip()
+            rid = region_code.get().strip()
             if rid.lower().endswith(".dxf"):
                 rid = rid[:-4].strip()
+            rid = rid.upper()
             name = region_name.get().strip()
 
             if not rid:
                 messagebox.showinfo(
                     "지역 등록",
-                    "도면명을 입력해주세요.",
+                    "고유 지역코드를 입력해주세요.",
                     parent=win,
                 )
                 return
@@ -725,19 +727,42 @@ class UserAdminWindow(tk.Toplevel):
                 return
 
             try:
+                rows = self.client.admin_regions() or []
+                if isinstance(rows, dict):
+                    rows = rows.get("items") or rows.get("regions") or []
+
+                duplicate_code = any(
+                    str(
+                        row.get("id")
+                        or row.get("region_id")
+                        or row.get("region_code")
+                        or ""
+                    ).strip().upper() == rid
+                    for row in rows
+                )
+                if duplicate_code:
+                    messagebox.showinfo(
+                        "지역코드 중복",
+                        f"{rid} 코드는 이미 등록되어 있습니다.\n"
+                        "한 지역에는 하나의 고유코드만 사용할 수 있습니다.",
+                        parent=win,
+                    )
+                    return
+
                 self.client.create_region(rid, name)
-                drawing_name.set("")
+                region_code.set("")
                 region_name.set("")
                 load_regions()
                 if self.users:
                     self.load_users()
                 self.status.set(
-                    f"지역 등록 완료 · {rid} · {name}"
+                    f"지역 등록 완료 · {name} ({rid})"
                 )
                 messagebox.showinfo(
                     "지역 등록 완료",
-                    f"도면명: {rid}\n지역명: {name}\n\n"
-                    f"서버 업로드 DXF 파일명은 {rid}.dxf 이어야 합니다.",
+                    f"지역명: {name}\n고유 지역코드: {rid}\n\n"
+                    f"이 코드는 사용자 권한·업로드·온라인 조회에서 동일하게 사용됩니다.\n"
+                    f"업로드 DXF의 지역코드는 {rid}와 일치해야 합니다.",
                     parent=win,
                 )
             except Exception as exc:
