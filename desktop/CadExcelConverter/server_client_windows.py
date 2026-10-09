@@ -141,7 +141,37 @@ class CMBServerClient:
         return self._request("GET", f"/online/{q}/objects?bbox={bb}&limit={int(limit)}")
 
     def upload_group(self, payload):
-        return self._request("POST", "/admin/drawings/upload", payload)
+        try:
+            return self._request("POST", "/admin/drawings/upload", payload)
+        except ServerError as exc:
+            # 서버 UploadPackage 스키마의 이전/현재 필드명 차이를 422 응답에 맞춰 보정한다.
+            if exc.status != 422:
+                raise
+
+            msg = str(exc)
+            retry = json.loads(json.dumps(payload, ensure_ascii=False))
+
+            changed = False
+
+            if "regional_object_id" in msg and "object_id" in str(retry.get("objects", [{}])[0] if retry.get("objects") else ""):
+                for obj in retry.get("objects") or []:
+                    if "object_id" in obj and "regional_object_id" not in obj:
+                        obj["regional_object_id"] = obj.pop("object_id")
+                        changed = True
+
+            if "group_id" in msg and "group" in retry:
+                retry["group_id"] = retry.pop("group")
+                changed = True
+
+            if not changed:
+                raise
+
+            return self._request(
+                "POST",
+                "/admin/drawings/upload",
+                retry,
+                retry_refresh=False,
+            )
 
     def revisions(self, region):
         q = urllib.parse.quote(region, safe="")
