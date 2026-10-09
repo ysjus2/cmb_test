@@ -622,8 +622,8 @@ class UserAdminWindow(tk.Toplevel):
             root,
             text=(
                 "지역명과 고유 지역코드를 최초 1회 등록합니다. "
-                "고유코드는 사용자 권한·도면 업로드·온라인 조회에서 공통으로 사용하는 "
-                "변경하지 않는 식별자입니다. 예: CMB_GN_HP"
+                "고유코드는 형식 제한 없이 사용할 수 있으며 사용자 권한·업로드·온라인 조회에서 "
+                "공통 식별자로 사용합니다. 실제 DXF 파일명은 고유코드와 달라도 됩니다."
             ),
             wraplength=520,
         ).pack(anchor="w", pady=(2, 12))
@@ -708,7 +708,6 @@ class UserAdminWindow(tk.Toplevel):
             rid = region_code.get().strip()
             if rid.lower().endswith(".dxf"):
                 rid = rid[:-4].strip()
-            rid = rid.upper()
             name = region_name.get().strip()
 
             if not rid:
@@ -737,7 +736,7 @@ class UserAdminWindow(tk.Toplevel):
                         or row.get("region_id")
                         or row.get("region_code")
                         or ""
-                    ).strip().upper() == rid
+                    ).strip().casefold() == rid.casefold()
                     for row in rows
                 )
                 if duplicate_code:
@@ -762,7 +761,7 @@ class UserAdminWindow(tk.Toplevel):
                     "지역 등록 완료",
                     f"지역명: {name}\n고유 지역코드: {rid}\n\n"
                     f"이 코드는 사용자 권한·업로드·온라인 조회에서 동일하게 사용됩니다.\n"
-                    f"업로드 DXF의 지역코드는 {rid}와 일치해야 합니다.",
+                    "DXF 파일명은 이 코드와 달라도 됩니다.",
                     parent=win,
                 )
             except Exception as exc:
