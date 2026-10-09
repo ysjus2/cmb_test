@@ -76,9 +76,24 @@ class Api:
     def login(self, username, password):
         try:
             self.user = self.c.login(username, password)
-            return {"ok": True, "user": self.user}
+            policy = self.c.session_policy() or {}
+            return {
+                "ok": True,
+                "user": self.user,
+                "idle_minutes": int(policy.get("idle_minutes", 10)),
+            }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def session_policy(self):
+        try:
+            policy = self.c.session_policy() or {}
+            return {
+                "ok": True,
+                "idle_minutes": int(policy.get("idle_minutes", 10)),
+            }
+        except Exception as exc:
+            return {"ok": False, "idle_minutes": 10, "error": str(exc)}
 
     def logout(self):
         try:
@@ -182,6 +197,10 @@ let map;
 let overlays=[];
 let selectedOverlay=null;
 let lodReferenceSpan=null;
+let idleMinutes=10;
+let lastActivity=Date.now();
+let idleTimer=null;
+let authenticated=false;
 const MAX_LEVEL=14;
 const ZOOM_STEP=1.35;
 const MIN_NETWORK_LEVEL=8;
@@ -229,6 +248,39 @@ function detailLevel(){{
 }}
 
 function setStatus(t){{document.getElementById('status').textContent=t||''}}
+
+function noteActivity(){{
+  if(authenticated) lastActivity=Date.now();
+}}
+
+async function forceIdleLogout(){{
+  if(!authenticated)return;
+  authenticated=false;
+  try{{await pywebview.api.logout();}}catch(e){{}}
+  clearOverlays();
+  document.getElementById('region').innerHTML='<option value="">지역 선택</option>';
+  document.getElementById('detail').style.display='none';
+  document.getElementById('login').style.display='flex';
+  document.getElementById('error').textContent='장시간 사용이 없어 자동 로그아웃되었습니다.';
+  setStatus('유휴시간 만료 · 다시 로그인 필요');
+}}
+
+function startIdleWatch(){{
+  if(idleTimer)clearInterval(idleTimer);
+  lastActivity=Date.now();
+  idleTimer=setInterval(()=>{{
+    if(!authenticated)return;
+    const limit=Math.max(1,idleMinutes)*60*1000;
+    if(Date.now()-lastActivity>=limit)forceIdleLogout();
+  }},5000);
+}}
+
+async function loadSessionPolicy(){{
+  try{{
+    const r=await pywebview.api.session_policy();
+    if(r&&r.ok&&Number(r.idle_minutes)>0)idleMinutes=Number(r.idle_minutes);
+  }}catch(e){{idleMinutes=10;}}
+}}
 
 function clearOverlays(){{
   overlays.forEach(x=>x.setMap(null));
@@ -529,6 +581,9 @@ async function bootstrapAuth(){{
   try{{
     const r=await pywebview.api.bootstrap();
     if(r&&r.authenticated){{
+      authenticated=true;
+      await loadSessionPolicy();
+      startIdleWatch();
       document.getElementById('login').style.display='none';
       await loadRegions();
       return;
@@ -546,6 +601,9 @@ async function login(){{
   if(!u||!p){{e.textContent='아이디와 비밀번호를 입력해주세요.';return}}
   const r=await pywebview.api.login(u,p);
   if(!r.ok){{e.textContent=r.error||'로그인 실패';return}}
+  authenticated=true;
+  idleMinutes=Number(r.idle_minutes||10);
+  startIdleWatch();
   document.getElementById('pass').value='';
   document.getElementById('login').style.display='none';
   await loadRegions();
@@ -591,6 +649,7 @@ function bindUi(){{
   }};
 
   document.getElementById('logout').onclick=async()=>{{
+    authenticated=false;
     await pywebview.api.logout();
     clearOverlays();
     document.getElementById('region').innerHTML='<option value="">지역 선택</option>';
@@ -620,6 +679,12 @@ function initMap(){{
   }}
 }}
 
+['pointerdown','pointermove','keydown','wheel','touchstart'].forEach(
+  eventName=>document.addEventListener(eventName,noteActivity,{{passive:true}})
+);
+document.addEventListener('visibilitychange',()=>{{
+  if(document.visibilityState==='visible')noteActivity();
+}});
 bindUi();
 initMap();
 setTimeout(()=>bootstrapAuth(),250);
