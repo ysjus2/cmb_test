@@ -95,6 +95,13 @@ class Api:
         except Exception as exc:
             return {"ok": False, "idle_minutes": 10, "error": str(exc)}
 
+    def touch_session(self):
+        try:
+            self.c.touch_session()
+            return {"ok": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def logout(self):
         try:
             self.c.logout()
@@ -201,6 +208,7 @@ let idleMinutes=10;
 let lastActivity=Date.now();
 let idleTimer=null;
 let authenticated=false;
+let lastServerTouch=0;
 const MAX_LEVEL=14;
 const ZOOM_STEP=1.35;
 const MIN_NETWORK_LEVEL=8;
@@ -250,7 +258,13 @@ function detailLevel(){{
 function setStatus(t){{document.getElementById('status').textContent=t||''}}
 
 function noteActivity(){{
-  if(authenticated) lastActivity=Date.now();
+  if(!authenticated)return;
+  const now=Date.now();
+  lastActivity=now;
+  if(now-lastServerTouch>=30000){{
+    lastServerTouch=now;
+    pywebview.api.touch_session().catch(()=>{{}});
+  }}
 }}
 
 async function forceIdleLogout(){{
