@@ -63,14 +63,22 @@ class NetworkExtractionMixin:
         self.viewer.hide_extraction_text=False
         self.export_scope=None;self.fiber_network=None;self.route_start=None;self.pipe_diameters={}
         self.viewer.entity_filter=None;self.viewer.network_click=None;self.viewer.route_nodes={};self.viewer.route_start_marker=None
-        self.extract_hint.set('광주간선: 시작 함체/끝점 → 끝 함체/끝점 선택')
+        self.extract_hint.set(
+            '광주간선: 시작 함체/끝점 → 끝 함체/끝점 선택'
+            if bool(getattr(self,'can_extract',False))
+            else '보기 전용 계정 · 추출/Excel 기능 없음'
+        )
 
     def _reset_network_filter(self):
         self.viewer.hide_extraction_text=False
         self.export_scope=None;self.route_start=None
         self.viewer.entity_filter=None;self.viewer.network_click=None;self.viewer.route_nodes={};self.viewer.route_start_marker=None
         self.viewer.set_mode('select');self.viewer.selected.clear();self.viewer.fit_view()
-        self.extract_hint.set('전체 도면 표시 / 일반 Excel 추출 모드')
+        self.extract_hint.set(
+            '전체 도면 표시 / 일반 Excel 추출 모드'
+            if bool(getattr(self,'can_extract',False))
+            else '전체 도면 표시 · 보기 전용 계정'
+        )
 
     def _show_scope(self,scope):
         self.viewer.hide_extraction_text=True
