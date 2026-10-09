@@ -18,7 +18,7 @@ class NetworkExtractionMixin:
         self.pipe_diameters={}
         bar=ttk.Frame(parent)
         bar.pack(fill='x',pady=(0,4))
-        can_extract=bool(getattr(self,'can_extract',False))
+        can_extract=bool(getattr(self,'can_extract',True))
         if can_extract:
             actions=[
                 ('광주간선 추출',self._begin_fiber_route),
@@ -38,7 +38,7 @@ class NetworkExtractionMixin:
         ttk.Label(bar,textvariable=self.extract_hint).pack(side='left',padx=8)
 
     def _run_catv_pole_excel(self):
-        if not getattr(self,'can_extract',False): return
+        if not getattr(self,'can_extract',True): return
         if self.busy:return
         if not self.viewer.scene or not self.input_path:
             messagebox.showinfo('자가주 좌표 추출','먼저 DXF 도면을 열어주세요.');return
