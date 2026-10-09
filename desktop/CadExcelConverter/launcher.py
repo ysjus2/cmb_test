@@ -4,6 +4,8 @@ import json
 import os
 import subprocess
 import sys
+import socket
+import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import ttk, messagebox
@@ -15,6 +17,8 @@ from session_guard import TkIdleSessionGuard
 SESSION_ENDED_EXIT_CODE = 41
 DEFAULT_GEOMETRY = "620x430"
 ADMIN_GEOMETRY = "620x610"
+SINGLE_INSTANCE_HOST = "127.0.0.1"
+SINGLE_INSTANCE_PORT = 47631
 
 
 class Launcher(tk.Tk):
@@ -123,6 +127,37 @@ class Launcher(tk.Tk):
             textvariable=self.mode_note,
             justify="left",
         ).pack(anchor="w", pady=(10, 0))
+
+    def start_single_instance_listener(self, server_socket):
+        self._single_instance_socket = server_socket
+
+        def listen():
+            while True:
+                try:
+                    conn, _addr = server_socket.accept()
+                except OSError:
+                    return
+                try:
+                    data = conn.recv(64)
+                    if data.startswith(b"ACTIVATE"):
+                        self.after(0, self._activate_existing_instance)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        threading.Thread(target=listen, daemon=True).start()
+
+    def _activate_existing_instance(self):
+        self._restore_launcher()
+        try:
+            self.attributes("-topmost", True)
+            self.after(180, lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
 
     def login(self):
         username = self.username.get().strip()
