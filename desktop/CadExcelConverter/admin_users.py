@@ -605,8 +605,8 @@ class UserAdminWindow(tk.Toplevel):
 
         win = tk.Toplevel(self)
         win.title("지역 등록")
-        win.geometry("560x420")
-        win.minsize(500, 360)
+        win.geometry("620x560")
+        win.minsize(560, 500)
         win.transient(self)
         win.grab_set()
 
@@ -748,7 +748,7 @@ class UserAdminWindow(tk.Toplevel):
                 )
 
         footer = ttk.Frame(root)
-        footer.pack(fill="x", pady=(10, 0))
+        footer.pack(fill="x", pady=(14, 8))
 
         ttk.Button(
             footer,
