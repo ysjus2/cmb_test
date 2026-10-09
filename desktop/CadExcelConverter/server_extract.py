@@ -426,27 +426,13 @@ class ServerExtractWindow(tk.Toplevel):
                 self.source_epsg,
             )
 
-            meta = Path(out).with_suffix(".json")
-            meta.write_text(
-                json.dumps(
-                    {
-                        "region": region,
-                        "groups": sorted(groups),
-                        "features": features,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
             messagebox.showinfo(
                 "내려받기 완료",
                 (
                     f"{region}\n"
                     f"종류: {', '.join(GROUP_LABELS[g] for g in GROUPS if g in groups)}\n"
                     f"객체: {len(features):,}개\n\n"
-                    "DXF 복구본과 속성 보존용 JSON을 함께 저장했습니다."
+                    "DXF 복구본을 저장했습니다. AutoCAD와 CMB 뷰어에서 바로 열 수 있습니다."
                 ),
                 parent=self,
             )
