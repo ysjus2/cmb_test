@@ -7,10 +7,10 @@ from server_client_windows import CMBServerClient
 
 
 class UserAdminWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, client=None, current_user=None):
         super().__init__(master)
-        self.client = CMBServerClient()
-        self.current_user = None
+        self.client = client or CMBServerClient()
+        self.current_user = current_user
         self.users = []
 
         self.title("관리자 · 사용자 관리")
@@ -106,6 +106,31 @@ class UserAdminWindow(tk.Toplevel):
 
         self.status = tk.StringVar(value="")
         ttk.Label(root, textvariable=self.status).pack(fill="x", pady=(8, 0))
+
+        if self.current_user:
+            self.after(0, self._apply_existing_session)
+
+    def _apply_existing_session(self):
+        try:
+            level = int((self.current_user or {}).get("level", 5))
+        except Exception:
+            level = 5
+
+        if level != 1:
+            self.current_user = None
+            return
+
+        user = self.current_user or {}
+        self.login_status.set(
+            f"{user.get('name') or user.get('username')} · 1등급 관리자"
+        )
+        self.lookup_btn.configure(state="normal")
+        self.new_btn.configure(state="normal")
+        self.reset_btn.configure(state="normal")
+        self.deactivate_btn.configure(state="normal")
+        self.activate_btn.configure(state="normal")
+        self.region_btn.configure(state="normal")
+        self.load_users()
 
     def login(self):
         username = self.username.get().strip()
