@@ -133,7 +133,7 @@ def build_payload(scene, source_path, group, epsg):
 
         objects.append({
             "source_handle": e.handle,
-            "regional_object_id": (
+            "object_id": (
                 f"{drawing_code(source_path)}_{e.handle}"
                 if e.handle else ""
             ),
