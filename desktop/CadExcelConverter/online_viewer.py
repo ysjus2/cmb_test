@@ -159,7 +159,6 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
     <button class='layerBtn on' data-group='POLE'>전주</button>
     <button class='layerBtn on' data-group='CONDUIT'>관로</button>
     <button id='reload'>새로고침</button>
-    <button id='logout'>로그아웃</button>
     <span id='status'>세션 확인 중</span>
   </div>
 </div>
@@ -622,11 +621,6 @@ function bindUi(){{
     await loadObjects();
   }};
 
-  document.getElementById('logout').onclick=async()=>{{
-    authenticated=false;
-    setStatus('로그아웃 · 최초 로그인 화면으로 이동');
-    await pywebview.api.end_session();
-  }};
 }}
 
 function initMap(){{
