@@ -232,24 +232,41 @@ function colorFor(group){{
 }}
 
 const SYMBOL_LIBRARY={{
-  onu:{{shape:'rect',w:18,h:12,fill:'#00bcd4',stroke:'#006064'}},
-  amp:{{shape:'triangle',w:18,h:16,fill:'#ffb300',stroke:'#6d4c41'}},
-  pole:{{shape:'circle_x',r:8,fill:'#ffffff',stroke:'#5d4037'}},
-  tap:{{shape:'rect',w:14,h:10,fill:'#ffd54f',stroke:'#795548'}},
-  power:{{shape:'diamond',w:14,h:14,fill:'#ef5350',stroke:'#7f0000'}},
-  closure:{{shape:'circle',r:7,fill:'#42a5f5',stroke:'#0d47a1'}},
-  generic:{{shape:'rect',w:12,h:10,fill:'#eeeeee',stroke:'#424242'}}
+  onu:{{shape:'rect',w:36,h:18,fill:'#00bcd4',stroke:'#006064',label:'ONU'}},
+  amp:{{shape:'triangle',w:18,h:18,fill:'#ff9800',stroke:'#6d4c41'}},
+  pole:{{shape:'circle_x',r:2.2,fill:'#ffffff',stroke:'#5d4037'}},
+  tap:{{shape:'hexagon',w:18,h:16,fill:'#ffd54f',stroke:'#795548'}},
+  splitter:{{shape:'circle',r:8,fill:'#fff59d',stroke:'#795548'}},
+  manhole:{{shape:'double_circle',r:9,fill:'#ffffff',stroke:'#37474f'}},
+  power:{{shape:'diamond',w:16,h:16,fill:'#ef5350',stroke:'#7f0000'}},
+  closure:{{shape:'circle',r:8,fill:'#42a5f5',stroke:'#0d47a1'}},
+  generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
 
 function symbolKind(p){{
+  const f=((p.attributes||{{}}).fields)||{{}};
+  if(f._cmb_symbol_kind)return String(f._cmb_symbol_kind);
   const s=((p.layer||'')+' '+(p.block_name||'')+' '+(p.entity_type||'')).toUpperCase();
   if(s.includes('ONU'))return 'onu';
   if(s.includes('AMP')||s.includes('증폭'))return 'amp';
+  if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
   if(s.includes('POLE')||s.includes('전주'))return 'pole';
-  if(s.includes('TAP')||s.includes('분기'))return 'tap';
+  if(s.includes('2WAY')||s.includes('3WAY')||s.includes('2분기')||s.includes('3분기'))return 'splitter';
+  if(s.includes('TAP'))return 'tap';
   if(s.includes('POWER'))return 'power';
   if(s.includes('CLOSURE')||s.includes('TERMINAL')||s.includes('CENTER'))return 'closure';
   return 'generic';
+}}
+
+function rotationDeg(p){{
+  const f=((p.attributes||{{}}).fields)||{{}};
+  const v=Number(f._cmb_rotation_deg||0);
+  return Number.isFinite(v)?v:0;
+}}
+
+function rotatePoint(x,y,cx,cy,deg){{
+  const a=deg*Math.PI/180,dx=x-cx,dy=y-cy;
+  return [cx+dx*Math.cos(a)-dy*Math.sin(a),cy+dx*Math.sin(a)+dy*Math.cos(a)];
 }}
 
 function pxToLatLng(x,y){{
@@ -261,21 +278,23 @@ function latLngToPx(latlng){{
   return map.getProjection().pointFromCoords(latlng);
 }}
 
-function polygonPoints(kind,cx,cy){{
+function polygonPoints(kind,cx,cy,deg=0){{
   const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  let pts=[];
   if(d.shape==='rect'){{
     const w=d.w/2,h=d.h/2;
-    return [[cx-w,cy-h],[cx+w,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
-  }}
-  if(d.shape==='diamond'){{
+    pts=[[cx-w,cy-h],[cx+w,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
+  }} else if(d.shape==='diamond'){{
     const w=d.w/2,h=d.h/2;
-    return [[cx,cy-h],[cx+w,cy],[cx,cy+h],[cx-w,cy]];
-  }}
-  if(d.shape==='triangle'){{
+    pts=[[cx,cy-h],[cx+w,cy],[cx,cy+h],[cx-w,cy]];
+  }} else if(d.shape==='triangle'){{
     const w=d.w/2,h=d.h/2;
-    return [[cx,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
+    pts=[[cx,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
+  }} else if(d.shape==='hexagon'){{
+    const w=d.w/2,h=d.h/2;
+    pts=[[cx-w*.55,cy-h],[cx+w*.55,cy-h],[cx+w,cy],[cx+w*.55,cy+h],[cx-w*.55,cy+h],[cx-w,cy]];
   }}
-  return [];
+  return pts.map(p=>rotatePoint(p[0],p[1],cx,cy,deg));
 }}
 
 function raySegmentIntersection(cx,cy,dx,dy,a,b){{
@@ -288,15 +307,15 @@ function raySegmentIntersection(cx,cy,dx,dy,a,b){{
   return null;
 }}
 
-function boundaryPoint(kind,cx,cy,tx,ty){{
+function boundaryPoint(kind,cx,cy,tx,ty,deg=0){{
   let dx=tx-cx,dy=ty-cy;
   const len=Math.hypot(dx,dy)||1;
   dx/=len;dy/=len;
   const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
-  if(d.shape==='circle'||d.shape==='circle_x'){{
+  if(d.shape==='circle'||d.shape==='circle_x'||d.shape==='double_circle'){{
     return [cx+dx*d.r,cy+dy*d.r];
   }}
-  const pts=polygonPoints(kind,cx,cy);
+  const pts=polygonPoints(kind,cx,cy,deg);
   let best=null,bestDist=1e9;
   for(let i=0;i<pts.length;i++){{
     const hit=raySegmentIntersection(cx,cy,dx,dy,pts[i],pts[(i+1)%pts.length]);
@@ -313,8 +332,9 @@ function drawDevice(center,props){{
   const px=latLngToPx(center);
   const cx=px.x,cy=px.y;
   const parts=[];
+  const deg=rotationDeg(props);
 
-  if(d.shape==='circle'||d.shape==='circle_x'){{
+  if(d.shape==='circle'||d.shape==='circle_x'||d.shape==='double_circle'){{
     const path=[];
     for(let i=0;i<20;i++){{
       const a=Math.PI*2*i/20;
@@ -322,6 +342,15 @@ function drawDevice(center,props){{
     }}
     const poly=new kakao.maps.Polygon({{path:path,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
     poly.setMap(map);overlays.push(poly);parts.push(poly);bindClick(poly,props);
+    if(d.shape==='double_circle'){{
+      const path2=[];
+      for(let i=0;i<20;i++){{
+        const a=Math.PI*2*i/20;
+        path2.push(pxToLatLng(cx+Math.cos(a)*d.r*.62,cy+Math.sin(a)*d.r*.62));
+      }}
+      const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillOpacity:0}});
+      inner.setMap(map);overlays.push(inner);parts.push(inner);bindClick(inner,props);
+    }}
     if(d.shape==='circle_x'){{
       const a1=pxToLatLng(cx-d.r*.7,cy-d.r*.7),a2=pxToLatLng(cx+d.r*.7,cy+d.r*.7);
       const b1=pxToLatLng(cx-d.r*.7,cy+d.r*.7),b2=pxToLatLng(cx+d.r*.7,cy-d.r*.7);
@@ -331,12 +360,27 @@ function drawDevice(center,props){{
       }});
     }}
   }}else{{
-    const pts=polygonPoints(kind,cx,cy).map(p=>pxToLatLng(p[0],p[1]));
+    const pts=polygonPoints(kind,cx,cy,deg).map(p=>pxToLatLng(p[0],p[1]));
     const poly=new kakao.maps.Polygon({{path:pts,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
     poly.setMap(map);overlays.push(poly);parts.push(poly);bindClick(poly,props);
   }}
 
-  return {{kind,center,cx,cy,props,parts}};
+  const a=deg*Math.PI/180;
+  const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
+  const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
+  const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
+  dirLine.setMap(map);overlays.push(dirLine);parts.push(dirLine);
+
+  if(d.label){{
+    const label=new kakao.maps.CustomOverlay({{
+      position:center,
+      content:'<div style="font:700 10px Malgun Gothic;color:#00363a;transform:translate(-50%,-50%);pointer-events:none">'+d.label+'</div>',
+      yAnchor:.5,xAnchor:.5
+    }});
+    label.setMap(map);overlays.push(label);parts.push(label);
+  }}
+
+  return {{kind,center,cx,cy,props,parts,deg}};
 }}
 
 function snapCablePath(coords,devices){{
@@ -353,7 +397,7 @@ function snapCablePath(coords,devices){{
     }}
     if(!best)return;
     const target=px[neighborIndex];
-    const bp=boundaryPoint(best.kind,best.cx,best.cy,target.x,target.y);
+    const bp=boundaryPoint(best.kind,best.cx,best.cy,target.x,target.y,best.deg||0);
     pts[index]=pxToLatLng(bp[0],bp[1]);
   }}
 
