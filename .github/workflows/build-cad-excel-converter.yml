@@ -32,7 +32,8 @@ jobs:
         shell: powershell
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name CMB_DXF_Viewer_v3.36 --collect-all pyproj --collect-all ezdxf `
+            --name CMB_DXF_Viewer_v3.36 --collect-all pyproj --collect-all ezdxf --collect-all webview `
+            --add-data "cmb_dev_ca.crt;." `
             --exclude-module numpy --exclude-module fontTools main.py
           Get-FileHash dist/CMB_DXF_Viewer_v3.36.exe -Algorithm SHA256
       - name: Upload current build
