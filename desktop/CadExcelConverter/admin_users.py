@@ -284,6 +284,19 @@ class UserAdminWindow(tk.Toplevel):
             )
         form.columnconfigure(1, weight=1)
 
+        duplicate_status = tk.StringVar(value="아이디 중복검사 대기")
+        ttk.Label(
+            form,
+            textvariable=duplicate_status,
+        ).grid(
+            row=len(rows),
+            column=1,
+            sticky="w",
+            padx=(8, 0),
+            pady=(0, 4),
+        )
+        username_check_job = {"id": None}
+
         region_box = ttk.LabelFrame(
             frame,
             text="사용 가능 지역 선택",
@@ -376,6 +389,54 @@ class UserAdminWindow(tk.Toplevel):
                     return row.get("id")
             return None
 
+        def check_username(show_error=False):
+            u = username.get().strip()
+            if not u:
+                duplicate_status.set("아이디를 입력해주세요.")
+                return False
+            try:
+                rows = self.client.admin_users() or []
+                if isinstance(rows, dict):
+                    rows = rows.get("items") or rows.get("users") or []
+                duplicate = any(
+                    str(row.get("username") or "").strip().lower() == u.lower()
+                    for row in rows
+                )
+                if duplicate:
+                    duplicate_status.set("이미 사용 중인 아이디입니다.")
+                    if show_error:
+                        messagebox.showinfo(
+                            "아이디 중복",
+                            f"{u} 아이디는 이미 등록되어 있습니다.",
+                            parent=win,
+                        )
+                    return False
+                duplicate_status.set("사용 가능한 아이디입니다.")
+                return True
+            except Exception as exc:
+                duplicate_status.set("중복검사 실패")
+                if show_error:
+                    messagebox.showerror(
+                        "아이디 중복검사 오류",
+                        str(exc),
+                        parent=win,
+                    )
+                return False
+
+        def schedule_username_check(*_):
+            job = username_check_job.get("id")
+            if job is not None:
+                try:
+                    win.after_cancel(job)
+                except Exception:
+                    pass
+            username_check_job["id"] = win.after(
+                350,
+                lambda: check_username(False),
+            )
+
+        username.trace_add("write", schedule_username_check)
+
         def save():
             u = username.get().strip()
             if not u:
@@ -384,6 +445,9 @@ class UserAdminWindow(tk.Toplevel):
                     "아이디를 입력해주세요.",
                     parent=win,
                 )
+                return
+
+            if not check_username(show_error=True):
                 return
 
             try:
