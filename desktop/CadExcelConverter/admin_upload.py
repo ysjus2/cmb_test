@@ -485,7 +485,7 @@ class AdminUploadWindow(tk.Toplevel):
     def show_revisions(self):
         if not self.current_user:
             messagebox.showinfo(
-                "Revision",
+                "백업 조회",
                 "먼저 서버에 로그인해주세요.",
                 parent=self,
             )
@@ -493,39 +493,177 @@ class AdminUploadWindow(tk.Toplevel):
 
         if int(self.current_user.get("level", 5)) != 1:
             messagebox.showinfo(
-                "Revision",
-                "Revision 조회는 현재 관리자 API이므로 1등급 로그인이 필요합니다.",
+                "백업 조회",
+                "백업 조회/복원은 현재 1등급 관리자만 가능합니다.",
                 parent=self,
             )
             return
 
-        try:
-            rows = self.client.revisions(
-                drawing_code(self.source_path)
-            ) or []
+        region = drawing_code(self.source_path)
 
-            lines = []
+        win = tk.Toplevel(self)
+        win.title(f"서버 도면 백업 · {region}")
+        win.geometry("920x480")
+        win.minsize(760, 400)
+        win.transient(self)
 
-            for row in rows:
-                state = "현재" if row.get("active") else "백업"
-                created = str(row.get("created_at") or "").replace("T", " ")[:19]
-                memo = str(row.get("memo") or "").strip() or "메모 없음"
-                lines.append(
-                    f"{row.get('group_id')} · {state} · "
-                    f"{created or '날짜 없음'} · "
-                    f"{row.get('object_count')}개\n"
-                    f"  메모: {memo}"
-                )
+        root = ttk.Frame(win, padding=12)
+        root.pack(fill="both", expand=True)
 
-            messagebox.showinfo(
-                "서버 Revision",
-                "\n".join(lines) if lines else "등록된 Revision이 없습니다.",
-                parent=self,
+        ttk.Label(
+            root,
+            text=f"{region} · 그룹별 현재본 + 최근 백업 2개",
+            font=("Malgun Gothic", 14, "bold"),
+        ).pack(anchor="w")
+
+        ttk.Label(
+            root,
+            text=(
+                "백업을 선택해 복원하면 해당 그룹의 선택 백업이 현재본이 되고, "
+                "기존 현재본은 백업으로 유지됩니다."
+            ),
+        ).pack(anchor="w", pady=(3, 10))
+
+        tree = ttk.Treeview(
+            root,
+            columns=("group", "state", "date", "count", "memo"),
+            show="headings",
+            height=13,
+        )
+        for key, title, width in (
+            ("group", "종류", 90),
+            ("state", "상태", 70),
+            ("date", "저장일시", 155),
+            ("count", "객체수", 90),
+            ("memo", "메모", 420),
+        ):
+            tree.heading(key, text=title)
+            tree.column(key, width=width, anchor="w")
+        tree.pack(fill="both", expand=True)
+
+        row_map = {}
+
+        def load_rows():
+            for item in tree.get_children():
+                tree.delete(item)
+            row_map.clear()
+
+            rows = self.client.revisions(region) or []
+            if isinstance(rows, dict):
+                rows = rows.get("items") or rows.get("revisions") or []
+
+            order = {g: i for i, g in enumerate(GROUPS)}
+            rows = sorted(
+                list(rows),
+                key=lambda r: (
+                    order.get(str(r.get("group_id") or "").upper(), 999),
+                    0 if r.get("active") else 1,
+                    -int(r.get("revision") or 0),
+                ),
             )
 
+            for idx, item in enumerate(rows):
+                group = str(item.get("group_id") or "")
+                state = "현재" if item.get("active") else "백업"
+                created = str(item.get("created_at") or "").replace("T", " ")[:19]
+                memo = str(item.get("memo") or "").strip() or "메모 없음"
+                count = int(item.get("object_count") or 0)
+                iid = f"rev_{idx}_{item.get('id') or item.get('revision')}"
+                tree.insert(
+                    "",
+                    "end",
+                    iid=iid,
+                    values=(group, state, created or "날짜 없음", f"{count:,}", memo),
+                )
+                row_map[iid] = item
+
+        def restore_selected():
+            selected = tree.selection()
+            if not selected:
+                messagebox.showinfo(
+                    "백업 복원",
+                    "복원할 백업을 선택해주세요.",
+                    parent=win,
+                )
+                return
+
+            item = row_map.get(selected[0]) or {}
+            if item.get("active"):
+                messagebox.showinfo(
+                    "백업 복원",
+                    "현재 사용 중인 도면입니다. 백업 항목을 선택해주세요.",
+                    parent=win,
+                )
+                return
+
+            revision_id = item.get("id")
+            if revision_id in (None, ""):
+                messagebox.showerror(
+                    "백업 복원",
+                    "서버 응답에 Revision ID가 없어 복원할 수 없습니다.",
+                    parent=win,
+                )
+                return
+
+            group = str(item.get("group_id") or "")
+            created = str(item.get("created_at") or "").replace("T", " ")[:19]
+            memo = str(item.get("memo") or "").strip() or "메모 없음"
+
+            if not messagebox.askyesno(
+                "백업 복원 확인",
+                (
+                    f"지역: {region}\n"
+                    f"종류: {group}\n"
+                    f"백업일시: {created or '날짜 없음'}\n"
+                    f"메모: {memo}\n\n"
+                    "이 백업을 현재 도면으로 복원하시겠습니까?\n"
+                    "기존 현재본은 백업으로 유지됩니다."
+                ),
+                parent=win,
+            ):
+                return
+
+            try:
+                result = self.client.restore_revision(region, int(revision_id))
+                load_rows()
+                self.status.set(
+                    f"{group} 백업 복원 완료 · "
+                    f"revision {result.get('revision') or item.get('revision')}"
+                )
+                messagebox.showinfo(
+                    "백업 복원",
+                    "선택한 백업을 현재 도면으로 복원했습니다.",
+                    parent=win,
+                )
+            except Exception as exc:
+                messagebox.showerror(
+                    "백업 복원 오류",
+                    str(exc),
+                    parent=win,
+                )
+
+        controls = ttk.Frame(root)
+        controls.pack(fill="x", pady=(10, 0))
+
+        ttk.Button(
+            controls,
+            text="새로고침",
+            command=load_rows,
+        ).pack(side="left")
+
+        ttk.Button(
+            controls,
+            text="선택 백업 복원",
+            command=restore_selected,
+        ).pack(side="right")
+
+        try:
+            load_rows()
         except Exception as exc:
+            win.destroy()
             messagebox.showerror(
-                "Revision 조회 오류",
+                "백업 조회 오류",
                 str(exc),
                 parent=self,
             )
+
