@@ -75,6 +75,11 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.activate_btn.pack(side="left", padx=(6, 0))
 
+        self.region_btn = ttk.Button(
+            tools, text="지역 권한", command=self.edit_regions, state="disabled"
+        )
+        self.region_btn.pack(side="left", padx=(6, 0))
+
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True)
 
@@ -120,6 +125,7 @@ class UserAdminWindow(tk.Toplevel):
                 self.reset_btn.configure(state="disabled")
                 self.deactivate_btn.configure(state="disabled")
                 self.activate_btn.configure(state="disabled")
+                self.region_btn.configure(state="disabled")
                 return
             self.current_user = user
             self.login_status.set(
@@ -130,6 +136,7 @@ class UserAdminWindow(tk.Toplevel):
             self.reset_btn.configure(state="normal")
             self.deactivate_btn.configure(state="normal")
             self.activate_btn.configure(state="normal")
+            self.region_btn.configure(state="normal")
             self.load_users()
         except Exception as exc:
             self.current_user = None
@@ -301,6 +308,96 @@ class UserAdminWindow(tk.Toplevel):
             self.status.set(f"{username} 재활성화 완료")
         except Exception as exc:
             messagebox.showerror("재활성화 오류", str(exc), parent=self)
+
+    def edit_regions(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("지역 권한", "사용자를 선택해주세요.", parent=self)
+            return
+
+        user_id = user.get("id")
+        username = str(user.get("username") or "")
+        if user_id is None:
+            return
+
+        try:
+            all_regions = self.client.admin_regions() or []
+            assigned = self.client.user_regions(user_id) or []
+            if isinstance(all_regions, dict):
+                all_regions = all_regions.get("items") or all_regions.get("regions") or []
+            if isinstance(assigned, dict):
+                assigned = assigned.get("items") or assigned.get("regions") or []
+        except Exception as exc:
+            messagebox.showerror("지역 권한 조회 오류", str(exc), parent=self)
+            return
+
+        assigned_ids = {
+            str(x.get("id") or x.get("region_id") or "")
+            for x in assigned
+        }
+
+        win = tk.Toplevel(self)
+        win.title(f"지역 권한 · {username}")
+        win.geometry("430x520")
+        win.transient(self)
+        win.grab_set()
+
+        outer = ttk.Frame(win, padding=12)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(
+            outer,
+            text=f"{username} 사용자가 조회할 지역을 선택하세요.",
+            font=("Malgun Gothic", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        body = ttk.Frame(canvas)
+        body.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.create_window((0, 0), window=body, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        vars_by_region = {}
+        for region in all_regions:
+            rid = str(region.get("id") or "").strip()
+            if not rid:
+                continue
+            name = str(region.get("name") or rid)
+            var = tk.BooleanVar(value=rid in assigned_ids)
+            vars_by_region[rid] = var
+            ttk.Checkbutton(
+                body,
+                text=f"{name}  ({rid})",
+                variable=var,
+            ).pack(anchor="w", pady=3)
+
+        buttons = ttk.Frame(win, padding=(12, 0, 12, 12))
+        buttons.pack(fill="x")
+
+        def save():
+            selected = [rid for rid, var in vars_by_region.items() if var.get()]
+            try:
+                self.client.set_user_regions(user_id, selected)
+                self.status.set(
+                    f"{username} 지역 권한 저장 완료 · {len(selected)}개 지역"
+                )
+                win.destroy()
+                messagebox.showinfo(
+                    "지역 권한",
+                    f"{username} 사용자의 지역 권한이 저장되었습니다.",
+                    parent=self,
+                )
+            except Exception as exc:
+                messagebox.showerror("지역 권한 저장 오류", str(exc), parent=win)
+
+        ttk.Button(buttons, text="저장", command=save).pack(side="right")
+        ttk.Button(buttons, text="취소", command=win.destroy).pack(side="right", padx=(0, 6))
 
     def reset_password(self):
         user = self._selected_user()
