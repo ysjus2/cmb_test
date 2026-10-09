@@ -97,7 +97,8 @@ class Launcher(tk.Tk):
             command=self.open_admin,
             state="disabled",
         )
-        self.admin_btn.pack(fill="x", ipady=7, pady=4)
+        # 관리자 버튼은 로그인 전/일반 계정에는 아예 표시하지 않는다.
+        self.admin_btn.pack_forget()
 
         self.mode_note = tk.StringVar(value="")
         ttk.Label(
@@ -122,7 +123,11 @@ class Launcher(tk.Tk):
 
             self.online_btn.configure(state="normal")
             self.map_btn.configure(state="normal")
-            self.admin_btn.configure(state="normal" if level == 1 else "disabled")
+            if level == 1:
+                self.admin_btn.configure(state="normal")
+                self.admin_btn.pack(fill="x", ipady=7, pady=4)
+            else:
+                self.admin_btn.pack_forget()
 
             if level <= 3:
                 map_note = "도면 보기 + 추출/Excel 기능"
@@ -162,6 +167,7 @@ class Launcher(tk.Tk):
         self.online_btn.configure(state="disabled")
         self.map_btn.configure(state="disabled")
         self.admin_btn.configure(state="disabled")
+        self.admin_btn.pack_forget()
         self.mode_note.set("")
         self.session_guard = None
 
