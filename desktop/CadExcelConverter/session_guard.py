@@ -8,7 +8,14 @@ from server_client_windows import CMBServerClient
 
 
 class TkIdleSessionGuard:
-    def __init__(self, root, on_expired, client=None, default_minutes=10):
+    def __init__(
+        self,
+        root,
+        on_expired,
+        client=None,
+        default_minutes=10,
+        busy_predicate=None,
+    ):
         self.root = root
         self.on_expired = on_expired
         self.client = client or CMBServerClient()
@@ -21,6 +28,7 @@ class TkIdleSessionGuard:
         self.last_server_touch = 0.0
         self.enabled = True
         self.expired = False
+        self.busy_predicate = busy_predicate
 
         try:
             policy = self.client.session_policy() or {}
@@ -68,9 +76,23 @@ class TkIdleSessionGuard:
 
     def _check(self):
         try:
+            busy = False
+            if self.busy_predicate is not None:
+                try:
+                    busy = bool(self.busy_predicate())
+                except Exception:
+                    busy = False
+
+            if busy and self.enabled and not self.expired:
+                self.last_activity = time.monotonic()
+                if self.last_activity - self.last_server_touch >= 30:
+                    self.last_server_touch = self.last_activity
+                    threading.Thread(target=self._touch_server, daemon=True).start()
+
             if (
                 self.enabled
                 and not self.expired
+                and not busy
                 and time.monotonic() - self.last_activity >= self.idle_minutes * 60
             ):
                 self.expired = True
