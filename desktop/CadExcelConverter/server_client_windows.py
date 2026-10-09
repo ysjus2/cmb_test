@@ -1,43 +1,148 @@
 from __future__ import annotations
-import json, os, ssl, sys, urllib.error, urllib.parse, urllib.request
+
+import json
+import os
+import ssl
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
-BASE_URL="https://192.168.246.54:8443"
-DEV_TOKEN=os.getenv("CMB_ACCESS_TOKEN","cmb-local-test").strip()
+BASE_URL = "https://192.168.246.54:8443"
+
 
 def resource_path(name):
-    root=getattr(sys,"_MEIPASS",None)
-    return os.path.join(root,name) if root else str(Path(__file__).resolve().with_name(name))
+    root = getattr(sys, "_MEIPASS", None)
+    return os.path.join(root, name) if root else str(Path(__file__).resolve().with_name(name))
 
-class ServerError(RuntimeError): pass
+
+class ServerError(RuntimeError):
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
 
 class CMBServerClient:
-    def __init__(self,base_url=BASE_URL):
-        self.base_url=base_url.rstrip("/")
-        ca=resource_path("cmb_dev_ca.crt")
-        self.ssl_context=ssl.create_default_context(cafile=ca) if os.path.exists(ca) else ssl.create_default_context()
-        self.access_token=DEV_TOKEN
-    def _request(self,method,path,payload=None,auth=True):
-        body=None;headers={"Accept":"application/json"}
+    def __init__(self, base_url=BASE_URL):
+        self.base_url = base_url.rstrip("/")
+        ca = resource_path("cmb_dev_ca.crt")
+        self.ssl_context = (
+            ssl.create_default_context(cafile=ca)
+            if os.path.exists(ca)
+            else ssl.create_default_context()
+        )
+        self.access_token = ""
+        self.refresh_token = ""
+
+    @property
+    def authenticated(self):
+        return bool(self.access_token)
+
+    def _raw_request(self, method, path, payload=None, auth=True):
+        body = None
+        headers = {"Accept": "application/json"}
+
         if payload is not None:
-            body=json.dumps(payload,ensure_ascii=False).encode("utf-8")
-            headers["Content-Type"]="application/json; charset=utf-8"
-        if auth and self.access_token: headers["Authorization"]="Bearer "+self.access_token
-        req=urllib.request.Request(self.base_url+path,data=body,headers=headers,method=method)
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
+
+        if auth:
+            if not self.access_token:
+                raise ServerError("로그인이 필요합니다.", status=401)
+            headers["Authorization"] = "Bearer " + self.access_token
+
+        req = urllib.request.Request(
+            self.base_url + path,
+            data=body,
+            headers=headers,
+            method=method,
+        )
+
         try:
-            with urllib.request.urlopen(req,context=self.ssl_context,timeout=30) as resp:
-                raw=resp.read().decode("utf-8")
+            with urllib.request.urlopen(req, context=self.ssl_context, timeout=60) as resp:
+                raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw else None
-        except urllib.error.HTTPError as e:
-            detail=e.read().decode("utf-8","replace")
-            raise ServerError(f"HTTP {e.code}: {detail or e.reason}") from e
-        except Exception as e:
-            raise ServerError(str(e)) from e
-    def health(self): return self._request("GET","/health",auth=False)
-    def regions(self): return self._request("GET","/regions")
-    def region_datasets(self,region): return self._request("GET","/regions/"+urllib.parse.quote(region)+"/datasets")
-    def layers(self,dataset): return self._request("GET","/datasets/"+urllib.parse.quote(dataset)+"/layers")
-    def objects(self,dataset,bbox):
-        return self._request("GET","/datasets/"+urllib.parse.quote(dataset)+"/objects?bbox="+urllib.parse.quote(bbox,safe=",.-")+"&limit=5000")
-    def upload_group(self,payload): return self._request("POST","/admin/drawings/upload",payload)
-    def revisions(self,region): return self._request("GET","/admin/drawings/"+urllib.parse.quote(region)+"/revisions")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            try:
+                parsed = json.loads(detail)
+                detail = parsed.get("detail") or detail
+            except Exception:
+                pass
+            raise ServerError(f"HTTP {exc.code}: {detail or exc.reason}", status=exc.code) from exc
+        except urllib.error.URLError as exc:
+            raise ServerError(f"서버 연결 실패: {exc.reason}") from exc
+        except Exception as exc:
+            raise ServerError(str(exc)) from exc
+
+    def _request(self, method, path, payload=None, auth=True, retry_refresh=True):
+        try:
+            return self._raw_request(method, path, payload, auth=auth)
+        except ServerError as exc:
+            if auth and exc.status == 401 and retry_refresh and self.refresh_token:
+                self.refresh()
+                return self._request(method, path, payload, auth=True, retry_refresh=False)
+            raise
+
+    def health(self):
+        return self._request("GET", "/health", auth=False)
+
+    def login(self, username, password):
+        tokens = self._request(
+            "POST",
+            "/auth/login",
+            {"username": username.strip(), "password": password},
+            auth=False,
+        )
+        self.access_token = str(tokens.get("access_token") or "")
+        self.refresh_token = str(tokens.get("refresh_token") or "")
+        if not self.access_token:
+            raise ServerError("로그인 응답에 access_token이 없습니다.")
+        return self.me()
+
+    def refresh(self):
+        if not self.refresh_token:
+            raise ServerError("갱신할 로그인 세션이 없습니다.", status=401)
+        tokens = self._raw_request(
+            "POST",
+            "/auth/refresh",
+            {"refresh_token": self.refresh_token},
+            auth=False,
+        )
+        self.access_token = str(tokens.get("access_token") or "")
+        self.refresh_token = str(tokens.get("refresh_token") or self.refresh_token)
+        return tokens
+
+    def logout(self):
+        try:
+            if self.access_token:
+                self._request("POST", "/auth/logout", retry_refresh=False)
+        finally:
+            self.access_token = ""
+            self.refresh_token = ""
+
+    def me(self):
+        return self._request("GET", "/me")
+
+    def regions(self):
+        return self._request("GET", "/regions")
+
+    def online_regions(self):
+        return self._request("GET", "/online/regions")
+
+    def online_layers(self, region):
+        q = urllib.parse.quote(region, safe="")
+        return self._request("GET", f"/online/{q}/layers")
+
+    def online_objects(self, region, bbox, limit=5000):
+        q = urllib.parse.quote(region, safe="")
+        bb = urllib.parse.quote(bbox, safe=",.-")
+        return self._request("GET", f"/online/{q}/objects?bbox={bb}&limit={int(limit)}")
+
+    def upload_group(self, payload):
+        return self._request("POST", "/admin/drawings/upload", payload)
+
+    def revisions(self, region):
+        q = urllib.parse.quote(region, safe="")
+        return self._request("GET", f"/admin/drawings/{q}/revisions")
