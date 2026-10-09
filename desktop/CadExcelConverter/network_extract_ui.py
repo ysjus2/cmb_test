@@ -34,6 +34,18 @@ class NetworkExtractionMixin:
             hint='보기 전용 계정 · 추출/Excel 기능 없음'
         for label,command in actions:
             ttk.Button(bar,text=label,command=command).pack(side='left',padx=(0,5))
+        if bool(getattr(self,'is_admin',False)):
+            ttk.Separator(bar,orient='vertical').pack(side='left',fill='y',padx=(4,8))
+            ttk.Button(
+                bar,
+                text='서버 도면 업로드',
+                command=self._open_admin_upload,
+            ).pack(side='left',padx=(0,5))
+            ttk.Button(
+                bar,
+                text='서버 추출/내려받기',
+                command=self._open_server_extract,
+            ).pack(side='left',padx=(0,5))
         self.extract_hint=tk.StringVar(value=hint)
         ttk.Label(bar,textvariable=self.extract_hint).pack(side='left',padx=8)
 
