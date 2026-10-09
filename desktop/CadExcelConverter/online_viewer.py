@@ -47,6 +47,32 @@ class Api:
         self.region = ""
         self.user = None
 
+        self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+        self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        raw_user = os.getenv("CMB_AUTH_USER", "").strip()
+        if raw_user:
+            try:
+                self.user = json.loads(raw_user)
+            except Exception:
+                self.user = None
+
+    def bootstrap(self):
+        if not self.c.access_token:
+            return {"ok": False, "authenticated": False}
+        try:
+            self.user = self.c.me()
+            return {
+                "ok": True,
+                "authenticated": True,
+                "user": self.user,
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "authenticated": False,
+                "error": str(exc),
+            }
+
     def login(self, username, password):
         try:
             self.user = self.c.login(username, password)
@@ -499,6 +525,19 @@ async function loadRegions(){{
   setStatus((r.items||[]).length+'개 지역');
 }}
 
+async function bootstrapAuth(){{
+  try{{
+    const r=await pywebview.api.bootstrap();
+    if(r&&r.authenticated){{
+      document.getElementById('login').style.display='none';
+      await loadRegions();
+      return;
+    }}
+  }}catch(e){{}}
+  document.getElementById('login').style.display='flex';
+  setStatus('로그인 필요');
+}}
+
 async function login(){{
   const u=document.getElementById('user').value.trim();
   const p=document.getElementById('pass').value;
@@ -583,6 +622,7 @@ function initMap(){{
 
 bindUi();
 initMap();
+setTimeout(()=>bootstrapAuth(),250);
 </script>
 </body>
 </html>"""
