@@ -8,3 +8,5 @@ packaging==26.3
 pefile==2023.2.7
 pywin32-ctypes==0.2.3
 # Install separately with --no-deps: ezdxf==1.0.3 pyproj==3.7.2
+
+pywebview==5.4
