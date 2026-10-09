@@ -184,6 +184,16 @@ class CMBServerClient:
     def admin_regions(self):
         return self._request("GET", "/admin/regions")
 
+    def create_region(self, region_id, name):
+        return self._request(
+            "POST",
+            "/admin/regions",
+            {
+                "id": str(region_id).strip(),
+                "name": str(name).strip(),
+            },
+        )
+
     def user_regions(self, user_id):
         return self._request(
             "GET",
