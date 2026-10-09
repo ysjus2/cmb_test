@@ -111,7 +111,7 @@ class Api:
                     or row.get("region_id")
                     or row.get("region_code")
                     or ""
-                ).strip().upper()
+                ).strip()
                 if not region_id or region_id in seen:
                     continue
                 seen.add(region_id)
