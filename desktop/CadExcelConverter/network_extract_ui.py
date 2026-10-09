@@ -34,6 +34,7 @@ class NetworkExtractionMixin:
         ttk.Label(bar,textvariable=self.extract_hint).pack(side='left',padx=8)
 
     def _run_catv_pole_excel(self):
+        if not getattr(self,'can_extract',False): return
         if self.busy:return
         if not self.viewer.scene or not self.input_path:
             messagebox.showinfo('자가주 좌표 추출','먼저 DXF 도면을 열어주세요.');return
@@ -84,6 +85,7 @@ class NetworkExtractionMixin:
         self.viewer.fit_view()
 
     def _begin_fiber_route(self):
+        if not getattr(self,'can_extract',False): return
         if self.busy:return
         if not self.viewer.scene or not self.input_path:
             messagebox.showinfo('광주간선 추출','먼저 DXF 도면을 열어주세요.');return
@@ -127,6 +129,7 @@ class NetworkExtractionMixin:
         self.status_var.set('선택 광 경로와 시작·끝 기기만 표시')
 
     def _begin_main_conduit(self):
+        if not getattr(self,'can_extract',False): return
         if self.busy:return
         if not self.viewer.scene or not self.input_path:
             messagebox.showinfo('100mm 주관로 추출','먼저 DXF 도면을 열어주세요.');return
@@ -137,6 +140,7 @@ class NetworkExtractionMixin:
         self._apply_main_conduit(records)
 
     def _inspect_conduits(self):
+        if not getattr(self,'can_extract',False): return
         if self.busy or not self.viewer.scene or not self.input_path:return
         self._show_pipe_diameter_editor(conduit_records(self.viewer.scene,self.input_path,self.pipe_diameters))
 
@@ -186,6 +190,7 @@ class NetworkExtractionMixin:
         refresh()
 
     def _run_network_excel(self):
+        if not getattr(self,'can_extract',False): return
         if self.busy:return
         scope=self.export_scope
         if scope['kind']=='catv':
