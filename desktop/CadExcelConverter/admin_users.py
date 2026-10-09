@@ -23,23 +23,9 @@ class UserAdminWindow(tk.Toplevel):
         ttk.Label(root, text="사용자 관리", font=("Malgun Gothic", 16, "bold")).pack(anchor="w")
         ttk.Label(root, text="1등급 관리자 전용").pack(anchor="w", pady=(2, 10))
 
-        login = ttk.LabelFrame(root, text="관리자 로그인", padding=8)
-        login.pack(fill="x")
-
-        self.username = tk.StringVar()
-        self.password = tk.StringVar()
-        self.login_status = tk.StringVar(value="로그인이 필요합니다.")
-
-        ttk.Label(login, text="아이디").grid(row=0, column=0, sticky="w")
-        ttk.Entry(login, textvariable=self.username, width=20).grid(row=0, column=1, padx=(6, 12))
-        ttk.Label(login, text="비밀번호").grid(row=0, column=2, sticky="w")
-        pw = ttk.Entry(login, textvariable=self.password, show="*", width=20)
-        pw.grid(row=0, column=3, padx=(6, 12))
-        pw.bind("<Return>", lambda e: self.login())
-        ttk.Button(login, text="로그인", command=self.login).grid(row=0, column=4)
-        ttk.Label(login, textvariable=self.login_status).grid(
-            row=1, column=0, columnspan=5, sticky="w", pady=(6, 0)
-        )
+        self.login_status = tk.StringVar(value="")
+        session_line = ttk.Label(root, textvariable=self.login_status)
+        session_line.pack(anchor="w", pady=(0, 8))
 
         tools = ttk.Frame(root)
         tools.pack(fill="x", pady=(10, 6))
@@ -114,6 +100,8 @@ class UserAdminWindow(tk.Toplevel):
 
         if self.current_user:
             self.after(0, self._apply_existing_session)
+        else:
+            self.after(0, self.destroy)
 
     def _apply_existing_session(self):
         try:
@@ -137,43 +125,6 @@ class UserAdminWindow(tk.Toplevel):
         self.region_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
         self.load_users()
-
-    def login(self):
-        username = self.username.get().strip()
-        password = self.password.get()
-        if not username or not password:
-            messagebox.showinfo("로그인", "아이디와 비밀번호를 입력해주세요.", parent=self)
-            return
-        try:
-            user = self.client.login(username, password)
-            self.password.set("")
-            level = int(user.get("level", 5))
-            if level != 1:
-                self.current_user = None
-                self.login_status.set("1등급 관리자만 사용자 관리가 가능합니다.")
-                self.lookup_btn.configure(state="disabled")
-                self.new_btn.configure(state="disabled")
-                self.reset_btn.configure(state="disabled")
-                self.deactivate_btn.configure(state="disabled")
-                self.activate_btn.configure(state="disabled")
-                self.region_btn.configure(state="disabled")
-                self.session_btn.configure(state="disabled")
-                return
-            self.current_user = user
-            self.login_status.set(
-                f"{user.get('name') or user.get('username')} · 1등급 관리자"
-            )
-            self.lookup_btn.configure(state="normal")
-            self.new_btn.configure(state="normal")
-            self.reset_btn.configure(state="normal")
-            self.deactivate_btn.configure(state="normal")
-            self.activate_btn.configure(state="normal")
-            self.region_btn.configure(state="normal")
-            self.session_btn.configure(state="normal")
-            self.load_users()
-        except Exception as exc:
-            self.current_user = None
-            messagebox.showerror("로그인 오류", str(exc), parent=self)
 
     def load_users(self):
         if not self.current_user:
