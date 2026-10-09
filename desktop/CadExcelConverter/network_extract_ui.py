@@ -48,7 +48,7 @@ class NetworkExtractionMixin:
             ).pack(side='left',padx=(0,5))
             ttk.Button(
                 bar,
-                text='서버 추출/내려받기',
+                text='서버 도면 내려받기',
                 command=self._open_server_extract,
             ).pack(side='left',padx=(0,5))
         self.extract_hint=tk.StringVar(value=hint)
