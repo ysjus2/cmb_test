@@ -146,3 +146,14 @@ class CMBServerClient:
     def revisions(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/admin/drawings/{q}/revisions")
+
+    def admin_users(self):
+        return self._request("GET", "/admin/users")
+
+    def reset_user_password(self, username, new_password):
+        q = urllib.parse.quote(str(username), safe="")
+        return self._request(
+            "POST",
+            f"/admin/users/{q}/reset-password",
+            {"new_password": str(new_password)},
+        )
