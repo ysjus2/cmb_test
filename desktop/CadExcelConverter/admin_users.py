@@ -25,7 +25,13 @@ class UserAdminWindow(tk.Toplevel):
 
         self.login_status = tk.StringVar(value="")
         session_line = ttk.Label(root, textvariable=self.login_status)
-        session_line.pack(anchor="w", pady=(0, 8))
+        session_line.pack(anchor="w", pady=(0, 2))
+
+        self.session_timeout_text = tk.StringVar(value="로그인 유지시간: 조회 전")
+        ttk.Label(
+            root,
+            textvariable=self.session_timeout_text,
+        ).pack(anchor="w", pady=(0, 8))
 
         tools = ttk.Frame(root)
         tools.pack(fill="x", pady=(10, 6))
@@ -81,15 +87,16 @@ class UserAdminWindow(tk.Toplevel):
 
         self.tree = ttk.Treeview(
             frame,
-            columns=("username", "name", "department", "level", "active"),
+            columns=("username", "name", "department", "level", "regions", "active"),
             show="headings",
             selectmode="browse",
         )
         for key, title, width in (
             ("username", "아이디", 150),
             ("name", "이름", 130),
-            ("department", "부서", 210),
+            ("department", "부서", 170),
             ("level", "등급", 70),
+            ("regions", "배정 지역", 380),
             ("active", "상태", 80),
         ):
             self.tree.heading(key, text=title)
@@ -130,7 +137,16 @@ class UserAdminWindow(tk.Toplevel):
         self.region_btn.configure(state="normal")
         self.region_register_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
+        self._refresh_session_timeout_display()
         self.status.set("사용자 조회 버튼을 눌러 목록을 불러오세요.")
+
+    def _refresh_session_timeout_display(self):
+        try:
+            result = self.client.admin_session_timeout() or {}
+            minutes = int(result.get("minutes", 10))
+            self.session_timeout_text.set(f"로그인 유지시간: {minutes}분")
+        except Exception:
+            self.session_timeout_text.set("로그인 유지시간: 조회 실패")
 
     def load_users(self):
         if not self.current_user:
@@ -140,7 +156,34 @@ class UserAdminWindow(tk.Toplevel):
             if isinstance(rows, dict):
                 rows = rows.get("items") or rows.get("users") or []
             self.users = list(rows)
+
+            region_rows = self.client.admin_regions() or []
+            if isinstance(region_rows, dict):
+                region_rows = region_rows.get("items") or region_rows.get("regions") or []
+            region_name_by_id = {
+                str(r.get("id") or r.get("region_id") or ""):
+                str(r.get("name") or r.get("id") or r.get("region_id") or "")
+                for r in region_rows
+            }
+
+            for user in self.users:
+                uid = user.get("id")
+                names = []
+                if uid is not None:
+                    try:
+                        assigned = self.client.user_regions(uid) or []
+                        if isinstance(assigned, dict):
+                            assigned = assigned.get("items") or assigned.get("regions") or []
+                        for item in assigned:
+                            rid = str(item.get("id") or item.get("region_id") or "").strip()
+                            if rid:
+                                names.append(region_name_by_id.get(rid, rid))
+                    except Exception:
+                        names = ["조회 실패"]
+                user["_region_names"] = ", ".join(names) if names else "-"
+
             self.apply_filter()
+            self._refresh_session_timeout_display()
             self.status.set(f"사용자 {len(self.users)}명 조회 완료")
         except Exception as exc:
             messagebox.showerror("사용자 조회 오류", str(exc), parent=self)
@@ -167,6 +210,7 @@ class UserAdminWindow(tk.Toplevel):
                     user.get("name", ""),
                     user.get("department") or "",
                     user.get("level", ""),
+                    user.get("_region_names") or "-",
                     active_text,
                 ),
             )
@@ -877,6 +921,7 @@ class UserAdminWindow(tk.Toplevel):
         try:
             self.client.set_admin_session_timeout(value)
             self.status.set(f'로그인 유지시간 {value}분으로 변경')
+            self.session_timeout_text.set(f"로그인 유지시간: {value}분")
             messagebox.showinfo(
                 '로그인 유지시간',
                 f'로그인 유지시간을 {value}분으로 설정했습니다.\n새 로그인부터 적용됩니다.',
