@@ -836,5 +836,44 @@ if __name__ == "__main__":
         app.mainloop()
         raise SystemExit(SESSION_ENDED_EXIT_CODE if app.session_ended else 0)
 
-    from launcher import Launcher
-    Launcher().mainloop()
+    import socket
+    from launcher import (
+        Launcher,
+        SINGLE_INSTANCE_HOST,
+        SINGLE_INSTANCE_PORT,
+    )
+
+    instance_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        instance_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        instance_socket.bind((SINGLE_INSTANCE_HOST, SINGLE_INSTANCE_PORT))
+        instance_socket.listen(4)
+    except OSError:
+        try:
+            instance_socket.close()
+        except Exception:
+            pass
+        try:
+            with socket.create_connection(
+                (SINGLE_INSTANCE_HOST, SINGLE_INSTANCE_PORT),
+                timeout=1.0,
+            ) as active:
+                active.sendall(b"ACTIVATE")
+        except Exception:
+            pass
+        raise SystemExit(0)
+
+    app = Launcher()
+    app.start_single_instance_listener(instance_socket)
+
+    def close_instance_socket():
+        try:
+            instance_socket.close()
+        except Exception:
+            pass
+
+    app.protocol(
+        "WM_DELETE_WINDOW",
+        lambda: (close_instance_socket(), app.destroy()),
+    )
+    app.mainloop()
