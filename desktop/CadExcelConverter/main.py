@@ -25,17 +25,13 @@ SESSION_ENDED_EXIT_CODE = 41
 
 
 class App(NetworkExtractionMixin, tk.Tk):
-    def __init__(self):
+    def __init__(self, session_user=None):
         super().__init__()
         self.title(APP_NAME)
         self.geometry("1450x900")
         self.minsize(1000, 650)
 
-        raw_user = os.getenv("CMB_AUTH_USER", "").strip()
-        try:
-            self.session_user = json.loads(raw_user) if raw_user else {}
-        except Exception:
-            self.session_user = {}
+        self.session_user = dict(session_user or {})
         try:
             self.user_level = int(self.session_user.get("level", 5))
         except Exception:
@@ -71,6 +67,26 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.bind("<Escape>", self._escape_key)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.after(100, self._drain)
+
+    def _require_extract_permission(self):
+        if not self.can_extract:
+            messagebox.showwarning(
+                APP_NAME,
+                "현재 계정은 도면 보기 전용입니다.\n추출/Excel 기능은 1~3등급에서만 사용할 수 있습니다.",
+                parent=self,
+            )
+            return False
+        return True
+
+    def _require_admin_permission(self):
+        if not self.is_admin:
+            messagebox.showwarning(
+                APP_NAME,
+                "관리자 기능은 1등급 계정에서만 사용할 수 있습니다.",
+                parent=self,
+            )
+            return False
+        return True
 
     def _session_busy(self):
         if bool(getattr(self, "busy", False)):
@@ -383,6 +399,8 @@ class App(NetworkExtractionMixin, tk.Tk):
             messagebox.showerror(APP_NAME, f"온라인 Viewer 실행 실패\n{exc}")
 
     def _open_admin_upload(self):
+        if not self._require_admin_permission():
+            return
         if not self.input_path or not os.path.isfile(self.input_path) or self.viewer.scene is None:
             messagebox.showinfo(APP_NAME, "먼저 서버에 올릴 DXF 도면을 열어주세요.")
             return
@@ -572,11 +590,15 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.last_checked_iid = None
 
     def _run_excel(self):
+        if not self._require_extract_permission():
+            return
         if self.export_scope is not None:
             return self._run_network_excel()
         messagebox.showinfo(APP_NAME, "먼저 광주간선 추출 또는 100mm 주관로 추출로 대상을 선택해주세요. 전체 레이어 출력은 파일 메뉴의 기존 방식을 사용하세요.")
 
     def _run_all_layer_excel(self):
+        if not self._require_extract_permission():
+            return
         if self.busy:
             return
         if not self.input_path or not os.path.isfile(self.input_path):
@@ -782,11 +804,11 @@ if __name__ == "__main__":
         try:
             if not session_client.access_token:
                 raise RuntimeError("세션 없음")
-            session_client.me()
+            verified_user = session_client.me()
         except Exception:
             raise SystemExit(SESSION_ENDED_EXIT_CODE)
 
-        app = App()
+        app = App(session_user=verified_user)
 
         def expire_map_session():
             app.session_ended = True
