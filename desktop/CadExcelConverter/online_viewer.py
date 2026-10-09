@@ -5,8 +5,6 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-import tkinter as tk
-from tkinter import simpledialog
 
 from server_client_windows import CMBServerClient
 
@@ -24,22 +22,7 @@ def key():
     if k:
         return k
 
-    root = tk.Tk()
-    root.withdraw()
-    k = simpledialog.askstring(
-        "카카오맵",
-        "Kakao JavaScript Key를 입력해주세요.",
-        parent=root,
-    ) or ""
-    root.destroy()
-
-    if k:
-        CFG.parent.mkdir(parents=True, exist_ok=True)
-        CFG.write_text(
-            json.dumps({"kakao_js_key": k}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    return k
+    return ""
 
 
 class Api:
@@ -524,6 +507,8 @@ async function loadObjects(){{
     const p=f.properties||{{}};
     const group=String(p.group_id||'').toUpperCase();
     if(group && groupEnabled[group]===false)return false;
+    const geomType=String((f.geometry||{{}}).type||'');
+    if(['LineString','MultiLineString'].includes(geomType) && ['FIBER','COAX','CONDUIT'].includes(group)) return true;
     return layerLevel(p.layer||'')<=lod;
   }});
   const pointFeatures=features.filter(f=>{{
@@ -531,7 +516,7 @@ async function loadObjects(){{
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
     return fields._cmb_is_device!==false;
   }});
-  const lineFeatures=features.filter(f=>(f.geometry||{{}}).type==='LineString');
+  const lineFeatures=features.filter(f=>['LineString','MultiLineString'].includes((f.geometry||{{}}).type));
   const devices=[];
 
   pointFeatures.forEach(f=>{{
@@ -543,13 +528,15 @@ async function loadObjects(){{
   let snapped=0;
   lineFeatures.forEach(f=>{{
     const g=f.geometry||{{}},p=f.properties||{{}},c=colorFor(p.group_id);
-    const before=g.coordinates||[];
-    const path=snapCablePath(before,devices);
-    if(path.length){{
-      const l=new kakao.maps.Polyline({{path:path,strokeWeight:4,strokeColor:c,strokeOpacity:.9}});
-      l.setMap(map);overlays.push(l);bindClick(l,p);
-      snapped++;
-    }}
+    const parts=g.type==='MultiLineString' ? (g.coordinates||[]) : [g.coordinates||[]];
+    parts.forEach(before=>{{
+      const path=snapCablePath(before,devices);
+      if(path.length>=2){{
+        const l=new kakao.maps.Polyline({{path:path,strokeWeight:4,strokeColor:c,strokeOpacity:.95}});
+        l.setMap(map);overlays.push(l);bindClick(l,p);
+        snapped++;
+      }}
+    }});
   }});
 
   const visibleGroups=Object.keys(groupEnabled).filter(k=>groupEnabled[k]&&k!=='USER').join('/');
