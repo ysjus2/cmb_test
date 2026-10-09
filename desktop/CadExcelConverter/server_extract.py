@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
-from openpyxl import Workbook
 from pyproj import Transformer
 
 from server_client_windows import CMBServerClient
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
+GROUP_LABELS = {
+    "FIBER": "광",
+    "COAX": "동축",
+    "POLE": "전주",
+    "CONDUIT": "관로",
+    "USER": "사용자 지정영역(USER)",
+}
 
 
 def _feature_id(feature):
@@ -22,104 +27,6 @@ def _feature_id(feature):
         or p.get("entity_id")
         or json.dumps(feature.get("geometry") or {}, sort_keys=True, ensure_ascii=False)
     )
-
-
-def _point_in_polygon(x, y, polygon):
-    inside = False
-    n = len(polygon)
-    if n < 3:
-        return False
-    j = n - 1
-    for i in range(n):
-        xi, yi = polygon[i]
-        xj, yj = polygon[j]
-        hit = ((yi > y) != (yj > y)) and (
-            x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-15) + xi
-        )
-        if hit:
-            inside = not inside
-        j = i
-    return inside
-
-
-def _ccw(a, b, c):
-    return (c[1]-a[1])*(b[0]-a[0]) > (b[1]-a[1])*(c[0]-a[0])
-
-
-def _segments_intersect(a, b, c, d):
-    return _ccw(a, c, d) != _ccw(b, c, d) and _ccw(a, b, c) != _ccw(a, b, d)
-
-
-def _line_intersects_polygon(coords, polygon):
-    if any(_point_in_polygon(float(x), float(y), polygon) for x, y in coords):
-        return True
-    if len(coords) < 2 or len(polygon) < 3:
-        return False
-    edges = list(zip(polygon, polygon[1:] + polygon[:1]))
-    for a, b in zip(coords, coords[1:]):
-        a = (float(a[0]), float(a[1]))
-        b = (float(b[0]), float(b[1]))
-        for c, d in edges:
-            if _segments_intersect(a, b, c, d):
-                return True
-    return False
-
-
-def _feature_in_polygon(feature, polygon):
-    if not polygon:
-        return True
-    g = feature.get("geometry") or {}
-    typ = g.get("type")
-    coords = g.get("coordinates") or []
-    if typ == "Point" and len(coords) >= 2:
-        return _point_in_polygon(float(coords[0]), float(coords[1]), polygon)
-    if typ == "LineString":
-        return _line_intersects_polygon(coords, polygon)
-    if typ == "MultiLineString":
-        return any(_line_intersects_polygon(part, polygon) for part in coords)
-    return False
-
-
-def _flatten_properties(feature):
-    p = feature.get("properties") or {}
-    attrs = p.get("attributes") or {}
-    fields = attrs.get("fields") if isinstance(attrs, dict) else None
-    if not isinstance(fields, dict):
-        fields = attrs if isinstance(attrs, dict) else {}
-    row = {
-        "GROUP": p.get("group_id"),
-        "LAYER": p.get("layer"),
-        "ENTITY_TYPE": p.get("entity_type"),
-        "BLOCK_NAME": p.get("block_name"),
-        "REGIONAL_OBJECT_ID": p.get("regional_object_id"),
-        "ENTITY_ID": p.get("entity_id"),
-        "REVISION": p.get("revision"),
-    }
-    for k, v in fields.items():
-        if isinstance(v, (dict, list, tuple)):
-            row[str(k)] = json.dumps(v, ensure_ascii=False)
-        else:
-            row[str(k)] = v
-    return row
-
-
-def _bounds_from_features(features):
-    xs, ys = [], []
-    for f in features:
-        g = f.get("geometry") or {}
-        typ, coords = g.get("type"), g.get("coordinates")
-        if typ == "Point" and coords:
-            xs.append(float(coords[0])); ys.append(float(coords[1]))
-        elif typ == "LineString":
-            for x, y in coords or []:
-                xs.append(float(x)); ys.append(float(y))
-        elif typ == "MultiLineString":
-            for part in coords or []:
-                for x, y in part:
-                    xs.append(float(x)); ys.append(float(y))
-    if not xs:
-        return None
-    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _fetch_bbox_recursive(client, region, bbox, depth=0, max_depth=7):
@@ -143,7 +50,13 @@ def _fetch_bbox_recursive(client, region, bbox, depth=0, max_depth=7):
     ]
     merged = {}
     for cell in cells:
-        for feature in _fetch_bbox_recursive(client, region, cell, depth + 1, max_depth):
+        for feature in _fetch_bbox_recursive(
+            client,
+            region,
+            cell,
+            depth + 1,
+            max_depth,
+        ):
             merged[str(_feature_id(feature))] = feature
     return list(merged.values())
 
@@ -153,6 +66,7 @@ def fetch_region_features(client, region):
     bounds = info.get("bounds")
     if not bounds:
         return info, []
+
     bbox = (
         float(bounds["west"]),
         float(bounds["south"]),
@@ -162,30 +76,12 @@ def fetch_region_features(client, region):
     return info, _fetch_bbox_recursive(client, region, bbox)
 
 
-def export_excel(path, features):
-    rows = [_flatten_properties(f) for f in features]
-    headers = []
-    for row in rows:
-        for key in row:
-            if key not in headers:
-                headers.append(key)
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "SERVER_DATA"
-    ws.append(headers)
-    for row in rows:
-        ws.append([row.get(h, "") for h in headers])
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
-    wb.save(path)
-
-
 def export_dxf(path, features, target_epsg=5174):
     import ezdxf
 
     doc = ezdxf.new("R2010")
     msp = doc.modelspace()
+
     transform = Transformer.from_crs(
         "EPSG:4326",
         f"EPSG:{int(target_epsg)}",
@@ -195,6 +91,7 @@ def export_dxf(path, features, target_epsg=5174):
     for feature in features:
         p = feature.get("properties") or {}
         layer = str(p.get("layer") or "SERVER").replace("/", "_")[:240]
+
         if layer not in doc.layers:
             try:
                 doc.layers.add(layer)
@@ -208,100 +105,158 @@ def export_dxf(path, features, target_epsg=5174):
         if typ == "Point" and len(coords) >= 2:
             x, y = transform.transform(float(coords[0]), float(coords[1]))
             msp.add_point((x, y), dxfattribs={"layer": layer})
+
         elif typ == "LineString" and len(coords) >= 2:
-            pts = [transform.transform(float(x), float(y)) for x, y in coords]
+            pts = [
+                transform.transform(float(x), float(y))
+                for x, y in coords
+            ]
             msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
+
         elif typ == "MultiLineString":
             for part in coords:
-                if len(part) >= 2:
-                    pts = [transform.transform(float(x), float(y)) for x, y in part]
-                    msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
+                if len(part) < 2:
+                    continue
+                pts = [
+                    transform.transform(float(x), float(y))
+                    for x, y in part
+                ]
+                msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
 
     doc.saveas(path)
 
 
 class ServerExtractWindow(tk.Toplevel):
-    def __init__(self, master, viewer, client=None, current_user=None, source_epsg=5174):
+    def __init__(
+        self,
+        master,
+        viewer,
+        client=None,
+        current_user=None,
+        source_epsg=5174,
+    ):
         super().__init__(master)
+
         self.viewer = viewer
         self.client = client or CMBServerClient()
         self.current_user = current_user or {}
         self.source_epsg = int(source_epsg)
         self.region_rows = []
-        self.layer_rows = []
-        self.layer_vars = {}
-        self.group_vars = {g: tk.BooleanVar(value=(g == "POLE")) for g in GROUPS}
-        self.custom_polygon_lonlat = None
+        self.layer_summary = {}
 
-        self.title("관리자 · 서버 도면 추출/내려받기")
-        self.geometry("980x720")
-        self.minsize(860, 620)
+        self.group_vars = {
+            g: tk.BooleanVar(value=False)
+            for g in GROUPS
+        }
+
+        self.title("관리자 · 서버 도면 내려받기")
+        self.geometry("760x500")
+        self.minsize(680, 440)
         self.transient(master)
 
-        root = ttk.Frame(self, padding=12)
+        root = ttk.Frame(self, padding=14)
         root.pack(fill="both", expand=True)
 
-        ttk.Label(root, text="서버 도면 추출 / 내려받기", font=("Malgun Gothic", 16, "bold")).pack(anchor="w")
         ttk.Label(
             root,
-            text="지역과 그룹/레이어를 선택한 뒤 전체 지역 또는 사용자 지정 영역을 추출합니다.",
-        ).pack(anchor="w", pady=(2, 10))
+            text="서버 도면 내려받기 · 비상 복구용",
+            font=("Malgun Gothic", 16, "bold"),
+        ).pack(anchor="w")
 
-        top = ttk.Frame(root)
-        top.pack(fill="x")
+        ttk.Label(
+            root,
+            text=(
+                "원본 DXF 분실 등에 대비한 전체 복구 기능입니다. "
+                "지역과 종류를 선택하면 선택 종류의 서버 저장 객체 전체를 내려받습니다. "
+                "영역 추출은 맵추출 뷰어의 '사용자 지정 영역 추출'을 사용합니다."
+            ),
+            wraplength=710,
+        ).pack(anchor="w", pady=(3, 14))
 
-        ttk.Label(top, text="지역").pack(side="left")
+        region_box = ttk.LabelFrame(
+            root,
+            text="지역 선택",
+            padding=10,
+        )
+        region_box.pack(fill="x")
+
         self.region_var = tk.StringVar()
-        self.region_combo = ttk.Combobox(top, textvariable=self.region_var, state="readonly", width=34)
-        self.region_combo.pack(side="left", padx=(6, 8))
-        self.region_combo.bind("<<ComboboxSelected>>", lambda e: self.load_layers())
+        self.region_combo = ttk.Combobox(
+            region_box,
+            textvariable=self.region_var,
+            state="readonly",
+            width=44,
+        )
+        self.region_combo.pack(side="left", fill="x", expand=True)
+        self.region_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda e: self.refresh_region_info(),
+        )
 
-        ttk.Button(top, text="지역 새로고침", command=self.load_regions).pack(side="left")
+        ttk.Button(
+            region_box,
+            text="새로고침",
+            command=self.load_regions,
+        ).pack(side="left", padx=(8, 0))
 
-        group_box = ttk.LabelFrame(root, text="그룹", padding=8)
-        group_box.pack(fill="x", pady=(10, 8))
-        for g in GROUPS:
+        group_box = ttk.LabelFrame(
+            root,
+            text="내려받을 종류",
+            padding=10,
+        )
+        group_box.pack(fill="x", pady=(12, 0))
+
+        for group in GROUPS:
             ttk.Checkbutton(
                 group_box,
-                text=g,
-                variable=self.group_vars[g],
-                command=self._apply_group_filter,
-            ).pack(side="left", padx=(0, 12))
+                text=GROUP_LABELS[group],
+                variable=self.group_vars[group],
+                command=self._update_selection_text,
+            ).pack(
+                side="left",
+                padx=(0, 14),
+            )
 
-        layer_box = ttk.LabelFrame(root, text="실제 레이어 선택", padding=8)
-        layer_box.pack(fill="both", expand=True)
+        self.region_info = tk.StringVar(value="지역을 선택해주세요.")
+        ttk.Label(
+            root,
+            textvariable=self.region_info,
+            justify="left",
+            wraplength=710,
+        ).pack(anchor="w", pady=(14, 4))
 
-        self.layer_canvas = tk.Canvas(layer_box, highlightthickness=0)
-        scroll = ttk.Scrollbar(layer_box, orient="vertical", command=self.layer_canvas.yview)
-        self.layer_body = ttk.Frame(self.layer_canvas)
-        self.layer_window = self.layer_canvas.create_window((0, 0), window=self.layer_body, anchor="nw")
-        self.layer_body.bind("<Configure>", lambda e: self.layer_canvas.configure(scrollregion=self.layer_canvas.bbox("all")))
-        self.layer_canvas.bind("<Configure>", lambda e: self.layer_canvas.itemconfigure(self.layer_window, width=e.width))
-        self.layer_canvas.configure(yscrollcommand=scroll.set)
-        self.layer_canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        self.selection_text = tk.StringVar(value="선택 종류: 없음")
+        ttk.Label(
+            root,
+            textvariable=self.selection_text,
+        ).pack(anchor="w", pady=(0, 8))
 
         controls = ttk.Frame(root)
         controls.pack(fill="x", pady=(10, 0))
 
-        ttk.Button(controls, text="표시 레이어 전체 선택", command=lambda: self._set_visible_layers(True)).pack(side="left")
-        ttk.Button(controls, text="표시 레이어 전체 해제", command=lambda: self._set_visible_layers(False)).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            controls,
+            text="전체 종류 선택",
+            command=lambda: self._set_all_groups(True),
+        ).pack(side="left")
 
-        self.area_text = tk.StringVar(value="추출 범위: 지역 전체")
-        ttk.Label(root, textvariable=self.area_text).pack(anchor="w", pady=(10, 2))
+        ttk.Button(
+            controls,
+            text="전체 해제",
+            command=lambda: self._set_all_groups(False),
+        ).pack(side="left", padx=(6, 0))
 
-        area_buttons = ttk.Frame(root)
-        area_buttons.pack(fill="x")
-        ttk.Button(area_buttons, text="지역 전체", command=self.use_whole_region).pack(side="left")
-        ttk.Button(area_buttons, text="사용자 지정 영역", command=self.begin_custom_area).pack(side="left", padx=(6, 0))
-
-        export_buttons = ttk.Frame(root)
-        export_buttons.pack(fill="x", pady=(12, 0))
-        ttk.Button(export_buttons, text="Excel 추출", command=self.save_excel).pack(side="right")
-        ttk.Button(export_buttons, text="DXF 내려받기", command=self.save_dxf).pack(side="right", padx=(0, 6))
+        ttk.Button(
+            controls,
+            text="선택 종류 전체 DXF 내려받기",
+            command=self.save_dxf,
+        ).pack(side="right")
 
         self.status = tk.StringVar(value="")
-        ttk.Label(root, textvariable=self.status).pack(fill="x", pady=(8, 0))
+        ttk.Label(
+            root,
+            textvariable=self.status,
+        ).pack(fill="x", pady=(12, 0))
 
         self.after(0, self.load_regions)
 
@@ -310,176 +265,195 @@ class ServerExtractWindow(tk.Toplevel):
             rows = self.client.online_regions() or []
             if isinstance(rows, dict):
                 rows = rows.get("items") or rows.get("regions") or []
+
             self.region_rows = list(rows)
             labels = []
-            for r in self.region_rows:
-                rid = str(r.get("id") or r.get("region_id") or "")
-                name = str(r.get("name") or rid)
+
+            for row in self.region_rows:
+                rid = str(
+                    row.get("id")
+                    or row.get("region_id")
+                    or ""
+                )
+                name = str(row.get("name") or rid)
                 labels.append(f"{name} ({rid})")
+
             self.region_combo["values"] = labels
-            if labels and not self.region_var.get():
+
+            if labels:
                 self.region_combo.current(0)
-                self.load_layers()
-            self.status.set(f"지역 {len(labels)}개")
+                self.refresh_region_info()
+            else:
+                self.region_info.set("서버에 등록된 지역이 없습니다.")
+
+            self.status.set(f"등록 지역 {len(labels)}개")
+
         except Exception as exc:
-            messagebox.showerror("지역 조회 오류", str(exc), parent=self)
+            messagebox.showerror(
+                "지역 조회 오류",
+                str(exc),
+                parent=self,
+            )
 
     def _selected_region_id(self):
         idx = self.region_combo.current()
         if idx < 0 or idx >= len(self.region_rows):
             return ""
-        r = self.region_rows[idx]
-        return str(r.get("id") or r.get("region_id") or "")
 
-    def load_layers(self):
+        row = self.region_rows[idx]
+        return str(
+            row.get("id")
+            or row.get("region_id")
+            or ""
+        )
+
+    def refresh_region_info(self):
         region = self._selected_region_id()
         if not region:
+            self.region_info.set("지역을 선택해주세요.")
             return
+
         try:
             info = self.client.online_layers(region) or {}
-            self.layer_rows = list(info.get("layers") or [])
-            self._rebuild_layers()
-            self.status.set(f"{region} · 레이어 {len(self.layer_rows)}개")
+            layers = list(info.get("layers") or [])
+
+            summary = {g: 0 for g in GROUPS}
+            for row in layers:
+                group = str(row.get("group_id") or "").upper()
+                if group in summary:
+                    summary[group] += int(row.get("object_count") or 0)
+
+            self.layer_summary = summary
+
+            parts = [
+                f"{GROUP_LABELS[g]} {summary[g]:,}개"
+                for g in GROUPS
+            ]
+            self.region_info.set(
+                f"{region} · " + " / ".join(parts)
+            )
+
         except Exception as exc:
-            messagebox.showerror("레이어 조회 오류", str(exc), parent=self)
+            self.region_info.set(f"{region} · 정보 조회 실패")
+            self.status.set(str(exc))
 
-    def _rebuild_layers(self):
-        for child in self.layer_body.winfo_children():
-            child.destroy()
-        self.layer_vars.clear()
-        for row in self.layer_rows:
-            group = str(row.get("group_id") or "").upper()
-            layer = str(row.get("layer") or "")
-            key = (group, layer)
-            var = tk.BooleanVar(value=self.group_vars.get(group, tk.BooleanVar(value=False)).get())
-            self.layer_vars[key] = var
-            text = f"[{group}] {layer} · {row.get('object_count', 0)}개"
-            cb = ttk.Checkbutton(self.layer_body, text=text, variable=var)
-            cb.pack(anchor="w", pady=2)
-            cb._cmb_group = group
-        self._apply_group_filter()
+    def _set_all_groups(self, value):
+        for var in self.group_vars.values():
+            var.set(bool(value))
+        self._update_selection_text()
 
-    def _apply_group_filter(self):
-        selected_groups = {g for g, var in self.group_vars.items() if var.get()}
-        for child in self.layer_body.winfo_children():
-            group = getattr(child, "_cmb_group", "")
-            if group in selected_groups:
-                child.pack(anchor="w", pady=2)
-            else:
-                child.pack_forget()
-
-    def _set_visible_layers(self, value):
-        selected_groups = {g for g, var in self.group_vars.items() if var.get()}
-        for (group, _layer), var in self.layer_vars.items():
-            if group in selected_groups:
-                var.set(bool(value))
-
-    def use_whole_region(self):
-        self.custom_polygon_lonlat = None
-        self.area_text.set("추출 범위: 지역 전체")
-
-    def begin_custom_area(self):
-        if self.viewer is None or getattr(self.viewer, "scene", None) is None:
-            messagebox.showinfo("사용자 지정 영역", "맵추출 뷰어에 먼저 DXF 도면을 열어주세요.", parent=self)
-            return
-
-        self.withdraw()
-
-        def finished(points):
-            try:
-                transformer = Transformer.from_crs(
-                    f"EPSG:{self.source_epsg}",
-                    "EPSG:4326",
-                    always_xy=True,
-                )
-                self.custom_polygon_lonlat = [
-                    transformer.transform(float(x), float(y))
-                    for x, y in points
-                ]
-                self.area_text.set(f"추출 범위: 사용자 지정 다각형 · {len(points)}개 점")
-            finally:
-                self.deiconify()
-                self.lift()
-
-        self.viewer.begin_area_select(finished)
+    def _update_selection_text(self):
+        groups = [
+            GROUP_LABELS[g]
+            for g, var in self.group_vars.items()
+            if var.get()
+        ]
+        self.selection_text.set(
+            "선택 종류: " + (", ".join(groups) if groups else "없음")
+        )
 
     def _selection(self):
         region = self._selected_region_id()
         if not region:
             raise RuntimeError("지역을 선택해주세요.")
-        groups = {g for g, var in self.group_vars.items() if var.get()}
-        layers = {
-            (g, layer)
-            for (g, layer), var in self.layer_vars.items()
-            if var.get() and g in groups
+
+        groups = {
+            group
+            for group, var in self.group_vars.items()
+            if var.get()
         }
         if not groups:
-            raise RuntimeError("그룹을 하나 이상 선택해주세요.")
-        if not layers:
-            raise RuntimeError("실제 레이어를 하나 이상 선택해주세요.")
-        return region, groups, layers
+            raise RuntimeError(
+                "광/동축/전주/관로/사용자 지정영역(USER) 중 "
+                "하나 이상 선택해주세요."
+            )
+
+        return region, groups
 
     def _collect(self):
-        region, groups, layers = self._selection()
-        self.status.set("서버 객체 조회 중...")
+        region, groups = self._selection()
+
+        self.status.set("서버 전체 객체 조회 중...")
         self.update_idletasks()
 
-        _info, features = fetch_region_features(self.client, region)
-        filtered = []
-        for f in features:
-            p = f.get("properties") or {}
-            group = str(p.get("group_id") or "").upper()
-            layer = str(p.get("layer") or "")
-            if group not in groups or (group, layer) not in layers:
-                continue
-            if not _feature_in_polygon(f, self.custom_polygon_lonlat):
-                continue
-            filtered.append(f)
+        _info, features = fetch_region_features(
+            self.client,
+            region,
+        )
 
-        self.status.set(f"추출 대상 {len(filtered):,}개")
+        filtered = [
+            feature
+            for feature in features
+            if str(
+                (feature.get("properties") or {}).get("group_id")
+                or ""
+            ).upper() in groups
+        ]
+
         if not filtered:
-            raise RuntimeError("선택 조건에 해당하는 서버 객체가 없습니다.")
-        return region, filtered
-
-    def save_excel(self):
-        try:
-            region, features = self._collect()
-            out = filedialog.asksaveasfilename(
-                title="서버 정보 Excel 추출",
-                defaultextension=".xlsx",
-                initialfile=f"{region}_서버추출.xlsx",
-                filetypes=[("Excel", "*.xlsx")],
-                parent=self,
+            raise RuntimeError(
+                "선택한 지역/종류에 서버 저장 객체가 없습니다."
             )
-            if not out:
-                return
-            export_excel(out, features)
-            messagebox.showinfo("완료", f"{len(features):,}개 객체를 Excel로 저장했습니다.", parent=self)
-        except Exception as exc:
-            messagebox.showerror("서버 추출 오류", str(exc), parent=self)
+
+        self.status.set(
+            f"복구 대상 {len(filtered):,}개 객체"
+        )
+        return region, groups, filtered
 
     def save_dxf(self):
         try:
-            region, features = self._collect()
+            region, groups, features = self._collect()
+
+            suffix = "_".join(
+                group
+                for group in GROUPS
+                if group in groups
+            )
+
             out = filedialog.asksaveasfilename(
-                title="서버 도면 DXF 내려받기",
+                title="비상 복구 DXF 내려받기",
                 defaultextension=".dxf",
-                initialfile=f"{region}_SERVER.dxf",
+                initialfile=f"{region}_{suffix}_RECOVERY.dxf",
                 filetypes=[("DXF", "*.dxf")],
                 parent=self,
             )
             if not out:
                 return
-            export_dxf(out, features, self.source_epsg)
+
+            export_dxf(
+                out,
+                features,
+                self.source_epsg,
+            )
+
             meta = Path(out).with_suffix(".json")
             meta.write_text(
-                json.dumps({"region": region, "features": features}, ensure_ascii=False, indent=2),
+                json.dumps(
+                    {
+                        "region": region,
+                        "groups": sorted(groups),
+                        "features": features,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
                 encoding="utf-8",
             )
+
             messagebox.showinfo(
-                "완료",
-                f"{len(features):,}개 객체를 DXF로 저장했습니다.\n속성 원본은 같은 이름의 JSON에 저장했습니다.",
+                "내려받기 완료",
+                (
+                    f"{region}\n"
+                    f"종류: {', '.join(GROUP_LABELS[g] for g in GROUPS if g in groups)}\n"
+                    f"객체: {len(features):,}개\n\n"
+                    "DXF 복구본과 속성 보존용 JSON을 함께 저장했습니다."
+                ),
                 parent=self,
             )
+
         except Exception as exc:
-            messagebox.showerror("서버 내려받기 오류", str(exc), parent=self)
+            messagebox.showerror(
+                "서버 도면 내려받기 오류",
+                str(exc),
+                parent=self,
+            )
