@@ -15,6 +15,7 @@ from drawing_cache import open_drawing
 from layer_defaults import is_default_hidden
 from network_extract_ui import NetworkExtractionMixin
 from admin_upload import AdminUploadWindow
+from admin_users import UserAdminWindow
 
 APP_NAME = "CMB DXF Viewer + Excel v3.36"
 
@@ -96,6 +97,7 @@ class App(NetworkExtractionMixin, tk.Tk):
 
         admin_menu = tk.Menu(menubar, tearoff=False)
         admin_menu.add_command(label="도면 서버 업로드", command=self._open_admin_upload)
+        admin_menu.add_command(label="사용자 관리", command=self._open_user_admin)
         menubar.add_cascade(label="관리자", menu=admin_menu)
 
         self.config(menu=menubar)
@@ -359,6 +361,9 @@ class App(NetworkExtractionMixin, tk.Tk):
             messagebox.showinfo(APP_NAME, "먼저 서버에 올릴 DXF 도면을 열어주세요.")
             return
         AdminUploadWindow(self, self.viewer.scene, self.input_path, self.epsg_var.get())
+
+    def _open_user_admin(self):
+        UserAdminWindow(self)
 
     def _epsg_changed(self):
         self.viewer.set_source_epsg(self.epsg_var.get())
