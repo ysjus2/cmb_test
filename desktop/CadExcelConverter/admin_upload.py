@@ -110,6 +110,10 @@ def build_payload(scene, source_path, group, epsg):
         if not geo:
             continue
 
+        attrs = dict(e.attributes or {})
+        attrs["_cmb_symbol_kind"] = _symbol_kind(e)
+        attrs["_cmb_rotation_deg"] = _rotation_deg(e)
+
         objects.append({
             "source_handle": e.handle,
             "regional_object_id": (
@@ -123,7 +127,7 @@ def build_payload(scene, source_path, group, epsg):
                 "type": "Point" if len(geo) == 1 else "LineString",
                 "coordinates": geo[0] if len(geo) == 1 else geo,
             },
-            "attributes": dict(e.attributes or {}),
+            "attributes": attrs,
             "xdata": dict(e.xdata or []),
         })
 
