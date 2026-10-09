@@ -27,7 +27,7 @@ assert not is_catv_pole(entities[5])
 assert is_catv_pole(VisualEntity(0,'INSERT','CN_L_Pole_Pole_CATV','A'))
 arrows=[('line',[(0,0),(1,0)]),('line',[(1,0),(2,0)]),('polyline',[(2,0),(3,1),(2,0)])]
 assert _optical_arrow_primitive(arrows)==1
-app=App();app.input_path='CMB_GN_DY.dxf'
+app=App(session_user={'id':1,'username':'selftest','level':1});app.input_path='CMB_GN_DY.dxf'
 app._populate_layers([LayerInfo(name,0,'') for name in sorted({e.layer for e in entities})],scene)
 app.viewer.load_scene(scene);app.update()
 scope={'kind':'pipe','records':conduit_records(scene,'unused.dxf'),'indices':{0,1}}
