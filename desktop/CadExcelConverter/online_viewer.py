@@ -332,13 +332,13 @@ def run_online_viewer():
         def log_message(self, format, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:
         webview.create_window(
             "CMB 온라인 Viewer",
-            url=f"http://127.0.0.1:{server.server_port}/",
+            url="http://127.0.0.1:8765/",
             js_api=Api(),
             width=1450,
             height=900,
