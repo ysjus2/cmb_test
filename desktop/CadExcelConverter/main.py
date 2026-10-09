@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import queue
 import threading
 import tkinter as tk
@@ -16,8 +17,11 @@ from layer_defaults import is_default_hidden
 from network_extract_ui import NetworkExtractionMixin
 from admin_upload import AdminUploadWindow
 from admin_users import UserAdminWindow
+from server_client_windows import CMBServerClient
+from session_guard import TkIdleSessionGuard
 
 APP_NAME = "CMB DXF Viewer + Excel v3.36"
+SESSION_ENDED_EXIT_CODE = 41
 
 
 class App(NetworkExtractionMixin, tk.Tk):
@@ -26,6 +30,19 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.title(APP_NAME)
         self.geometry("1450x900")
         self.minsize(1000, 650)
+
+        raw_user = os.getenv("CMB_AUTH_USER", "").strip()
+        try:
+            self.session_user = json.loads(raw_user) if raw_user else {}
+        except Exception:
+            self.session_user = {}
+        try:
+            self.user_level = int(self.session_user.get("level", 5))
+        except Exception:
+            self.user_level = 5
+        self.can_extract = self.user_level <= 3
+        self.is_admin = self.user_level == 1
+        self.session_ended = False
 
         self.q = queue.Queue()
         self.input_path = ""
@@ -55,13 +72,25 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.after(100, self._drain)
 
+    def _session_busy(self):
+        if bool(getattr(self, "busy", False)):
+            return True
+        try:
+            for child in self.winfo_children():
+                if bool(getattr(child, "session_busy", False)):
+                    return True
+        except Exception:
+            pass
+        return False
+
     def _build_menu(self):
         menubar = tk.Menu(self)
 
         file_menu = tk.Menu(menubar, tearoff=False)
         file_menu.add_command(label="열기...", command=self._pick_input, accelerator="Ctrl+O")
-        file_menu.add_command(label="Excel로 출력...", command=self._run_excel, accelerator="Ctrl+E")
-        file_menu.add_command(label="전체 레이어 Excel (기존 방식)", command=self._run_all_layer_excel)
+        if self.can_extract:
+            file_menu.add_command(label="Excel로 출력...", command=self._run_excel, accelerator="Ctrl+E")
+            file_menu.add_command(label="전체 레이어 Excel (기존 방식)", command=self._run_all_layer_excel)
         file_menu.add_separator()
         file_menu.add_command(label="레이어 표시", command=self._show_layer_window)
         file_menu.add_separator()
@@ -91,18 +120,15 @@ class App(NetworkExtractionMixin, tk.Tk):
         settings_menu.add_cascade(label="좌표계", menu=epsg_menu)
         menubar.add_cascade(label="설정", menu=settings_menu)
 
-        online_menu = tk.Menu(menubar, tearoff=False)
-        online_menu.add_command(label="온라인 지도 열기", command=self._open_online_viewer)
-        menubar.add_cascade(label="온라인", menu=online_menu)
-
-        admin_menu = tk.Menu(menubar, tearoff=False)
-        admin_menu.add_command(label="도면 서버 업로드", command=self._open_admin_upload)
-        admin_menu.add_command(label="사용자 관리", command=self._open_user_admin)
-        menubar.add_cascade(label="관리자", menu=admin_menu)
+        if self.is_admin:
+            admin_menu = tk.Menu(menubar, tearoff=False)
+            admin_menu.add_command(label="도면 서버 업로드", command=self._open_admin_upload)
+            menubar.add_cascade(label="관리자", menu=admin_menu)
 
         self.config(menu=menubar)
         self.bind_all("<Control-o>", lambda e: self._pick_input())
-        self.bind_all("<Control-e>", lambda e: self._run_excel())
+        if self.can_extract:
+            self.bind_all("<Control-e>", lambda e: self._run_excel())
 
     def _build_main_view(self):
         root = ttk.Frame(self, padding=4)
@@ -360,7 +386,17 @@ class App(NetworkExtractionMixin, tk.Tk):
         if not self.input_path or not os.path.isfile(self.input_path) or self.viewer.scene is None:
             messagebox.showinfo(APP_NAME, "먼저 서버에 올릴 DXF 도면을 열어주세요.")
             return
-        AdminUploadWindow(self, self.viewer.scene, self.input_path, self.epsg_var.get())
+        client = CMBServerClient()
+        client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+        client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        AdminUploadWindow(
+            self,
+            self.viewer.scene,
+            self.input_path,
+            self.epsg_var.get(),
+            client=client,
+            current_user=self.session_user,
+        )
 
     def _open_user_admin(self):
         UserAdminWindow(self)
@@ -739,8 +775,34 @@ if __name__ == "__main__":
         raise SystemExit(run_online_viewer())
 
     if "--map-viewer" in sys.argv:
-        App().mainloop()
-    else:
-        from launcher import Launcher
-        Launcher().mainloop()
+        session_client = CMBServerClient()
+        session_client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+        session_client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
 
+        try:
+            if not session_client.access_token:
+                raise RuntimeError("세션 없음")
+            session_client.me()
+        except Exception:
+            raise SystemExit(SESSION_ENDED_EXIT_CODE)
+
+        app = App()
+
+        def expire_map_session():
+            app.session_ended = True
+            try:
+                app.destroy()
+            except Exception:
+                pass
+
+        app.session_guard = TkIdleSessionGuard(
+            app,
+            expire_map_session,
+            client=session_client,
+            busy_predicate=app._session_busy,
+        )
+        app.mainloop()
+        raise SystemExit(SESSION_ENDED_EXIT_CODE if app.session_ended else 0)
+
+    from launcher import Launcher
+    Launcher().mainloop()
