@@ -14,7 +14,7 @@ from session_guard import TkIdleSessionGuard
 
 SESSION_ENDED_EXIT_CODE = 41
 DEFAULT_GEOMETRY = "620x430"
-ADMIN_GEOMETRY = "620x500"
+ADMIN_GEOMETRY = "620x610"
 
 
 class Launcher(tk.Tk):
@@ -74,6 +74,16 @@ class Launcher(tk.Tk):
             width=12,
         )
         self.login_btn.grid(row=0, column=2, rowspan=2, sticky="ns")
+
+        self.logout_btn = ttk.Button(
+            self.login_frame,
+            text="로그아웃",
+            command=self.logout,
+            width=12,
+        )
+        self.logout_btn.grid(row=0, column=3, rowspan=2, sticky="ns", padx=(6, 0))
+        self.logout_btn.grid_remove()
+
         ttk.Label(
             self.login_frame,
             textvariable=self.login_status,
@@ -130,6 +140,7 @@ class Launcher(tk.Tk):
             self.username_entry.configure(state="disabled")
             self.password_entry.configure(state="disabled")
             self.login_btn.configure(state="disabled")
+            self.logout_btn.grid()
 
             self.online_btn.configure(state="normal")
             self.map_btn.configure(state="normal")
@@ -161,10 +172,19 @@ class Launcher(tk.Tk):
             self.username_entry.configure(state="normal")
             self.password_entry.configure(state="normal")
             self.login_btn.configure(state="normal")
+            self.logout_btn.grid_remove()
             self.online_btn.configure(state="disabled")
             self.map_btn.configure(state="disabled")
             self.admin_btn.configure(state="disabled")
             messagebox.showerror("로그인 오류", str(exc), parent=self)
+
+    def logout(self):
+        try:
+            if self.client.authenticated:
+                self.client.logout()
+        except Exception:
+            pass
+        self._reset_login_state("로그아웃되었습니다. 다시 로그인해주세요.")
 
     def _child_env(self):
         env = os.environ.copy()
@@ -182,6 +202,7 @@ class Launcher(tk.Tk):
         self.username_entry.configure(state="normal")
         self.password_entry.configure(state="normal")
         self.login_btn.configure(state="normal")
+        self.logout_btn.grid_remove()
         self.online_btn.configure(state="disabled")
         self.map_btn.configure(state="disabled")
         self.admin_btn.configure(state="disabled")
