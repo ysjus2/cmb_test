@@ -211,8 +211,16 @@ function showDetail(p){{
   add('객체종류',p.entity_type);
   add('블록',p.block_name);
   add('객체 ID',p.regional_object_id||p.entity_id);
-  const f=((p.attributes||{{}}).fields)||{{}};
-  Object.keys(f).sort().forEach(k=>add(k,f[k]));
+  const a=p.attributes||{{}};
+  const f=a.fields||a;
+  const dxf=f._cmb_dxf_data||{{}};
+  const pole=f._cmb_pole_info||{{}};
+  Object.keys(f).sort().forEach(k=>{{
+    if(!k.startsWith('_cmb_')) add(k,f[k]);
+  }});
+  Object.keys(pole).sort().forEach(k=>add('전주/'+k,pole[k]));
+  const labels={{insert:'삽입점',location:'위치',center:'중심점',start:'시작점',end:'끝점',rotation:'회전각',angle:'각도',radius:'반지름',xscale:'X 스케일',yscale:'Y 스케일',zscale:'Z 스케일',elevation:'표고',extrusion:'돌출방향',height:'문자높이',text:'문자',name:'이름',closed:'폐합여부'}};
+  Object.keys(dxf).sort().forEach(k=>add(labels[String(k).toLowerCase()]||k,dxf[k]));
   if(!rows.length){{d.style.display='none';return}}
   d.innerHTML=rows.map(x=>'<div class="row"><div class="key">'+esc(x[0])+'</div><div>'+esc(x[1])+'</div></div>').join('');
   d.style.display='block';
@@ -244,7 +252,8 @@ const SYMBOL_LIBRARY={{
 }};
 
 function symbolKind(p){{
-  const f=((p.attributes||{{}}).fields)||{{}};
+  const a=p.attributes||{{}};
+  const f=a.fields||a;
   if(f._cmb_symbol_kind)return String(f._cmb_symbol_kind);
   const s=((p.layer||'')+' '+(p.block_name||'')+' '+(p.entity_type||'')).toUpperCase();
   if(s.includes('ONU'))return 'onu';
@@ -259,8 +268,10 @@ function symbolKind(p){{
 }}
 
 function rotationDeg(p){{
-  const f=((p.attributes||{{}}).fields)||{{}};
-  const v=Number(f._cmb_rotation_deg||0);
+  const a=p.attributes||{{}};
+  const f=a.fields||a;
+  const d=f._cmb_dxf_data||{{}};
+  const v=Number(f._cmb_rotation_deg ?? d.rotation ?? d.angle ?? 0);
   return Number.isFinite(v)?v:0;
 }}
 
