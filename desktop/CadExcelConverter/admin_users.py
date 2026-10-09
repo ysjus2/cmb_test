@@ -623,6 +623,38 @@ class UserAdminWindow(tk.Toplevel):
 
         load_all()
 
+    def edit_session_timeout(self):
+        if not self.current_user:
+            return
+        try:
+            result = self.client.admin_session_timeout() or {}
+            current = int(result.get('minutes', 10))
+        except Exception as exc:
+            messagebox.showerror('로그인 유지시간', str(exc), parent=self)
+            return
+
+        value = simpledialog.askinteger(
+            '로그인 유지시간',
+            '비밀번호 재입력까지의 로그인 유지시간(분)\n권장값: 10분\n허용 범위: 5~120분',
+            initialvalue=current,
+            minvalue=5,
+            maxvalue=120,
+            parent=self,
+        )
+        if value is None:
+            return
+
+        try:
+            self.client.set_admin_session_timeout(value)
+            self.status.set(f'로그인 유지시간 {value}분으로 변경')
+            messagebox.showinfo(
+                '로그인 유지시간',
+                f'로그인 유지시간을 {value}분으로 설정했습니다.\n새 로그인부터 적용됩니다.',
+                parent=self,
+            )
+        except Exception as exc:
+            messagebox.showerror('로그인 유지시간', str(exc), parent=self)
+
     def reset_password(self):
         user = self._selected_user()
         if not user:
