@@ -136,11 +136,6 @@ class App(NetworkExtractionMixin, tk.Tk):
         settings_menu.add_cascade(label="좌표계", menu=epsg_menu)
         menubar.add_cascade(label="설정", menu=settings_menu)
 
-        if self.is_admin:
-            admin_menu = tk.Menu(menubar, tearoff=False)
-            admin_menu.add_command(label="도면 서버 업로드", command=self._open_admin_upload)
-            menubar.add_cascade(label="관리자", menu=admin_menu)
-
         self.config(menu=menubar)
         self.bind_all("<Control-o>", lambda e: self._pick_input())
         if self.can_extract:
