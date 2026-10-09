@@ -507,8 +507,16 @@ async function loadObjects(){{
     const p=f.properties||{{}};
     const group=String(p.group_id||'').toUpperCase();
     if(group && groupEnabled[group]===false)return false;
+
+    // 지역 전체 최초 화면은 광만 우선 표시한다.
+    // 동축은 충분히 줌인한 뒤부터 표시하여 초기 화면 혼잡을 줄인다.
+    if(group==='COAX' && rawLod<5) return false;
+
     const geomType=String((f.geometry||{{}}).type||'');
-    if(['LineString','MultiLineString'].includes(geomType) && ['FIBER','COAX','CONDUIT'].includes(group)) return true;
+    if(['LineString','MultiLineString'].includes(geomType) && group==='FIBER') return true;
+    if(['LineString','MultiLineString'].includes(geomType) && group==='COAX') return rawLod>=5;
+    if(['LineString','MultiLineString'].includes(geomType) && group==='CONDUIT') return rawLod>=8;
+
     return layerLevel(p.layer||'')<=lod;
   }});
   const pointFeatures=features.filter(f=>{{
