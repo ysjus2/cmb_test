@@ -219,3 +219,6 @@ class CMBServerClient:
 
     def session_policy(self):
         return self._request("GET", "/session/policy")
+
+    def touch_session(self):
+        return self._request("POST", "/session/activity", {})
