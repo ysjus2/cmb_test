@@ -134,7 +134,7 @@ def build_payload(scene, source_path, group, epsg):
         objects.append({
             "source_handle": e.handle,
             "object_id": (
-                f"{drawing_code(source_path)}_{e.handle}"
+                f"{drawing_code(source_path).strip().upper()}_{e.handle}"
                 if e.handle else ""
             ),
             "layer": e.layer,
@@ -152,7 +152,7 @@ def build_payload(scene, source_path, group, epsg):
 
     payload = {
         "package_schema": "cmb-network-package-v1",
-        "region_code": drawing_code(source_path),
+        "region_code": drawing_code(source_path).strip().upper(),
         "group": group,
         "source_epsg": int(epsg),
         "source_file": p.name,
@@ -345,6 +345,27 @@ class AdminUploadWindow(tk.Toplevel):
 
     def _upload(self, group):
         self._require_admin()
+
+        region_code = drawing_code(self.source_path).strip().upper()
+        rows = self.client.admin_regions() or []
+        if isinstance(rows, dict):
+            rows = rows.get("items") or rows.get("regions") or []
+
+        registered = {
+            str(
+                row.get("id")
+                or row.get("region_id")
+                or row.get("region_code")
+                or ""
+            ).strip().upper()
+            for row in rows
+        }
+        if region_code not in registered:
+            raise RuntimeError(
+                f"등록되지 않은 지역코드입니다: {region_code}\n"
+                "관리자 > 지역 등록에서 지역명과 고유 지역코드를 먼저 등록해주세요."
+            )
+
         self.session_busy = True
 
         payload = build_payload(
