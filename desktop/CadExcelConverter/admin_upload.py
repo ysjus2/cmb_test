@@ -86,7 +86,7 @@ def _points(e):
     return []
 
 
-def build_payload(scene, source_path, group, epsg):
+def build_payload(scene, source_path, group, epsg, memo=""):
     transformer = Transformer.from_crs(
         f"EPSG:{int(epsg)}",
         "EPSG:4326",
@@ -160,6 +160,7 @@ def build_payload(scene, source_path, group, epsg):
         "source_file": p.name,
         "source_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
         "object_count": len(objects),
+        "memo": str(memo or "").strip(),
         "objects": objects,
     }
 
@@ -186,8 +187,8 @@ class AdminUploadWindow(tk.Toplevel):
         self.session_busy = False
 
         self.title("관리자 · 서버 도면 업로드")
-        self.geometry("820x620")
-        self.minsize(720, 520)
+        self.geometry("820x690")
+        self.minsize(720, 590)
 
         root = ttk.Frame(self, padding=12)
         root.pack(fill="both", expand=True)
@@ -253,6 +254,23 @@ class AdminUploadWindow(tk.Toplevel):
             )
 
         self.tree.selection_set("FIBER")
+
+        memo_box = ttk.LabelFrame(
+            root,
+            text="업로드 메모",
+            padding=8,
+        )
+        memo_box.pack(fill="x", pady=(10, 0))
+
+        self.memo_var = tk.StringVar(value="")
+        ttk.Entry(
+            memo_box,
+            textvariable=self.memo_var,
+        ).pack(fill="x")
+        ttk.Label(
+            memo_box,
+            text="선택 그룹 또는 전체 업로드 시 같은 메모가 해당 변경 그룹에 저장됩니다.",
+        ).pack(anchor="w", pady=(4, 0))
 
         row = ttk.Frame(root)
         row.pack(fill="x", pady=12)
@@ -376,6 +394,7 @@ class AdminUploadWindow(tk.Toplevel):
             self.source_path,
             group,
             self.epsg,
+            self.memo_var.get(),
         )
 
         if payload["object_count"] <= 0:
@@ -488,12 +507,14 @@ class AdminUploadWindow(tk.Toplevel):
             lines = []
 
             for row in rows:
-                active = "ACTIVE" if row.get("active") else ""
+                state = "현재" if row.get("active") else "백업"
+                created = str(row.get("created_at") or "").replace("T", " ")[:19]
+                memo = str(row.get("memo") or "").strip() or "메모 없음"
                 lines.append(
-                    f"{row.get('group_id')} "
-                    f"r{row.get('revision')} "
-                    f"{row.get('object_count')}개 "
-                    f"{active}"
+                    f"{row.get('group_id')} · {state} · "
+                    f"{created or '날짜 없음'} · "
+                    f"{row.get('object_count')}개\n"
+                    f"  메모: {memo}"
                 )
 
             messagebox.showinfo(
