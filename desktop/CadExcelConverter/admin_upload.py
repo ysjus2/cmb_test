@@ -173,14 +173,15 @@ def build_payload(scene, source_path, group, epsg):
 
 
 class AdminUploadWindow(tk.Toplevel):
-    def __init__(self, master, scene, source_path, source_epsg):
+    def __init__(self, master, scene, source_path, source_epsg, client=None, current_user=None):
         super().__init__(master)
 
         self.scene = scene
         self.source_path = source_path
         self.epsg = source_epsg
-        self.client = CMBServerClient()
-        self.current_user = None
+        self.client = client or CMBServerClient()
+        self.current_user = current_user
+        self.session_busy = False
 
         self.title("관리자 · 서버 도면 업로드")
         self.geometry("820x620")
@@ -203,41 +204,8 @@ class AdminUploadWindow(tk.Toplevel):
             ),
         ).pack(anchor="w", pady=(3, 10))
 
-        login = ttk.LabelFrame(root, text="서버 로그인", padding=8)
-        login.pack(fill="x", pady=(0, 10))
-
-        self.username = tk.StringVar()
-        self.password = tk.StringVar()
-        self.login_status = tk.StringVar(value="로그인이 필요합니다.")
-
-        ttk.Label(login, text="아이디").grid(row=0, column=0, sticky="w")
-        ttk.Entry(login, textvariable=self.username, width=22).grid(
-            row=0, column=1, padx=(6, 12)
-        )
-
-        ttk.Label(login, text="비밀번호").grid(row=0, column=2, sticky="w")
-        pw = ttk.Entry(login, textvariable=self.password, show="*", width=22)
-        pw.grid(row=0, column=3, padx=(6, 12))
-        pw.bind("<Return>", lambda e: self.login())
-
-        ttk.Button(login, text="로그인", command=self.login).grid(
-            row=0, column=4
-        )
-
-        ttk.Button(login, text="로그아웃", command=self.logout).grid(
-            row=0, column=5, padx=(6, 0)
-        )
-
-        ttk.Label(
-            login,
-            textvariable=self.login_status,
-        ).grid(
-            row=1,
-            column=0,
-            columnspan=6,
-            sticky="w",
-            pady=(6, 0),
-        )
+        self.login_status = tk.StringVar(value="")
+        ttk.Label(root, textvariable=self.login_status).pack(anchor="w", pady=(0, 10))
 
         self.tree = ttk.Treeview(
             root,
@@ -325,60 +293,30 @@ class AdminUploadWindow(tk.Toplevel):
             anchor="w",
         ).pack(fill="x")
 
-    def login(self):
-        username = self.username.get().strip()
-        password = self.password.get()
+        if self.current_user:
+            self.after(0, self._apply_existing_session)
+        else:
+            self.after(0, self.destroy)
 
-        if not username or not password:
-            messagebox.showinfo(
-                "로그인",
-                "아이디와 비밀번호를 입력해주세요.",
-                parent=self,
-            )
-            return
-
+    def _apply_existing_session(self):
         try:
-            user = self.client.login(username, password)
-            self.current_user = user
-            self.password.set("")
-
-            level = int(user.get("level", 5))
-            label = (
-                f"{user.get('name') or user.get('username')} "
-                f"· {user.get('department', '')} · {level}등급"
-            )
-
-            if level != 1:
-                self.login_status.set(
-                    label + " · 조회 전용: 도면 업로드는 1등급 관리자만 가능합니다."
-                )
-                self.upload_one_btn.configure(state="disabled")
-                self.upload_all_btn.configure(state="disabled")
-            else:
-                self.login_status.set(label + " · 관리자 업로드 가능")
-                self.upload_one_btn.configure(state="normal")
-                self.upload_all_btn.configure(state="normal")
-
-            self.status.set("서버 로그인 완료")
-
-        except Exception as exc:
-            self.current_user = None
+            level = int((self.current_user or {}).get("level", 5))
+        except Exception:
+            level = 5
+        user = self.current_user or {}
+        label = (
+            f"{user.get('name') or user.get('username')} "
+            f"· {user.get('department', '')} · {level}등급"
+        )
+        self.login_status.set(label)
+        if level == 1:
+            self.upload_one_btn.configure(state="normal")
+            self.upload_all_btn.configure(state="normal")
+            self.status.set("관리자 세션 연결 완료")
+        else:
             self.upload_one_btn.configure(state="disabled")
             self.upload_all_btn.configure(state="disabled")
-            self.login_status.set("로그인 실패")
-            messagebox.showerror("로그인 오류", str(exc), parent=self)
-
-    def logout(self):
-        try:
-            self.client.logout()
-        except Exception:
-            pass
-
-        self.current_user = None
-        self.upload_one_btn.configure(state="disabled")
-        self.upload_all_btn.configure(state="disabled")
-        self.login_status.set("로그인이 필요합니다.")
-        self.status.set("로그아웃 완료")
+            self.status.set("1등급 관리자만 업로드할 수 있습니다.")
 
     def health(self):
         try:
@@ -407,6 +345,7 @@ class AdminUploadWindow(tk.Toplevel):
 
     def _upload(self, group):
         self._require_admin()
+        self.session_busy = True
 
         payload = build_payload(
             self.scene,
@@ -425,7 +364,10 @@ class AdminUploadWindow(tk.Toplevel):
         )
         self.update_idletasks()
 
-        result = self.client.upload_group(payload)
+        try:
+            result = self.client.upload_group(payload)
+        finally:
+            self.session_busy = False
 
         self.status.set(
             f"{group} 업로드 완료 · "
