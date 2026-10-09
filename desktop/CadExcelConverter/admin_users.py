@@ -729,6 +729,8 @@ class UserAdminWindow(tk.Toplevel):
                 drawing_name.set("")
                 region_name.set("")
                 load_regions()
+                if self.users:
+                    self.load_users()
                 self.status.set(
                     f"지역 등록 완료 · {rid} · {name}"
                 )
@@ -905,12 +907,14 @@ class UserAdminWindow(tk.Toplevel):
                     user_id,
                     selected,
                 )
+                # 서버 저장 직후 관리자 조회 목록의 배정 지역도 즉시 갱신한다.
+                self.load_users()
                 self.status.set(
                     f"{username} 지역 권한 저장 완료 · {len(selected)}개 지역"
                 )
                 messagebox.showinfo(
                     "지역 권한",
-                    f"{username} 사용자의 지역 권한이 저장되었습니다.",
+                    f"{username} 사용자의 지역 권한이 저장되고 조회 화면도 갱신되었습니다.",
                     parent=win,
                 )
             except Exception as exc:
