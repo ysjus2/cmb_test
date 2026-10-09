@@ -553,11 +553,30 @@ class UserAdminWindow(tk.Toplevel):
 
         footer = ttk.Frame(root)
         footer.pack(fill="x", pady=(10, 0))
+
+        def select_all_regions():
+            for var in vars_by_region.values():
+                var.set(True)
+
+        def clear_all_regions():
+            for var in vars_by_region.values():
+                var.set(False)
+
         ttk.Button(
             footer,
             text="지역 목록 새로고침",
             command=load_all,
         ).pack(side="left")
+        ttk.Button(
+            footer,
+            text="전체 선택",
+            command=select_all_regions,
+        ).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            footer,
+            text="전체 해제",
+            command=clear_all_regions,
+        ).pack(side="left", padx=(6, 0))
         ttk.Button(
             footer,
             text="선택 사용자 권한 저장",
