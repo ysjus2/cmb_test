@@ -18,7 +18,17 @@ class NetworkExtractionMixin:
         self.pipe_diameters={}
         bar=ttk.Frame(parent)
         bar.pack(fill='x',pady=(0,4))
-        for label,command in [('광주간선 추출',self._begin_fiber_route),('100mm 주관로 추출',self._begin_main_conduit),('자가주 좌표 추출',self._run_catv_pole_excel),('관로 속성 확인',self._inspect_conduits),('Excel 추출',self._run_excel),('전체 도면 보기',self._reset_network_filter)]:
+        actions=[('전체 도면 보기',self._reset_network_filter)]
+        if getattr(self,'can_extract',True):
+            actions=[
+                ('광주간선 추출',self._begin_fiber_route),
+                ('100mm 주관로 추출',self._begin_main_conduit),
+                ('자가주 좌표 추출',self._run_catv_pole_excel),
+                ('관로 속성 확인',self._inspect_conduits),
+                ('Excel 추출',self._run_excel),
+                ('전체 도면 보기',self._reset_network_filter),
+            ]
+        for label,command in actions:
             ttk.Button(bar,text=label,command=command).pack(side='left',padx=(0,5))
         self.extract_hint=tk.StringVar(value='광주간선: 시작 함체/끝점 → 끝 함체/끝점 선택')
         ttk.Label(bar,textvariable=self.extract_hint).pack(side='left',padx=8)
