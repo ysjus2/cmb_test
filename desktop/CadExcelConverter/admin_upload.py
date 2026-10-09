@@ -39,6 +39,39 @@ def classify_entity(e):
     return None
 
 
+def _symbol_kind(e):
+    text = (str(e.layer or "") + " " + str(e.block_name or "") + " " + str(e.entity_type or "")).upper()
+    if "ONU" in text:
+        return "onu"
+    if "AMP" in text:
+        return "amp"
+    if "MANHOLE" in text:
+        return "manhole"
+    if "POLE" in text:
+        return "pole"
+    if "TAP" in text:
+        return "tap"
+    if any(k in text for k in ("2WAY", "3WAY", "2-WAY", "3-WAY")):
+        return "splitter"
+    if "POWER" in text:
+        return "power"
+    if any(k in text for k in ("CLOSURE", "TERMINAL", "CENTER")):
+        return "closure"
+    return "generic"
+
+
+def _rotation_deg(e):
+    data = dict(getattr(e, "dxf_data", {}) or {})
+    for key in ("rotation", "ROTATION", "angle", "ANGLE"):
+        value = data.get(key)
+        if value not in (None, ""):
+            try:
+                return float(value) % 360.0
+            except Exception:
+                pass
+    return 0.0
+
+
 def _points(e):
     for kind, data in e.primitives:
         if kind in {"line", "polyline", "polygon"} and len(data) >= 2:
