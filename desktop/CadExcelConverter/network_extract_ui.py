@@ -277,17 +277,141 @@ class NetworkExtractionMixin:
         self._reset_network_filter()
         self.extract_hint.set('영역 꼭짓점을 순서대로 클릭하세요. Enter=폐합/완료, ESC=취소')
         def finished(points):
-            indices={
+            polygon_indices={
                 e.index for e in self.viewer.scene.entities
                 if self._entity_hits_polygon(e,points)
             }
-            if not indices:
-                messagebox.showinfo('사용자 지정 영역 추출','지정 영역 안에 추출 가능한 객체가 없습니다.')
-                self._reset_network_filter();return
-            scope={'kind':'custom','indices':indices,'polygon':list(points)}
-            self._show_scope(scope)
-            self.extract_hint.set(f'사용자 지정 영역 · 객체 {len(indices):,}개 표시 / Excel 추출을 누르세요.')
-            self.status_var.set(f'사용자 지정 영역 추출 대상 {len(indices):,}개')
+            if not polygon_indices:
+                messagebox.showinfo(
+                    '사용자 지정 영역 추출',
+                    '지정 영역 안에 추출 가능한 객체가 없습니다.',
+                )
+                self._reset_network_filter()
+                return
+
+            # 영역 지정 후 실제 포함 레이어를 추가 옵션으로 선택한다.
+            layers=sorted({
+                self.viewer.scene.entities[i].layer
+                for i in polygon_indices
+            })
+
+            win=tk.Toplevel(self)
+            win.title('사용자 지정 영역 · 레이어 선택')
+            win.geometry('620x560')
+            win.minsize(540,460)
+            win.transient(self)
+            win.grab_set()
+
+            root=ttk.Frame(win,padding=12)
+            root.pack(fill='both',expand=True)
+
+            ttk.Label(
+                root,
+                text='사용자 지정 영역 레이어 선택',
+                font=('Malgun Gothic',14,'bold'),
+            ).pack(anchor='w')
+            ttk.Label(
+                root,
+                text=(
+                    f'영역 내 객체 {len(polygon_indices):,}개 · '
+                    '추출할 레이어만 선택하세요.'
+                ),
+            ).pack(anchor='w',pady=(2,10))
+
+            box=ttk.LabelFrame(root,text='레이어',padding=8)
+            box.pack(fill='both',expand=True)
+
+            canvas=tk.Canvas(box,highlightthickness=0)
+            scroll=ttk.Scrollbar(box,orient='vertical',command=canvas.yview)
+            body=ttk.Frame(canvas)
+            body_win=canvas.create_window((0,0),window=body,anchor='nw')
+            body.bind(
+                '<Configure>',
+                lambda e:canvas.configure(scrollregion=canvas.bbox('all')),
+            )
+            canvas.bind(
+                '<Configure>',
+                lambda e:canvas.itemconfigure(body_win,width=e.width),
+            )
+            canvas.configure(yscrollcommand=scroll.set)
+            canvas.pack(side='left',fill='both',expand=True)
+            scroll.pack(side='right',fill='y')
+
+            vars_by_layer={}
+            for layer in layers:
+                var=tk.BooleanVar(value=True)
+                vars_by_layer[layer]=var
+                count=sum(
+                    1 for i in polygon_indices
+                    if self.viewer.scene.entities[i].layer==layer
+                )
+                ttk.Checkbutton(
+                    body,
+                    text=f'{layer} · {count:,}개',
+                    variable=var,
+                ).pack(anchor='w',pady=2)
+
+            def set_all(value):
+                for var in vars_by_layer.values():
+                    var.set(bool(value))
+
+            def apply_layers():
+                selected_layers={
+                    layer
+                    for layer,var in vars_by_layer.items()
+                    if var.get()
+                }
+                if not selected_layers:
+                    messagebox.showinfo(
+                        '사용자 지정 영역 추출',
+                        '레이어를 하나 이상 선택해주세요.',
+                        parent=win,
+                    )
+                    return
+
+                indices={
+                    i for i in polygon_indices
+                    if self.viewer.scene.entities[i].layer in selected_layers
+                }
+                scope={
+                    'kind':'custom',
+                    'indices':indices,
+                    'polygon':list(points),
+                    'layers':selected_layers,
+                }
+                win.destroy()
+                self._show_scope(scope)
+                self.extract_hint.set(
+                    f'사용자 지정 영역 · 레이어 {len(selected_layers)}개 · '
+                    f'객체 {len(indices):,}개 표시 / Excel 추출을 누르세요.'
+                )
+                self.status_var.set(
+                    f'사용자 지정 영역 추출 대상 {len(indices):,}개'
+                )
+
+            footer=ttk.Frame(root)
+            footer.pack(fill='x',pady=(10,0))
+            ttk.Button(
+                footer,
+                text='전체 선택',
+                command=lambda:set_all(True),
+            ).pack(side='left')
+            ttk.Button(
+                footer,
+                text='전체 해제',
+                command=lambda:set_all(False),
+            ).pack(side='left',padx=(6,0))
+            ttk.Button(
+                footer,
+                text='적용',
+                command=apply_layers,
+            ).pack(side='right')
+            ttk.Button(
+                footer,
+                text='취소',
+                command=lambda:(win.destroy(),self._reset_network_filter()),
+            ).pack(side='right',padx=(0,6))
+
         self.viewer.begin_area_select(finished)
 
     def _run_custom_area_excel(self):
