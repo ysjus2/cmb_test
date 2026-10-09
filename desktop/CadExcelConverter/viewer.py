@@ -660,6 +660,8 @@ class DXFViewer(ttk.Frame):
         self.mode = "select"
         self.measure_points = []
         self.measure_items = []
+        self.area_select_points = []
+        self.area_select_callback = None
         self.completed_measurements = []
         self.selected_measurement = None
         self.hover_world = None
@@ -745,7 +747,7 @@ class DXFViewer(ttk.Frame):
         self.canvas.bind("<Double-Button-1>", self._double_click)
         self.canvas.bind("<Motion>", self._motion)
         self.bind_all("<Escape>", self.handle_escape)
-        # 거리 측정 완료는 ESC를 사용한다. Enter는 더 이상 측정 종료 키로 사용하지 않는다.
+        self.bind_all("<Return>", self.handle_enter)
 
     def load_scene(self, scene):
         self.scene = scene
@@ -776,7 +778,7 @@ class DXFViewer(ttk.Frame):
             self.route_start_marker = None
         self.mode = mode
         self.measure_points = []
-        labels = {"select":"선택", "distance":"거리 측정", "coord":"좌표 확인"}
+        labels = {"select":"선택", "distance":"거리 측정", "coord":"좌표 확인", "area_select":"사용자 영역 지정"}
         self.status_var.set(f"모드: {labels.get(mode, mode)}")
         if mode == "distance":
             self.info_var.set(
@@ -1130,6 +1132,32 @@ class DXFViewer(ttk.Frame):
                 sx, sy = self.world_to_screen(*self.route_start_marker)
                 self.canvas.create_oval(sx-7, sy-7, sx+7, sy+7, outline="#54ff54", width=3)
 
+        if self.area_select_points:
+            self._draw_measure_polyline(
+                self.area_select_points,
+                color="#00e5ff",
+                close=False,
+                width=3,
+            )
+            if self.hover_world:
+                x1, y1 = self.world_to_screen(*self.area_select_points[-1])
+                x2, y2 = self.world_to_screen(*self.hover_world)
+                self.canvas.create_line(
+                    x1, y1, x2, y2,
+                    fill="#00e5ff",
+                    width=2,
+                    dash=(3, 2),
+                )
+            if len(self.area_select_points) >= 3:
+                x1, y1 = self.world_to_screen(*self.area_select_points[-1])
+                x2, y2 = self.world_to_screen(*self.area_select_points[0])
+                self.canvas.create_line(
+                    x1, y1, x2, y2,
+                    fill="#00e5ff",
+                    width=2,
+                    dash=(5, 3),
+                )
+
     def _wheel(self, event):
         delta = float(getattr(event, "delta", 0) or 0)
         if not math.isfinite(delta) or delta == 0:
@@ -1301,7 +1329,43 @@ class DXFViewer(ttk.Frame):
         rows = list(dict.fromkeys(rows))
         self._show_rows_window("주소", rows)
 
+    def begin_area_select(self, callback):
+        self.area_select_points = []
+        self.area_select_callback = callback
+        self.mode = "area_select"
+        self.status_var.set("모드: 사용자 영역 지정")
+        self.info_var.set("영역 꼭짓점을 순서대로 클릭하세요. Enter=폐합/완료, ESC=취소")
+        self.redraw()
+
+    def handle_enter(self, event=None):
+        if self.mode != "area_select":
+            return
+        if len(self.area_select_points) < 3:
+            self.info_var.set("영역은 최소 3개 점이 필요합니다.")
+            return "break"
+
+        points = list(self.area_select_points)
+        callback = self.area_select_callback
+        self.area_select_points = []
+        self.area_select_callback = None
+        self.mode = "select"
+        self.status_var.set("모드: 선택")
+        self.info_var.set(f"사용자 영역 {len(points)}개 점 폐합 완료")
+        self.redraw()
+
+        if callback is not None:
+            callback(points)
+        return "break"
+
     def handle_escape(self, event=None):
+        if self.mode == "area_select":
+            self.area_select_points = []
+            self.area_select_callback = None
+            self.mode = "select"
+            self.status_var.set("모드: 선택")
+            self.info_var.set("사용자 영역 지정 취소")
+            self.redraw()
+            return "break"
         if self.network_click is not None:
             self.winfo_toplevel()._reset_network_filter()
             return "break"
@@ -1322,6 +1386,13 @@ class DXFViewer(ttk.Frame):
             self.network_click(event)
             return
         wx, wy = self.screen_to_world(event.x, event.y)
+        if self.mode == "area_select":
+            self.area_select_points.append((wx, wy))
+            self.info_var.set(
+                f"영역 점 {len(self.area_select_points)}개 · 계속 클릭 / Enter=폐합 완료"
+            )
+            self.redraw()
+            return
         if self.mode == "coord":
             try:
                 lon, lat = self.transformer.transform(wx, wy)
@@ -1412,6 +1483,8 @@ class DXFViewer(ttk.Frame):
         base = self.status_var.get().split(" · X=")[0]
         self.status_var.set(f"{base} · X={wx:.3f} Y={wy:.3f}")
         if self.mode in {"distance", "area"} and self.measure_points:
+            self.redraw()
+        if self.mode == "area_select" and self.area_select_points:
             self.redraw()
 
     def _show_selected_info(self):
