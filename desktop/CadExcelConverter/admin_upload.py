@@ -86,12 +86,14 @@ def _points(e):
     return []
 
 
-def build_payload(scene, source_path, group, epsg):
+def build_payload(scene, source_path, group, epsg, region_code=None):
     transformer = Transformer.from_crs(
         f"EPSG:{int(epsg)}",
         "EPSG:4326",
         always_xy=True,
     )
+
+    region_code = str(region_code or drawing_code(source_path)).strip()
 
     objects = []
 
@@ -134,7 +136,7 @@ def build_payload(scene, source_path, group, epsg):
         objects.append({
             "source_handle": e.handle,
             "object_id": (
-                f"{drawing_code(source_path).strip().upper()}_{e.handle}"
+                f"{region_code}_{e.handle}"
                 if e.handle else ""
             ),
             "layer": e.layer,
@@ -152,7 +154,7 @@ def build_payload(scene, source_path, group, epsg):
 
     payload = {
         "package_schema": "cmb-network-package-v1",
-        "region_code": drawing_code(source_path).strip().upper(),
+        "region_code": region_code,
         "group": group,
         "source_epsg": int(epsg),
         "source_file": p.name,
@@ -182,6 +184,8 @@ class AdminUploadWindow(tk.Toplevel):
         self.client = client or CMBServerClient()
         self.current_user = current_user
         self.session_busy = False
+        self.region_rows = []
+        self.region_var = tk.StringVar()
 
         self.title("관리자 · 서버 도면 업로드")
         self.geometry("820x620")
@@ -199,10 +203,26 @@ class AdminUploadWindow(tk.Toplevel):
         ttk.Label(
             root,
             text=(
-                f"지역 {drawing_code(source_path)} · "
-                f"{Path(source_path).name} · EPSG:{source_epsg}"
+                f"원본 도면: {Path(source_path).name} · EPSG:{source_epsg}"
             ),
-        ).pack(anchor="w", pady=(3, 10))
+        ).pack(anchor="w", pady=(3, 8))
+
+        region_box = ttk.LabelFrame(root, text="업로드 대상 지역", padding=8)
+        region_box.pack(fill="x", pady=(0, 8))
+
+        self.region_combo = ttk.Combobox(
+            region_box,
+            textvariable=self.region_var,
+            state="readonly",
+            width=50,
+        )
+        self.region_combo.pack(side="left", fill="x", expand=True)
+
+        ttk.Button(
+            region_box,
+            text="지역 새로고침",
+            command=self._load_regions,
+        ).pack(side="left", padx=(8, 0))
 
         self.login_status = tk.StringVar(value="")
         ttk.Label(root, textvariable=self.login_status).pack(anchor="w", pady=(0, 10))
@@ -312,6 +332,7 @@ class AdminUploadWindow(tk.Toplevel):
         if level == 1:
             self.upload_one_btn.configure(state="normal")
             self.upload_all_btn.configure(state="normal")
+            self._load_regions()
             self.status.set("관리자 세션 연결 완료")
         else:
             self.upload_one_btn.configure(state="disabled")
@@ -334,6 +355,70 @@ class AdminUploadWindow(tk.Toplevel):
                 parent=self,
             )
 
+    def _load_regions(self):
+        try:
+            rows = self.client.admin_regions() or []
+            if isinstance(rows, dict):
+                rows = rows.get("items") or rows.get("regions") or []
+            self.region_rows = list(rows)
+
+            labels = []
+            stem = drawing_code(self.source_path).strip()
+            match_index = -1
+
+            for idx, row in enumerate(self.region_rows):
+                rid = str(
+                    row.get("id")
+                    or row.get("region_id")
+                    or row.get("region_code")
+                    or ""
+                ).strip()
+                name = str(row.get("name") or rid).strip()
+                if not rid:
+                    continue
+                labels.append(f"{name} ({rid})")
+                if rid.casefold() == stem.casefold():
+                    match_index = len(labels) - 1
+
+            self.region_combo["values"] = labels
+
+            if labels:
+                if match_index >= 0:
+                    self.region_combo.current(match_index)
+                elif len(labels) == 1:
+                    self.region_combo.current(0)
+                else:
+                    self.region_combo.set("")
+            else:
+                self.region_combo.set("")
+
+        except Exception as exc:
+            messagebox.showerror(
+                "지역 조회 오류",
+                str(exc),
+                parent=self,
+            )
+
+    def _selected_region_code(self):
+        idx = self.region_combo.current()
+        if idx < 0:
+            return ""
+
+        valid_rows = []
+        for row in self.region_rows:
+            rid = str(
+                row.get("id")
+                or row.get("region_id")
+                or row.get("region_code")
+                or ""
+            ).strip()
+            if rid:
+                valid_rows.append((row, rid))
+
+        if idx >= len(valid_rows):
+            return ""
+        return valid_rows[idx][1]
+
     def _require_admin(self):
         if not self.current_user:
             raise RuntimeError("먼저 서버에 로그인해주세요.")
@@ -346,24 +431,11 @@ class AdminUploadWindow(tk.Toplevel):
     def _upload(self, group):
         self._require_admin()
 
-        region_code = drawing_code(self.source_path).strip().upper()
-        rows = self.client.admin_regions() or []
-        if isinstance(rows, dict):
-            rows = rows.get("items") or rows.get("regions") or []
-
-        registered = {
-            str(
-                row.get("id")
-                or row.get("region_id")
-                or row.get("region_code")
-                or ""
-            ).strip().upper()
-            for row in rows
-        }
-        if region_code not in registered:
+        region_code = self._selected_region_code()
+        if not region_code:
             raise RuntimeError(
-                f"등록되지 않은 지역코드입니다: {region_code}\n"
-                "관리자 > 지역 등록에서 지역명과 고유 지역코드를 먼저 등록해주세요."
+                "업로드 대상 지역을 선택해주세요.\n"
+                "DXF 파일명과 지역 고유코드는 서로 같을 필요가 없습니다."
             )
 
         self.session_busy = True
@@ -373,6 +445,7 @@ class AdminUploadWindow(tk.Toplevel):
             self.source_path,
             group,
             self.epsg,
+            region_code=region_code,
         )
 
         if payload["object_count"] <= 0:
