@@ -621,9 +621,9 @@ class UserAdminWindow(tk.Toplevel):
         ttk.Label(
             root,
             text=(
-                "지역명과 고유 지역코드를 최초 1회 등록합니다. "
-                "고유코드는 형식 제한 없이 사용할 수 있으며 사용자 권한·업로드·온라인 조회에서 "
-                "공통 식별자로 사용합니다. 실제 DXF 파일명은 고유코드와 달라도 됩니다."
+                "지역명과 도면명을 최초 1회 등록합니다. "
+                "DXF 파일명에서 .dxf를 제외한 도면명이 그대로 지역코드가 됩니다. "
+                "도면명 형식에는 제한이 없으며 같은 도면명은 중복 등록할 수 없습니다."
             ),
             wraplength=520,
         ).pack(anchor="w", pady=(2, 12))
@@ -634,7 +634,7 @@ class UserAdminWindow(tk.Toplevel):
         region_code = tk.StringVar()
         region_name = tk.StringVar()
 
-        ttk.Label(form, text="고유 지역코드").grid(
+        ttk.Label(form, text="도면명 (= 지역코드)").grid(
             row=0, column=0, sticky="w", pady=5
         )
         ttk.Entry(
@@ -713,7 +713,7 @@ class UserAdminWindow(tk.Toplevel):
             if not rid:
                 messagebox.showinfo(
                     "지역 등록",
-                    "고유 지역코드를 입력해주세요.",
+                    "도면명을 입력해주세요.",
                     parent=win,
                 )
                 return
@@ -741,9 +741,9 @@ class UserAdminWindow(tk.Toplevel):
                 )
                 if duplicate_code:
                     messagebox.showinfo(
-                        "지역코드 중복",
-                        f"{rid} 코드는 이미 등록되어 있습니다.\n"
-                        "한 지역에는 하나의 고유코드만 사용할 수 있습니다.",
+                        "도면명 중복",
+                        f"{rid} 도면명은 이미 등록되어 있습니다.\n"
+                        "하나의 도면명은 하나의 지역코드로만 사용할 수 있습니다.",
                         parent=win,
                     )
                     return
@@ -759,9 +759,9 @@ class UserAdminWindow(tk.Toplevel):
                 )
                 messagebox.showinfo(
                     "지역 등록 완료",
-                    f"지역명: {name}\n고유 지역코드: {rid}\n\n"
-                    f"이 코드는 사용자 권한·업로드·온라인 조회에서 동일하게 사용됩니다.\n"
-                    "DXF 파일명은 이 코드와 달라도 됩니다.",
+                    f"지역명: {name}\n도면명/지역코드: {rid}\n\n"
+                    f"업로드할 DXF 파일명은 {rid}.dxf 이어야 합니다.\n"
+                    "이 도면명이 사용자 권한·업로드·온라인 조회에서 동일한 지역코드로 사용됩니다.",
                     parent=win,
                 )
             except Exception as exc:
