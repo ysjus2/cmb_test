@@ -246,23 +246,20 @@ async function login(){{
   await loadRegions();
 }}
 
-kakao.maps.load(()=>{{
-  map=new kakao.maps.Map(document.getElementById('map'),{{
-    center:new kakao.maps.LatLng(35.1595,126.8526),
-    level:8
-  }});
-
-  kakao.maps.event.addListener(map,'idle',()=>loadObjects());
-
+function bindUi(){{
   document.getElementById('loginBtn').onclick=login;
   document.getElementById('pass').addEventListener('keydown',e=>{{if(e.key==='Enter')login()}});
-  document.getElementById('reload').onclick=loadObjects;
+  document.getElementById('reload').onclick=()=>loadObjects();
 
   document.getElementById('region').onchange=async e=>{{
     clearOverlays();
     document.getElementById('detail').style.display='none';
     const r=await pywebview.api.select(e.target.value);
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
+    if(!map){{
+      setStatus('카카오맵 초기화 대기');
+      return;
+    }}
     const b=r.bounds||null;
     if(b&&b.west!=null&&b.south!=null&&b.east!=null&&b.north!=null){{
       const bounds=new kakao.maps.LatLngBounds();
@@ -281,7 +278,30 @@ kakao.maps.load(()=>{{
     document.getElementById('login').style.display='flex';
     setStatus('로그인 필요');
   }};
-}});
+}}
+
+function initMap(){{
+  try{{
+    if(!(window.kakao&&kakao.maps)){{
+      setStatus('카카오 JavaScript SDK 로드 실패');
+      return;
+    }}
+    kakao.maps.load(()=>{{
+      map=new kakao.maps.Map(document.getElementById('map'),{{
+        center:new kakao.maps.LatLng(35.1595,126.8526),
+        level:8
+      }});
+      kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      setStatus('로그인 필요');
+    }});
+  }}catch(err){{
+    setStatus('카카오맵 초기화 오류');
+    document.getElementById('error').textContent=String(err);
+  }}
+}}
+
+bindUi();
+initMap();
 </script>
 </body>
 </html>"""
