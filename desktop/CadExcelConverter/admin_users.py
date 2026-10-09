@@ -130,7 +130,7 @@ class UserAdminWindow(tk.Toplevel):
         self.region_btn.configure(state="normal")
         self.region_register_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
-        self.load_users()
+        self.status.set("사용자 조회 버튼을 눌러 목록을 불러오세요.")
 
     def load_users(self):
         if not self.current_user:
@@ -152,7 +152,7 @@ class UserAdminWindow(tk.Toplevel):
         for i, user in enumerate(self.users):
             blob = " ".join(
                 str(user.get(k) or "")
-                for k in ("username", "name", "department", "level")
+                for k in ("username", "name")
             ).lower()
             if q and q not in blob:
                 continue
@@ -172,7 +172,15 @@ class UserAdminWindow(tk.Toplevel):
             )
             shown += 1
         if q:
-            self.status.set(f"검색 결과 {shown}명 / 전체 {len(self.users)}명")
+            self.status.set(
+                f"아이디/이름 검색 결과 {shown}명 / 전체 {len(self.users)}명"
+            )
+        else:
+            self.status.set(
+                f"전체 사용자 {shown}명 표시"
+                if self.users
+                else "사용자 조회 버튼을 눌러 목록을 불러오세요."
+            )
 
     def _selected_user(self):
         selected = self.tree.selection()
