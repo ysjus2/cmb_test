@@ -231,6 +231,137 @@ function colorFor(group){{
   return '#8e24aa';
 }}
 
+const SYMBOL_LIBRARY={{
+  onu:{{shape:'rect',w:18,h:12,fill:'#00bcd4',stroke:'#006064'}},
+  amp:{{shape:'triangle',w:18,h:16,fill:'#ffb300',stroke:'#6d4c41'}},
+  pole:{{shape:'circle_x',r:8,fill:'#ffffff',stroke:'#5d4037'}},
+  tap:{{shape:'rect',w:14,h:10,fill:'#ffd54f',stroke:'#795548'}},
+  power:{{shape:'diamond',w:14,h:14,fill:'#ef5350',stroke:'#7f0000'}},
+  closure:{{shape:'circle',r:7,fill:'#42a5f5',stroke:'#0d47a1'}},
+  generic:{{shape:'rect',w:12,h:10,fill:'#eeeeee',stroke:'#424242'}}
+}};
+
+function symbolKind(p){{
+  const s=((p.layer||'')+' '+(p.block_name||'')+' '+(p.entity_type||'')).toUpperCase();
+  if(s.includes('ONU'))return 'onu';
+  if(s.includes('AMP')||s.includes('증폭'))return 'amp';
+  if(s.includes('POLE')||s.includes('전주'))return 'pole';
+  if(s.includes('TAP')||s.includes('분기'))return 'tap';
+  if(s.includes('POWER'))return 'power';
+  if(s.includes('CLOSURE')||s.includes('TERMINAL')||s.includes('CENTER'))return 'closure';
+  return 'generic';
+}}
+
+function pxToLatLng(x,y){{
+  const prj=map.getProjection();
+  return prj.coordsFromPoint(new kakao.maps.Point(x,y));
+}}
+
+function latLngToPx(latlng){{
+  return map.getProjection().pointFromCoords(latlng);
+}}
+
+function polygonPoints(kind,cx,cy){{
+  const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  if(d.shape==='rect'){{
+    const w=d.w/2,h=d.h/2;
+    return [[cx-w,cy-h],[cx+w,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
+  }}
+  if(d.shape==='diamond'){{
+    const w=d.w/2,h=d.h/2;
+    return [[cx,cy-h],[cx+w,cy],[cx,cy+h],[cx-w,cy]];
+  }}
+  if(d.shape==='triangle'){{
+    const w=d.w/2,h=d.h/2;
+    return [[cx,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
+  }}
+  return [];
+}}
+
+function raySegmentIntersection(cx,cy,dx,dy,a,b){{
+  const sx=b[0]-a[0],sy=b[1]-a[1];
+  const det=(-dx*sy+dy*sx);
+  if(Math.abs(det)<1e-9)return null;
+  const s=(-sy*(a[0]-cx)+sx*(a[1]-cy))/det;
+  const t=( dx*(a[1]-cy)-dy*(a[0]-cx))/det;
+  if(s>=0&&t>=0&&t<=1)return [cx+s*dx,cy+s*dy];
+  return null;
+}}
+
+function boundaryPoint(kind,cx,cy,tx,ty){{
+  let dx=tx-cx,dy=ty-cy;
+  const len=Math.hypot(dx,dy)||1;
+  dx/=len;dy/=len;
+  const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  if(d.shape==='circle'||d.shape==='circle_x'){{
+    return [cx+dx*d.r,cy+dy*d.r];
+  }}
+  const pts=polygonPoints(kind,cx,cy);
+  let best=null,bestDist=1e9;
+  for(let i=0;i<pts.length;i++){{
+    const hit=raySegmentIntersection(cx,cy,dx,dy,pts[i],pts[(i+1)%pts.length]);
+    if(!hit)continue;
+    const dist=Math.hypot(hit[0]-cx,hit[1]-cy);
+    if(dist<bestDist){{best=hit;bestDist=dist}}
+  }}
+  return best||[cx,cy];
+}}
+
+function drawDevice(center,props){{
+  const kind=symbolKind(props);
+  const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  const px=latLngToPx(center);
+  const cx=px.x,cy=px.y;
+  const parts=[];
+
+  if(d.shape==='circle'||d.shape==='circle_x'){{
+    const path=[];
+    for(let i=0;i<20;i++){{
+      const a=Math.PI*2*i/20;
+      path.push(pxToLatLng(cx+Math.cos(a)*d.r,cy+Math.sin(a)*d.r));
+    }}
+    const poly=new kakao.maps.Polygon({{path:path,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
+    poly.setMap(map);overlays.push(poly);parts.push(poly);bindClick(poly,props);
+    if(d.shape==='circle_x'){{
+      const a1=pxToLatLng(cx-d.r*.7,cy-d.r*.7),a2=pxToLatLng(cx+d.r*.7,cy+d.r*.7);
+      const b1=pxToLatLng(cx-d.r*.7,cy+d.r*.7),b2=pxToLatLng(cx+d.r*.7,cy-d.r*.7);
+      [ [a1,a2],[b1,b2] ].forEach(path2=>{{
+        const l=new kakao.maps.Polyline({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
+        l.setMap(map);overlays.push(l);parts.push(l);bindClick(l,props);
+      }});
+    }}
+  }}else{{
+    const pts=polygonPoints(kind,cx,cy).map(p=>pxToLatLng(p[0],p[1]));
+    const poly=new kakao.maps.Polygon({{path:pts,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
+    poly.setMap(map);overlays.push(poly);parts.push(poly);bindClick(poly,props);
+  }}
+
+  return {{kind,center,cx,cy,props,parts}};
+}}
+
+function snapCablePath(coords,devices){{
+  if(coords.length<2||!devices.length)return coords.map(a=>new kakao.maps.LatLng(a[1],a[0]));
+  const pts=coords.map(a=>new kakao.maps.LatLng(a[1],a[0]));
+  const px=pts.map(latlngToPx);
+  const threshold=26;
+
+  function snapEnd(index,neighborIndex){{
+    let best=null,bestDist=1e9;
+    for(const dev of devices){{
+      const dist=Math.hypot(px[index].x-dev.cx,px[index].y-dev.cy);
+      if(dist<threshold&&dist<bestDist){{best=dev;bestDist=dist}}
+    }}
+    if(!best)return;
+    const target=px[neighborIndex];
+    const bp=boundaryPoint(best.kind,best.cx,best.cy,target.x,target.y);
+    pts[index]=pxToLatLng(bp[0],bp[1]);
+  }}
+
+  snapEnd(0,1);
+  snapEnd(pts.length-1,pts.length-2);
+  return pts;
+}}
+
 function bindClick(overlay,props){{
   kakao.maps.event.addListener(overlay,'click',()=>showDetail(props||{{}}));
 }}
@@ -246,23 +377,29 @@ async function loadObjects(){{
   const allFeatures=r.features||[];
   const lod=detailLevel();
   const features=allFeatures.filter(f=>layerLevel(((f.properties||{{}}).layer)||'')<=lod);
-  features.forEach(f=>{{
-    const g=f.geometry||{{}};
-    const p=f.properties||{{}};
-    const c=colorFor(p.group_id);
-    if(g.type==='Point'){{
-      const a=g.coordinates;
-      const m=new kakao.maps.Marker({{position:new kakao.maps.LatLng(a[1],a[0])}});
-      m.setMap(map);overlays.push(m);bindClick(m,p);
-    }} else if(g.type==='LineString'){{
-      const path=g.coordinates.map(a=>new kakao.maps.LatLng(a[1],a[0]));
-      const l=new kakao.maps.Polyline({{
-        path:path,strokeWeight:4,strokeColor:c,strokeOpacity:.9
-      }});
+  const pointFeatures=features.filter(f=>(f.geometry||{{}}).type==='Point');
+  const lineFeatures=features.filter(f=>(f.geometry||{{}}).type==='LineString');
+  const devices=[];
+
+  pointFeatures.forEach(f=>{{
+    const g=f.geometry||{{}},p=f.properties||{{}};
+    const a=g.coordinates;
+    devices.push(drawDevice(new kakao.maps.LatLng(a[1],a[0]),p));
+  }});
+
+  let snapped=0;
+  lineFeatures.forEach(f=>{{
+    const g=f.geometry||{{}},p=f.properties||{{}},c=colorFor(p.group_id);
+    const before=g.coordinates||[];
+    const path=snapCablePath(before,devices);
+    if(path.length){{
+      const l=new kakao.maps.Polyline({{path:path,strokeWeight:4,strokeColor:c,strokeOpacity:.9}});
       l.setMap(map);overlays.push(l);bindClick(l,p);
+      snapped++;
     }}
   }});
-  setStatus(features.length+'개 · 상세 L'+lod);
+
+  setStatus(features.length+'개 · 상세 L'+lod+' · 심볼 '+devices.length+' · 선로 '+snapped);
 }}
 
 async function loadRegions(){{
