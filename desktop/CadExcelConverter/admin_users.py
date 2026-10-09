@@ -66,6 +66,11 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.region_btn.pack(side="left", padx=(6, 0))
 
+        self.region_register_btn = ttk.Button(
+            tools, text="지역 등록", command=self.register_region, state="disabled"
+        )
+        self.region_register_btn.pack(side="left", padx=(6, 0))
+
         self.session_btn = ttk.Button(
             tools, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
         )
@@ -123,6 +128,7 @@ class UserAdminWindow(tk.Toplevel):
         self.deactivate_btn.configure(state="normal")
         self.activate_btn.configure(state="normal")
         self.region_btn.configure(state="normal")
+        self.region_register_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
         self.load_users()
 
@@ -183,12 +189,26 @@ class UserAdminWindow(tk.Toplevel):
 
         win = tk.Toplevel(self)
         win.title("신규 사용자 등록")
-        win.geometry("420x300")
+        win.geometry("620x620")
+        win.minsize(560, 520)
         win.transient(self)
         win.grab_set()
 
         frame = ttk.Frame(win, padding=14)
         frame.pack(fill="both", expand=True)
+
+        ttk.Label(
+            frame,
+            text="신규 사용자 등록",
+            font=("Malgun Gothic", 14, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="지역은 관리자에 의해 이미 등록된 지역만 선택할 수 있습니다.",
+        ).pack(anchor="w", pady=(2, 10))
+
+        form = ttk.Frame(frame)
+        form.pack(fill="x")
 
         username = tk.StringVar()
         name = tk.StringVar()
@@ -202,24 +222,142 @@ class UserAdminWindow(tk.Toplevel):
             ("등급", level),
         ]
         for i, (label, var) in enumerate(rows):
-            ttk.Label(frame, text=label).grid(row=i, column=0, sticky="w", pady=5)
-            ttk.Entry(frame, textvariable=var, width=32).grid(row=i, column=1, sticky="ew", padx=(8, 0), pady=5)
+            ttk.Label(form, text=label).grid(row=i, column=0, sticky="w", pady=5)
+            ttk.Entry(form, textvariable=var, width=34).grid(
+                row=i,
+                column=1,
+                sticky="ew",
+                padx=(8, 0),
+                pady=5,
+            )
+        form.columnconfigure(1, weight=1)
 
-        frame.columnconfigure(1, weight=1)
+        region_box = ttk.LabelFrame(
+            frame,
+            text="사용 가능 지역 선택",
+            padding=10,
+        )
+        region_box.pack(fill="both", expand=True, pady=(12, 0))
+
+        canvas = tk.Canvas(region_box, highlightthickness=0)
+        scroll = ttk.Scrollbar(
+            region_box,
+            orient="vertical",
+            command=canvas.yview,
+        )
+        body = ttk.Frame(canvas)
+        body_window = canvas.create_window(
+            (0, 0),
+            window=body,
+            anchor="nw",
+        )
+        body.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda e: canvas.itemconfigure(body_window, width=e.width),
+        )
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+
+        vars_by_region = {}
+
+        def load_regions():
+            try:
+                rows = self.client.admin_regions() or []
+                if isinstance(rows, dict):
+                    rows = rows.get("items") or rows.get("regions") or []
+
+                for child in body.winfo_children():
+                    child.destroy()
+                vars_by_region.clear()
+
+                for region in rows:
+                    rid = str(
+                        region.get("id")
+                        or region.get("region_id")
+                        or ""
+                    ).strip()
+                    if not rid:
+                        continue
+                    rname = str(region.get("name") or "").strip()
+                    var = tk.BooleanVar(value=False)
+                    vars_by_region[rid] = var
+                    ttk.Checkbutton(
+                        body,
+                        text=f"{rname or rid}  ({rid})",
+                        variable=var,
+                    ).pack(anchor="w", pady=3)
+
+                if not vars_by_region:
+                    ttk.Label(
+                        body,
+                        text="등록된 지역이 없습니다. 관리자 창의 '지역 등록'에서 먼저 등록해주세요.",
+                    ).pack(anchor="w", pady=6)
+
+            except Exception as exc:
+                messagebox.showerror(
+                    "지역 조회 오류",
+                    str(exc),
+                    parent=win,
+                )
+
+        def resolve_created_user_id(result, target_username):
+            if isinstance(result, dict):
+                for key in ("id", "user_id"):
+                    if result.get(key) is not None:
+                        return result.get(key)
+                nested = result.get("user")
+                if isinstance(nested, dict):
+                    for key in ("id", "user_id"):
+                        if nested.get(key) is not None:
+                            return nested.get(key)
+
+            rows = self.client.admin_users() or []
+            if isinstance(rows, dict):
+                rows = rows.get("items") or rows.get("users") or []
+            for row in rows:
+                if str(row.get("username") or "").strip() == target_username:
+                    return row.get("id")
+            return None
 
         def save():
             u = username.get().strip()
             if not u:
-                messagebox.showinfo("신규 등록", "아이디를 입력해주세요.", parent=win)
+                messagebox.showinfo(
+                    "신규 등록",
+                    "아이디를 입력해주세요.",
+                    parent=win,
+                )
                 return
+
             try:
                 lv = int(level.get().strip())
             except Exception:
-                messagebox.showinfo("신규 등록", "등급은 숫자로 입력해주세요.", parent=win)
+                messagebox.showinfo(
+                    "신규 등록",
+                    "등급은 숫자로 입력해주세요.",
+                    parent=win,
+                )
                 return
+
             if lv < 1 or lv > 5:
-                messagebox.showinfo("신규 등록", "등급은 1~5 범위로 입력해주세요.", parent=win)
+                messagebox.showinfo(
+                    "신규 등록",
+                    "등급은 1~5 범위로 입력해주세요.",
+                    parent=win,
+                )
                 return
+
+            selected_regions = [
+                rid
+                for rid, var in vars_by_region.items()
+                if var.get()
+            ]
+
             try:
                 result = self.client.create_user(
                     u,
@@ -227,19 +365,71 @@ class UserAdminWindow(tk.Toplevel):
                     department.get(),
                     lv,
                 )
-                temp = str((result or {}).get("temporary_password") or "")
+
+                new_user_id = resolve_created_user_id(result, u)
+                if new_user_id is None:
+                    raise RuntimeError(
+                        "사용자는 등록되었지만 사용자 ID를 확인하지 못해 지역 권한을 저장하지 못했습니다."
+                    )
+
+                self.client.set_user_regions(
+                    new_user_id,
+                    selected_regions,
+                )
+
+                temp = str(
+                    (result or {}).get("temporary_password")
+                    or ""
+                )
+
                 win.destroy()
                 self.load_users()
-                msg = f"{u} 사용자가 등록되었습니다."
-                if temp:
-                    msg += f"\n\n임시 비밀번호: {temp}\n\n이 비밀번호는 지금 한 번만 표시됩니다."
-                messagebox.showinfo("신규 등록 완료", msg, parent=self)
-            except Exception as exc:
-                messagebox.showerror("신규 등록 오류", str(exc), parent=win)
 
-        ttk.Button(frame, text="등록", command=save).grid(
-            row=len(rows), column=0, columnspan=2, pady=(14, 0)
-        )
+                msg = (
+                    f"{u} 사용자가 등록되었습니다.\n"
+                    f"지역 권한: {len(selected_regions)}개"
+                )
+                if temp:
+                    msg += (
+                        f"\n\n임시 비밀번호: {temp}"
+                        "\n\n이 비밀번호는 지금 한 번만 표시됩니다."
+                    )
+
+                messagebox.showinfo(
+                    "신규 등록 완료",
+                    msg,
+                    parent=self,
+                )
+
+            except Exception as exc:
+                messagebox.showerror(
+                    "신규 등록 오류",
+                    str(exc),
+                    parent=win,
+                )
+
+        footer = ttk.Frame(frame)
+        footer.pack(fill="x", pady=(12, 0))
+
+        ttk.Button(
+            footer,
+            text="지역 목록 새로고침",
+            command=load_regions,
+        ).pack(side="left")
+
+        ttk.Button(
+            footer,
+            text="등록",
+            command=save,
+        ).pack(side="right")
+
+        ttk.Button(
+            footer,
+            text="취소",
+            command=win.destroy,
+        ).pack(side="right", padx=(0, 6))
+
+        load_regions()
 
     def deactivate_user(self):
         user = self._selected_user()
@@ -293,6 +483,175 @@ class UserAdminWindow(tk.Toplevel):
         except Exception as exc:
             messagebox.showerror("재활성화 오류", str(exc), parent=self)
 
+    def register_region(self):
+        if not self.current_user:
+            return
+
+        win = tk.Toplevel(self)
+        win.title("지역 등록")
+        win.geometry("560x420")
+        win.minsize(500, 360)
+        win.transient(self)
+        win.grab_set()
+
+        root = ttk.Frame(win, padding=14)
+        root.pack(fill="both", expand=True)
+
+        ttk.Label(
+            root,
+            text="지역 등록",
+            font=("Malgun Gothic", 14, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            root,
+            text=(
+                "도면명은 서버에 업로드할 DXF 파일명에서 .dxf를 제외한 값입니다. "
+                "예: CMB_GN_KSG.dxf → CMB_GN_KSG"
+            ),
+            wraplength=520,
+        ).pack(anchor="w", pady=(2, 12))
+
+        form = ttk.LabelFrame(root, text="신규 지역", padding=10)
+        form.pack(fill="x")
+
+        drawing_name = tk.StringVar()
+        region_name = tk.StringVar()
+
+        ttk.Label(form, text="도면명").grid(
+            row=0, column=0, sticky="w", pady=5
+        )
+        ttk.Entry(
+            form,
+            textvariable=drawing_name,
+            width=38,
+        ).grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=(8, 0),
+            pady=5,
+        )
+
+        ttk.Label(form, text="지역명").grid(
+            row=1, column=0, sticky="w", pady=5
+        )
+        ttk.Entry(
+            form,
+            textvariable=region_name,
+            width=38,
+        ).grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(8, 0),
+            pady=5,
+        )
+        form.columnconfigure(1, weight=1)
+
+        existing = ttk.Treeview(
+            root,
+            columns=("drawing", "name"),
+            show="headings",
+            height=8,
+        )
+        existing.heading("drawing", text="등록 도면명")
+        existing.heading("name", text="지역명")
+        existing.column("drawing", width=250)
+        existing.column("name", width=220)
+        existing.pack(fill="both", expand=True, pady=(12, 0))
+
+        def load_regions():
+            try:
+                rows = self.client.admin_regions() or []
+                if isinstance(rows, dict):
+                    rows = rows.get("items") or rows.get("regions") or []
+
+                existing.delete(*existing.get_children())
+                for i, region in enumerate(rows):
+                    rid = str(
+                        region.get("id")
+                        or region.get("region_id")
+                        or ""
+                    ).strip()
+                    name = str(region.get("name") or "").strip()
+                    existing.insert(
+                        "",
+                        "end",
+                        iid=str(i),
+                        values=(rid, name),
+                    )
+            except Exception as exc:
+                messagebox.showerror(
+                    "지역 조회 오류",
+                    str(exc),
+                    parent=win,
+                )
+
+        def save_region():
+            rid = drawing_name.get().strip()
+            if rid.lower().endswith(".dxf"):
+                rid = rid[:-4].strip()
+            name = region_name.get().strip()
+
+            if not rid:
+                messagebox.showinfo(
+                    "지역 등록",
+                    "도면명을 입력해주세요.",
+                    parent=win,
+                )
+                return
+            if not name:
+                messagebox.showinfo(
+                    "지역 등록",
+                    "지역명을 입력해주세요.",
+                    parent=win,
+                )
+                return
+
+            try:
+                self.client.create_region(rid, name)
+                drawing_name.set("")
+                region_name.set("")
+                load_regions()
+                self.status.set(
+                    f"지역 등록 완료 · {rid} · {name}"
+                )
+                messagebox.showinfo(
+                    "지역 등록 완료",
+                    f"도면명: {rid}\n지역명: {name}\n\n"
+                    f"서버 업로드 DXF 파일명은 {rid}.dxf 이어야 합니다.",
+                    parent=win,
+                )
+            except Exception as exc:
+                messagebox.showerror(
+                    "지역 등록 오류",
+                    str(exc),
+                    parent=win,
+                )
+
+        footer = ttk.Frame(root)
+        footer.pack(fill="x", pady=(10, 0))
+
+        ttk.Button(
+            footer,
+            text="목록 새로고침",
+            command=load_regions,
+        ).pack(side="left")
+
+        ttk.Button(
+            footer,
+            text="등록",
+            command=save_region,
+        ).pack(side="right")
+
+        ttk.Button(
+            footer,
+            text="닫기",
+            command=win.destroy,
+        ).pack(side="right", padx=(0, 6))
+
+        load_regions()
+
     def edit_regions(self):
         user = self._selected_user()
         if not user:
@@ -310,8 +669,8 @@ class UserAdminWindow(tk.Toplevel):
 
         win = tk.Toplevel(self)
         win.title(f"지역/권한 관리 · {username}")
-        win.geometry("860x560")
-        win.minsize(760, 500)
+        win.geometry("620x560")
+        win.minsize(540, 480)
         win.transient(self)
         win.grab_set()
 
@@ -320,96 +679,53 @@ class UserAdminWindow(tk.Toplevel):
 
         ttk.Label(
             root,
-            text="지역 등록 및 사용자 지역 권한",
+            text=f"{username} · 사용 가능 지역",
             font=("Malgun Gothic", 14, "bold"),
         ).pack(anchor="w")
         ttk.Label(
             root,
             text=(
-                "지역 코드는 DXF 파일명(확장자 제외)과 완전히 동일해야 합니다. "
-                "코드 형식에는 별도 제한을 두지 않습니다."
+                "이미 등록된 지역만 선택할 수 있습니다. "
+                "새 지역 등록은 관리자 창의 '지역 등록' 버튼을 사용하세요."
             ),
+            wraplength=580,
         ).pack(anchor="w", pady=(2, 10))
 
-        content = ttk.Panedwindow(root, orient="horizontal")
-        content.pack(fill="both", expand=True)
-
-        left = ttk.LabelFrame(content, text="지역 관리", padding=10)
-        right = ttk.LabelFrame(
-            content,
-            text=f"{username} · 사용 가능 지역",
+        box = ttk.LabelFrame(
+            root,
+            text="등록 지역 선택",
             padding=10,
         )
-        content.add(left, weight=1)
-        content.add(right, weight=1)
+        box.pack(fill="both", expand=True)
 
-        region_tree = ttk.Treeview(
-            left,
-            columns=("id", "name"),
-            show="headings",
-            height=14,
-        )
-        region_tree.heading("id", text="지역 코드")
-        region_tree.heading("name", text="지역명")
-        region_tree.column("id", width=190)
-        region_tree.column("name", width=150)
-        region_tree.pack(fill="both", expand=True)
-
-        add_box = ttk.Frame(left)
-        add_box.pack(fill="x", pady=(10, 0))
-
-        new_id = tk.StringVar()
-        new_name = tk.StringVar()
-
-        ttk.Label(add_box, text="지역 코드").grid(
-            row=0, column=0, sticky="w", pady=3
-        )
-        ttk.Entry(add_box, textvariable=new_id, width=24).grid(
-            row=0, column=1, sticky="ew", padx=(6, 0), pady=3
-        )
-        ttk.Label(add_box, text="지역명").grid(
-            row=1, column=0, sticky="w", pady=3
-        )
-        ttk.Entry(add_box, textvariable=new_name, width=24).grid(
-            row=1, column=1, sticky="ew", padx=(6, 0), pady=3
-        )
-        add_box.columnconfigure(1, weight=1)
-
-        check_canvas = tk.Canvas(right, highlightthickness=0)
-        check_scroll = ttk.Scrollbar(
-            right,
+        canvas = tk.Canvas(box, highlightthickness=0)
+        scroll = ttk.Scrollbar(
+            box,
             orient="vertical",
-            command=check_canvas.yview,
+            command=canvas.yview,
         )
-        check_body = ttk.Frame(check_canvas)
-        check_window = check_canvas.create_window(
+        body = ttk.Frame(canvas)
+        body_window = canvas.create_window(
             (0, 0),
-            window=check_body,
+            window=body,
             anchor="nw",
         )
 
-        check_body.bind(
+        body.bind(
             "<Configure>",
-            lambda e: check_canvas.configure(
-                scrollregion=check_canvas.bbox("all")
-            ),
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
         )
-        check_canvas.bind(
+        canvas.bind(
             "<Configure>",
-            lambda e: check_canvas.itemconfigure(
-                check_window,
-                width=e.width,
-            ),
+            lambda e: canvas.itemconfigure(body_window, width=e.width),
         )
-        check_canvas.configure(yscrollcommand=check_scroll.set)
-        check_canvas.pack(side="left", fill="both", expand=True)
-        check_scroll.pack(side="right", fill="y")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
 
         vars_by_region = {}
-        current_regions = []
 
         def load_all():
-            nonlocal current_regions
             try:
                 rows = self.client.admin_regions() or []
                 assigned = self.client.user_regions(user_id) or []
@@ -419,83 +735,45 @@ class UserAdminWindow(tk.Toplevel):
                 if isinstance(assigned, dict):
                     assigned = assigned.get("items") or assigned.get("regions") or []
 
-                current_regions = list(rows)
                 assigned_ids = {
-                    str(x.get("id") or x.get("region_id") or "")
+                    str(
+                        x.get("id")
+                        or x.get("region_id")
+                        or ""
+                    )
                     for x in assigned
                 }
 
-                region_tree.delete(*region_tree.get_children())
-                for child in check_body.winfo_children():
+                for child in body.winfo_children():
                     child.destroy()
                 vars_by_region.clear()
 
-                for i, region in enumerate(current_regions):
-                    rid = str(region.get("id") or "").strip()
+                for region in rows:
+                    rid = str(
+                        region.get("id")
+                        or region.get("region_id")
+                        or ""
+                    ).strip()
                     if not rid:
                         continue
-                    name = str(region.get("name") or "")
-                    region_tree.insert(
-                        "",
-                        "end",
-                        iid=str(i),
-                        values=(rid, name),
-                    )
-
+                    name = str(region.get("name") or "").strip()
                     var = tk.BooleanVar(value=rid in assigned_ids)
                     vars_by_region[rid] = var
                     ttk.Checkbutton(
-                        check_body,
+                        body,
                         text=f"{name or rid}  ({rid})",
                         variable=var,
                     ).pack(anchor="w", pady=4)
 
-                if not current_regions:
+                if not vars_by_region:
                     ttk.Label(
-                        check_body,
+                        body,
                         text="등록된 지역이 없습니다.",
                     ).pack(anchor="w", pady=6)
 
             except Exception as exc:
                 messagebox.showerror(
                     "지역 조회 오류",
-                    str(exc),
-                    parent=win,
-                )
-
-        def add_region():
-            rid = new_id.get().strip()
-            name = new_name.get().strip()
-
-            if not rid:
-                messagebox.showinfo(
-                    "지역 등록",
-                    "지역 코드를 입력해주세요.",
-                    parent=win,
-                )
-                return
-            if not name:
-                messagebox.showinfo(
-                    "지역 등록",
-                    "지역명을 입력해주세요.",
-                    parent=win,
-                )
-                return
-
-            try:
-                self.client.create_region(rid, name)
-                new_id.set("")
-                new_name.set("")
-                load_all()
-                messagebox.showinfo(
-                    "지역 등록",
-                    f"{name} ({rid}) 지역이 등록되었습니다.\n\n"
-                    f"업로드할 DXF 파일명은 정확히 {rid}.dxf 이어야 합니다.",
-                    parent=win,
-                )
-            except Exception as exc:
-                messagebox.showerror(
-                    "지역 등록 오류",
                     str(exc),
                     parent=win,
                 )
@@ -507,7 +785,10 @@ class UserAdminWindow(tk.Toplevel):
                 if var.get()
             ]
             try:
-                self.client.set_user_regions(user_id, selected)
+                self.client.set_user_regions(
+                    user_id,
+                    selected,
+                )
                 self.status.set(
                     f"{username} 지역 권한 저장 완료 · {len(selected)}개 지역"
                 )
@@ -523,49 +804,39 @@ class UserAdminWindow(tk.Toplevel):
                     parent=win,
                 )
 
-        ttk.Button(
-            add_box,
-            text="지역 추가",
-            command=add_region,
-        ).grid(
-            row=2,
-            column=0,
-            columnspan=2,
-            sticky="ew",
-            pady=(8, 0),
-        )
-
         footer = ttk.Frame(root)
         footer.pack(fill="x", pady=(10, 0))
-
-        def select_all_regions():
-            for var in vars_by_region.values():
-                var.set(True)
-
-        def clear_all_regions():
-            for var in vars_by_region.values():
-                var.set(False)
 
         ttk.Button(
             footer,
             text="지역 목록 새로고침",
             command=load_all,
         ).pack(side="left")
+
         ttk.Button(
             footer,
             text="전체 선택",
-            command=select_all_regions,
+            command=lambda: [
+                var.set(True)
+                for var in vars_by_region.values()
+            ],
         ).pack(side="left", padx=(6, 0))
+
         ttk.Button(
             footer,
             text="전체 해제",
-            command=clear_all_regions,
+            command=lambda: [
+                var.set(False)
+                for var in vars_by_region.values()
+            ],
         ).pack(side="left", padx=(6, 0))
+
         ttk.Button(
             footer,
-            text="선택 사용자 권한 저장",
+            text="권한 저장",
             command=save_permissions,
         ).pack(side="right")
+
         ttk.Button(
             footer,
             text="닫기",
