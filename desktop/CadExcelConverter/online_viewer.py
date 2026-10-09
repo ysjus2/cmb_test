@@ -1,5 +1,6 @@
 from __future__ import annotations
-import json,os
+import json,os,threading
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 import tkinter as tk
 from tkinter import simpledialog,messagebox
@@ -56,6 +57,22 @@ def run_online_viewer():
     k=key()
     if not k:return 2
     import webview
-    webview.create_window("CMB 온라인 Viewer",html=html(k),js_api=Api(),width=1450,height=900,min_size=(900,600))
-    webview.start(gui="edgechromium",debug=False)
+    page=html(k).encode("utf-8")
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path not in ("/","/index.html"):
+                self.send_response(404);self.end_headers();return
+            self.send_response(200)
+            self.send_header("Content-Type","text/html; charset=utf-8")
+            self.send_header("Content-Length",str(len(page)))
+            self.end_headers();self.wfile.write(page)
+        def log_message(self,format,*args): pass
+    server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
+    threading.Thread(target=server.serve_forever,daemon=True).start()
+    try:
+        webview.create_window("CMB 온라인 Viewer",url=f"http://127.0.0.1:{server.server_port}/",
+                              js_api=Api(),width=1450,height=900,min_size=(900,600))
+        webview.start(gui="edgechromium",debug=False)
+    finally:
+        server.shutdown();server.server_close()
     return 0
