@@ -149,6 +149,50 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 let map;
 let overlays=[];
 let selectedOverlay=null;
+let lodReferenceSpan=null;
+const MAX_LEVEL=14;
+const ZOOM_STEP=1.35;
+
+function layerLevel(layer){{
+  const name=String(layer||'').trim().toUpperCase();
+  if(name==='TL_SCCO_SIG'||['F_CABLE','FOC','FIBER','OPTIC','광케이블','광선로','시군구'].some(k=>name.includes(k))) return 0;
+  const rules=[
+    [['CN_C_CELLBOUND'],1],
+    [['CN_C_CELLNO'],2],
+    [['CN_C_ONU'],3],
+    [['TL_SPRD_RW'],4],
+    [['CN_C_CABLE','COAX','동축'],5],
+    [['CN_C_AMP'],6],
+    [['CN_F_CLOSURE','CN_F_CENTER','CN_F_TERMINAL'],7],
+    [['CN_C_POWER','CN_C_TAP','CN_C_PASSIVE','CN_C_CONNECTOR','CN_C_DC_','CN_C_SUBSCRIBERS','CN_C_NMS_'],8],
+    [['건물'],9],
+    [['CN_M_USER_'],10],
+    [['CN_L_POLE_POLE','CN_L_POLE_MANHOLE','CN_L_POLE_HANDHOLE','CN_L_POLE_LINE_'],11]
+  ];
+  for(const [prefixes,level] of rules){{
+    if(prefixes.some(p=>name.startsWith(p))) return level;
+  }}
+  if(name==='CN_L_POLE') return 11;
+  if(name==='0') return 12;
+  if(['_ID','TEXT','LABEL','지번'].some(k=>name.includes(k))) return MAX_LEVEL;
+  return 13;
+}}
+
+function viewportSpan(){{
+  if(!map) return null;
+  const b=map.getBounds(),sw=b.getSouthWest(),ne=b.getNorthEast();
+  const lat=(sw.getLat()+ne.getLat())/2*Math.PI/180;
+  const dx=(ne.getLng()-sw.getLng())*Math.cos(lat);
+  const dy=(ne.getLat()-sw.getLat());
+  return Math.hypot(dx,dy);
+}}
+
+function detailLevel(){{
+  const span=viewportSpan();
+  if(!span||!lodReferenceSpan||span>=lodReferenceSpan) return 0;
+  const ratio=lodReferenceSpan/span;
+  return Math.min(MAX_LEVEL,Math.max(0,Math.floor(Math.log(ratio)/Math.log(ZOOM_STEP)+1e-8)));
+}}
 
 function setStatus(t){{document.getElementById('status').textContent=t||''}}
 
@@ -199,7 +243,9 @@ async function loadObjects(){{
   const r=await pywebview.api.objects(sw.getLng(),sw.getLat(),ne.getLng(),ne.getLat());
   if(r.error){{setStatus(r.error);return}}
   clearOverlays();
-  const features=r.features||[];
+  const allFeatures=r.features||[];
+  const lod=detailLevel();
+  const features=allFeatures.filter(f=>layerLevel(((f.properties||{{}}).layer)||'')<=lod);
   features.forEach(f=>{{
     const g=f.geometry||{{}};
     const p=f.properties||{{}};
@@ -216,7 +262,7 @@ async function loadObjects(){{
       l.setMap(map);overlays.push(l);bindClick(l,p);
     }}
   }});
-  setStatus(features.length+'개');
+  setStatus(features.length+'개 · 상세 L'+lod);
 }}
 
 async function loadRegions(){{
@@ -266,7 +312,13 @@ function bindUi(){{
       bounds.extend(new kakao.maps.LatLng(b.south,b.west));
       bounds.extend(new kakao.maps.LatLng(b.north,b.east));
       map.setBounds(bounds);
+      setTimeout(()=>{{
+        lodReferenceSpan=viewportSpan();
+        loadObjects();
+      }},80);
+      return;
     }}
+    lodReferenceSpan=viewportSpan();
     await loadObjects();
   }};
 
