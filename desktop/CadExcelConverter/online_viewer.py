@@ -240,14 +240,14 @@ function colorFor(group){{
 }}
 
 const SYMBOL_LIBRARY={{
-  onu:{{shape:'rect',w:36,h:18,fill:'#00bcd4',stroke:'#006064',label:'ONU'}},
+  onu:{{shape:'rect',w:32,h:16,fill:'#00bcd4',stroke:'#006064',label:'ONU'}},
   amp:{{shape:'triangle',w:18,h:18,fill:'#ff9800',stroke:'#6d4c41'}},
-  pole:{{shape:'circle_x',r:2.2,fill:'#ffffff',stroke:'#5d4037'}},
+  pole:{{shape:'circle_x',r:1.8,fill:'#ffffff',stroke:'#5d4037'}},
   tap:{{shape:'hexagon',w:18,h:16,fill:'#ffd54f',stroke:'#795548'}},
   splitter:{{shape:'circle',r:8,fill:'#fff59d',stroke:'#795548'}},
   manhole:{{shape:'double_circle',r:9,fill:'#ffffff',stroke:'#37474f'}},
   power:{{shape:'diamond',w:16,h:16,fill:'#ef5350',stroke:'#7f0000'}},
-  closure:{{shape:'circle',r:8,fill:'#42a5f5',stroke:'#0d47a1'}},
+  closure:{{shape:'rect',w:22,h:12,fill:'#42a5f5',stroke:'#0d47a1'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
 
@@ -270,9 +270,17 @@ function symbolKind(p){{
 function rotationDeg(p){{
   const a=p.attributes||{{}};
   const f=a.fields||a;
-  const d=f._cmb_dxf_data||{{}};
-  const v=Number(f._cmb_rotation_deg ?? d.rotation ?? d.angle ?? 0);
+  const v=Number(f._cmb_rotation_deg ?? 0);
   return Number.isFinite(v)?v:0;
+}}
+
+function deviceLabel(p,kind){{
+  if(kind==='splitter'){{
+    const s=((p.layer||'')+' '+(p.block_name||'')+' '+JSON.stringify(p.attributes||{{}})).toUpperCase();
+    if(s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기'))return '3';
+    if(s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기'))return '2';
+  }}
+  return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
 }}
 
 function rotatePoint(x,y,cx,cy,deg){{
@@ -382,10 +390,11 @@ function drawDevice(center,props){{
   const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
   dirLine.setMap(map);overlays.push(dirLine);parts.push(dirLine);
 
-  if(d.label){{
+  const labelText=deviceLabel(props,kind);
+  if(labelText){{
     const label=new kakao.maps.CustomOverlay({{
       position:center,
-      content:'<div style="font:700 10px Malgun Gothic;color:#00363a;transform:translate(-50%,-50%);pointer-events:none">'+d.label+'</div>',
+      content:'<div style="font:700 10px Malgun Gothic;color:#00363a;transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
       yAnchor:.5,xAnchor:.5
     }});
     label.setMap(map);overlays.push(label);parts.push(label);
@@ -432,7 +441,11 @@ async function loadObjects(){{
   const allFeatures=r.features||[];
   const lod=detailLevel();
   const features=allFeatures.filter(f=>layerLevel(((f.properties||{{}}).layer)||'')<=lod);
-  const pointFeatures=features.filter(f=>(f.geometry||{{}}).type==='Point');
+  const pointFeatures=features.filter(f=>{{
+    if((f.geometry||{{}}).type!=='Point')return false;
+    const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
+    return fields._cmb_is_device!==false;
+  }});
   const lineFeatures=features.filter(f=>(f.geometry||{{}}).type==='LineString');
   const devices=[];
 
