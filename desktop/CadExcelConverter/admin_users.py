@@ -14,8 +14,8 @@ class UserAdminWindow(tk.Toplevel):
         self.users = []
 
         self.title("관리자 · 사용자 관리")
-        self.geometry("760x580")
-        self.minsize(680, 500)
+        self.geometry("1240x620")
+        self.minsize(1080, 520)
 
         root = ttk.Frame(self, padding=12)
         root.pack(fill="both", expand=True)
