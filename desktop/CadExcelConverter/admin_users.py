@@ -31,6 +31,12 @@ class UserAdminWindow(tk.Toplevel):
         ttk.Label(
             root,
             textvariable=self.session_timeout_text,
+        ).pack(anchor="w", pady=(0, 2))
+
+        self.backup_retention_text = tk.StringVar(value="도면 백업 보관: 조회 전")
+        ttk.Label(
+            root,
+            textvariable=self.backup_retention_text,
         ).pack(anchor="w", pady=(0, 8))
 
         tools = ttk.Frame(root)
@@ -81,6 +87,11 @@ class UserAdminWindow(tk.Toplevel):
             tools, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
         )
         self.session_btn.pack(side="left", padx=(6, 0))
+
+        self.backup_btn = ttk.Button(
+            tools, text="백업 보관 설정", command=self.edit_backup_retention, state="disabled"
+        )
+        self.backup_btn.pack(side="left", padx=(6, 0))
 
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True)
@@ -137,7 +148,9 @@ class UserAdminWindow(tk.Toplevel):
         self.region_btn.configure(state="normal")
         self.region_register_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
+        self.backup_btn.configure(state="normal")
         self._refresh_session_timeout_display()
+        self._refresh_backup_retention_display()
         self.status.set("사용자 조회 버튼을 눌러 목록을 불러오세요.")
 
     def _refresh_session_timeout_display(self):
@@ -147,6 +160,17 @@ class UserAdminWindow(tk.Toplevel):
             self.session_timeout_text.set(f"로그인 유지시간: {minutes}분")
         except Exception:
             self.session_timeout_text.set("로그인 유지시간: 조회 실패")
+
+    def _refresh_backup_retention_display(self):
+        try:
+            result = self.client.admin_backup_retention() or {}
+            count = int(result.get("count", 2))
+            if count <= 0:
+                self.backup_retention_text.set("도면 백업 보관: 사용 안 함 (0개)")
+            else:
+                self.backup_retention_text.set(f"도면 백업 보관: 최근 {count}개")
+        except Exception:
+            self.backup_retention_text.set("도면 백업 보관: 조회 실패")
 
     def load_users(self):
         if not self.current_user:
@@ -184,6 +208,7 @@ class UserAdminWindow(tk.Toplevel):
 
             self.apply_filter()
             self._refresh_session_timeout_display()
+            self._refresh_backup_retention_display()
             self.status.set(f"사용자 {len(self.users)}명 조회 완료")
         except Exception as exc:
             messagebox.showerror("사용자 조회 오류", str(exc), parent=self)
@@ -1021,6 +1046,54 @@ class UserAdminWindow(tk.Toplevel):
             )
         except Exception as exc:
             messagebox.showerror('로그인 유지시간', str(exc), parent=self)
+
+    def edit_backup_retention(self):
+        if not self.current_user:
+            return
+        try:
+            result = self.client.admin_backup_retention() or {}
+            current = int(result.get("count", 2))
+        except Exception as exc:
+            messagebox.showerror("백업 보관 설정", str(exc), parent=self)
+            return
+
+        value = simpledialog.askinteger(
+            "백업 보관 설정",
+            (
+                "그룹별로 보관할 이전 도면 백업 개수\n\n"
+                "0 = 백업 안 함\n"
+                "1 = 최근 백업 1개\n"
+                "2 = 최근 백업 2개\n"
+                "필요 시 최대 10개까지 설정 가능\n\n"
+                "변경값은 다음 정상 업로드부터 해당 그룹에 적용됩니다."
+            ),
+            initialvalue=current,
+            minvalue=0,
+            maxvalue=10,
+            parent=self,
+        )
+        if value is None:
+            return
+
+        try:
+            self.client.set_admin_backup_retention(value)
+            self._refresh_backup_retention_display()
+            if value == 0:
+                label = "백업 사용 안 함"
+            else:
+                label = f"최근 백업 {value}개"
+            self.status.set(f"도면 백업 보관 설정 변경 · {label}")
+            messagebox.showinfo(
+                "백업 보관 설정",
+                (
+                    f"도면 백업 보관 설정을 '{label}'으로 변경했습니다.\n\n"
+                    "기존 백업은 즉시 삭제하지 않고, "
+                    "각 그룹의 다음 정상 업로드 성공 시 설정 개수에 맞게 정리됩니다."
+                ),
+                parent=self,
+            )
+        except Exception as exc:
+            messagebox.showerror("백업 보관 설정", str(exc), parent=self)
 
     def reset_password(self):
         user = self._selected_user()
