@@ -624,7 +624,7 @@ class AdminUploadWindow(tk.Toplevel):
                 return
 
             try:
-                result = self.client.restore_revision(region, int(revision_id))
+                result = self.client.restore_revision(region, revision_id)
                 load_rows()
                 self.status.set(
                     f"{group} 백업 복원 완료 · "
