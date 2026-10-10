@@ -255,6 +255,16 @@ class CMBServerClient:
             {"minutes": int(minutes)},
         )
 
+    def admin_backup_retention(self):
+        return self._request("GET", "/admin/settings/backup-retention")
+
+    def set_admin_backup_retention(self, count):
+        return self._request(
+            "POST",
+            "/admin/settings/backup-retention",
+            {"count": int(count)},
+        )
+
     def session_policy(self):
         return self._request("GET", "/session/policy")
 
