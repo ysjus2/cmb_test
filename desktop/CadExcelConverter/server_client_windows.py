@@ -179,9 +179,10 @@ class CMBServerClient:
 
     def restore_revision(self, region, revision_id):
         q = urllib.parse.quote(region, safe="")
+        rid = urllib.parse.quote(str(revision_id).strip(), safe="")
         return self._request(
             "POST",
-            f"/admin/drawings/{q}/revisions/{int(revision_id)}/restore",
+            f"/admin/drawings/{q}/revisions/{rid}/restore",
             {},
         )
 
