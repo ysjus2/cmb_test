@@ -96,7 +96,9 @@ class Api:
 
     def regions(self):
         try:
-            raw = self.c.online_regions() or []
+            # 서버에서 생성한 regions.id가 유일한 지역 키다.
+            # 온라인 도면 존재 여부와 무관하게 사용자에게 허용된 /regions 목록을 그대로 표시한다.
+            raw = self.c.regions() or []
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
