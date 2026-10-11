@@ -359,6 +359,21 @@ class CMBServerClient:
             },
         )
 
+    def update_region(self, region_id, name):
+        q = urllib.parse.quote(str(region_id).strip(), safe="")
+        return self._request(
+            "PUT",
+            f"/admin/regions/{q}",
+            {"name": str(name).strip()},
+        )
+
+    def delete_region(self, region_id):
+        q = urllib.parse.quote(str(region_id).strip(), safe="")
+        return self._request(
+            "DELETE",
+            f"/admin/regions/{q}",
+        )
+
     def user_regions(self, user_id):
         return self._request(
             "GET",
