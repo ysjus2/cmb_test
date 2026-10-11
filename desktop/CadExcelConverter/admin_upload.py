@@ -22,10 +22,13 @@ def classify_entity(e):
     block = str(e.block_name or "").strip().upper()
     text = f"{layer} {block}"
 
+    # 지형/배경 레이어는 온라인 서버 업로드 대상이 아니다.
+    if layer.startswith("TS_"):
+        return None
+
     # 광선로 / 광장비
     if (
-        layer == "TL_SCCO_SIG"
-        or layer.startswith("CN_F_")
+        layer.startswith("CN_F_")
         or "F_CABLE" in text
         or "FIBER" in text
         or "FOC" in text
