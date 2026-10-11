@@ -213,7 +213,7 @@ const groupEnabled={{FIBER:true,COAX:true,POLE:true,CONDUIT:true,USER:true}};
 
 function layerLevel(layer){{
   const name=String(layer||'').trim().toUpperCase();
-  if(name.startsWith('TS_')) return 999;
+  if(name.startsWith('TS_')||name==='TL_SCCO_SIG') return 999;
   if(['F_CABLE','FOC','FIBER','OPTIC','광케이블','광선로'].some(k=>name.includes(k))) return 0;
   const rules=[
     [['CN_C_CELLBOUND'],1],
@@ -537,7 +537,7 @@ async function loadObjects(){{
   const features=allFeatures.filter(f=>{{
     const p=f.properties||{{}};
     const layerName=String(p.layer||'').trim().toUpperCase();
-    if(layerName.startsWith('TS_')) return false;
+    if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG') return false;
     const group=String(p.group_id||'').toUpperCase();
     if(group && groupEnabled[group]===false)return false;
 
