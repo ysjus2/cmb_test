@@ -900,17 +900,50 @@ async function loadObjects(force=false){{
     devices.push(drawDevice(new kakao.maps.LatLng(a[1],a[0]),p));
   }});
 
-  let snapped=0;
+  let renderedLines=0;
+  const renderedByGroup={{FIBER:0,COAX:0,CONDUIT:0,POLE:0,USER:0}};
+
   lineFeatures.forEach(f=>{{
-    const g=f.geometry||{{}},p=f.properties||{{}},c=colorFor(p.group_id);
+    const g=f.geometry||{{}};
+    const p=f.properties||{{}};
+    const group=String(p.group_id||'').toUpperCase();
+    const c=colorFor(group);
     const parts=g.type==='MultiLineString' ? (g.coordinates||[]) : [g.coordinates||[]];
+
     parts.forEach(before=>{{
-      const path=snapCablePath(before,devices);
-      if(path.length>=2){{
-        const l=new kakao.maps.Polyline({{path:path,strokeWeight:4,strokeColor:c,strokeOpacity:.95}});
-        l.setMap(map);overlays.push(l);bindClick(l,p);
-        snapped++;
+      if(!Array.isArray(before))return;
+
+      // 원본 좌표를 먼저 정상화한다.
+      const originalPath=before
+        .filter(a=>Array.isArray(a)&&a.length>=2&&Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1])))
+        .map(a=>new kakao.maps.LatLng(Number(a[1]),Number(a[0])));
+
+      if(originalPath.length<2)return;
+
+      // 스냅은 보조 기능이다. 스냅 결과가 잘못되면 반드시 원본 선을 사용한다.
+      let path=originalPath;
+      try{{
+        const snappedPath=snapCablePath(before,devices);
+        if(Array.isArray(snappedPath)&&snappedPath.length>=2)path=snappedPath;
+      }}catch(e){{
+        path=originalPath;
       }}
+
+      const l=new kakao.maps.Polyline({{
+        path:path,
+        strokeWeight:4,
+        strokeColor:c,
+        strokeOpacity:.95,
+        strokeStyle:'solid'
+      }});
+      l.setMap(map);
+      if(typeof l.setZIndex==='function')l.setZIndex(5);
+      overlays.push(l);
+      bindClick(l,p);
+
+      renderedLines++;
+      if(renderedByGroup[group]===undefined)renderedByGroup[group]=0;
+      renderedByGroup[group]++;
     }});
   }});
 
@@ -943,7 +976,10 @@ async function loadObjects(force=false){{
     ' · '+cableDiag+
     ' · 표시 '+features.length+
     ' · 심볼 '+devices.length+
-    ' · 선로 '+snapped
+    ' · 렌더선 '+renderedLines+
+    ' [F:'+String(renderedByGroup.FIBER||0)+
+    '/C:'+String(renderedByGroup.COAX||0)+
+    '/D:'+String(renderedByGroup.CONDUIT||0)+']'
   );
 }}
 
