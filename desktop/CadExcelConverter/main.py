@@ -26,13 +26,14 @@ SESSION_ENDED_EXIT_CODE = 41
 
 
 class App(NetworkExtractionMixin, tk.Tk):
-    def __init__(self, session_user=None):
+    def __init__(self, session_user=None, session_client=None):
         super().__init__()
         self.title(APP_NAME)
         self.geometry("1450x900")
         self.minsize(1000, 650)
 
         self.session_user = dict(session_user or {})
+        self.session_client = session_client
         try:
             self.user_level = int(self.session_user.get("level", 5))
         except Exception:
@@ -407,10 +408,13 @@ class App(NetworkExtractionMixin, tk.Tk):
         if not self.input_path or not os.path.isfile(self.input_path) or self.viewer.scene is None:
             messagebox.showinfo(APP_NAME, "먼저 서버에 올릴 DXF 도면을 열어주세요.")
             return
-        client = CMBServerClient()
-        client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-        client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-        client.on_session_expired = self._expire_session
+        client = self.session_client
+        if client is None:
+            client = CMBServerClient()
+            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+            client.on_session_expired = self._expire_session
+            self.session_client = client
         AdminUploadWindow(
             self,
             self.viewer.scene,
@@ -423,10 +427,13 @@ class App(NetworkExtractionMixin, tk.Tk):
     def _open_server_extract(self):
         if not self._require_admin_permission():
             return
-        client = CMBServerClient()
-        client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-        client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-        client.on_session_expired = self._expire_session
+        client = self.session_client
+        if client is None:
+            client = CMBServerClient()
+            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+            client.on_session_expired = self._expire_session
+            self.session_client = client
         ServerExtractWindow(
             self,
             self.viewer,
@@ -436,10 +443,13 @@ class App(NetworkExtractionMixin, tk.Tk):
         )
 
     def _open_user_admin(self):
-        client = CMBServerClient()
-        client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-        client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-        client.on_session_expired = self._expire_session
+        client = self.session_client
+        if client is None:
+            client = CMBServerClient()
+            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+            client.on_session_expired = self._expire_session
+            self.session_client = client
         UserAdminWindow(
             self,
             client=client,
@@ -835,7 +845,10 @@ if __name__ == "__main__":
         except Exception:
             raise SystemExit(SESSION_ENDED_EXIT_CODE)
 
-        app = App(session_user=verified_user)
+        app = App(
+            session_user=verified_user,
+            session_client=session_client,
+        )
 
         app.session_guard = TkIdleSessionGuard(
             app,
