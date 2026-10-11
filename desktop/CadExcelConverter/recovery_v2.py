@@ -87,6 +87,7 @@ def _symbol_rows(symbol_payload):
 def install_symbol_library(doc, symbol_payload):
     rows = _symbol_rows(symbol_payload)
     definitions = {}
+    symbol_ids = {}
     for row in rows:
         definition = row.get("definition") or {}
         if isinstance(definition, str):
@@ -97,6 +98,9 @@ def install_symbol_library(doc, symbol_payload):
         name = str(row.get("name") or definition.get("name") or "").strip()
         if name and isinstance(definition, dict):
             definitions[name] = definition
+            sid = str(row.get("symbol_id") or "").strip()
+            if sid:
+                symbol_ids[name] = sid
 
     block_name_map = {}
     for name in definitions:
@@ -199,7 +203,14 @@ def install_symbol_library(doc, symbol_payload):
                 except Exception:
                     pass
 
-    return block_name_map
+    return {
+        "by_name": block_name_map,
+        "by_id": {
+            symbol_ids[name]: actual
+            for name, actual in block_name_map.items()
+            if name in symbol_ids
+        },
+    }
 
 
 def _decode_xdata(value):
@@ -281,7 +292,9 @@ def export_network_preserving_dxf(path, features, symbol_payload, target_epsg=51
 
     doc = ezdxf.new("R2010")
     msp = doc.modelspace()
-    block_name_map = install_symbol_library(doc, symbol_payload)
+    symbol_maps = install_symbol_library(doc, symbol_payload)
+    block_name_map = symbol_maps.get("by_name") or {}
+    block_id_map = symbol_maps.get("by_id") or {}
 
     transform = Transformer.from_crs(
         "EPSG:4326",
@@ -322,7 +335,8 @@ def export_network_preserving_dxf(path, features, symbol_payload, target_epsg=51
                 or p.get("block_name")
                 or ""
             ).strip()
-            actual_symbol = block_name_map.get(symbol_name)
+            symbol_id = str(attrs.get("_cmb_symbol_id") or "").strip()
+            actual_symbol = block_id_map.get(symbol_id) or block_name_map.get(symbol_name)
             if actual_symbol and actual_symbol in doc.blocks:
                 entity = msp.add_blockref(
                     actual_symbol,
