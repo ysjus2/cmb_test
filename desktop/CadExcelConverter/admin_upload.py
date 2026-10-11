@@ -39,12 +39,22 @@ def classify_entity(e):
     ):
         return "FIBER"
 
-    # 전주/맨홀 계열은 CN_C_* 일반 장비보다 먼저 판정한다.
-    if layer.startswith("CN_L_POLE") or any(k in text for k in ("POLE", "전주", "POLE_CATV", "POLE-CATV")):
-        return "POLE"
-
-    if any(k in text for k in ("CONDUIT", "MANHOLE", "HANDHOLE", "관로", "맨홀", "핸드홀")):
+    # 관로/맨홀/핸드홀은 CN_L_POLE 계열 이름을 사용하더라도 CONDUIT가 우선이다.
+    if (
+        layer.startswith("CN_L_POLE_MANHOLE")
+        or layer.startswith("CN_L_POLE_HANDHOLE")
+        or layer.startswith("CN_L_POLE_LINE_")
+        or any(k in text for k in ("CONDUIT", "MANHOLE", "HANDHOLE", "관로", "맨홀", "핸드홀"))
+    ):
         return "CONDUIT"
+
+    # 실제 전주만 POLE 그룹으로 분류한다.
+    if (
+        layer == "CN_L_POLE"
+        or layer.startswith("CN_L_POLE_POLE")
+        or any(k in text for k in ("POLE", "전주", "POLE_CATV", "POLE-CATV"))
+    ):
+        return "POLE"
 
     # 동축선로 / 동축장비
     if (
