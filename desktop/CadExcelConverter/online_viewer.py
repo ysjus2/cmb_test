@@ -10,6 +10,8 @@ from server_client_windows import CMBServerClient
 
 CFG = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer" / "online.json"
 SESSION_ENDED_EXIT_CODE = 41
+FINAL_REGION_ID = "CMB_GN_HP"
+FINAL_REGION_NAME = "함평"
 
 
 def key():
@@ -96,36 +98,28 @@ class Api:
 
     def regions(self):
         try:
-            # 서버에서 생성한 regions.id가 유일한 지역 키다.
-            # 온라인 도면 존재 여부와 무관하게 사용자에게 허용된 /regions 목록을 그대로 표시한다.
             raw = self.c.regions() or []
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
-            items = []
-            seen = set()
+            allowed = False
             for row in raw:
                 if not isinstance(row, dict):
                     continue
-                region_id = str(
+                rid = str(
                     row.get("id")
                     or row.get("region_id")
                     or row.get("region_code")
                     or ""
                 ).strip()
-                if not region_id:
-                    continue
-                key = region_id.casefold()
-                if key in seen:
-                    continue
-                seen.add(key)
-                name = str(
-                    row.get("name")
-                    or row.get("region_name")
-                    or region_id
-                ).strip()
-                items.append({"id": region_id, "name": name or region_id})
+                if rid == FINAL_REGION_ID:
+                    allowed = True
+                    break
 
+            items = (
+                [{"id": FINAL_REGION_ID, "name": FINAL_REGION_NAME}]
+                if allowed else []
+            )
             return {
                 "ok": True,
                 "items": items,
@@ -599,22 +593,18 @@ async function loadRegions(){{
   if(!r.ok){{setStatus('지역 조회 실패 · '+(r.error||'서버 오류'));return}}
   const sel=document.getElementById('region');
   const items=(r.items||[]).filter(x=>x&&x.id);
-  sel.innerHTML='<option value="">권한 도면 선택</option>';
+  sel.innerHTML='<option value="">함평 선택</option>';
   items.forEach(x=>{{
     const o=document.createElement('option');
     o.value=String(x.id);
-    o.text=(x.name&&x.name!==x.id) ? (x.name+' ('+x.id+')') : String(x.id);
+    o.text='함평';
     sel.appendChild(o);
   }});
   if(!items.length){{
-    setStatus('온라인 지역 0개 · 등급 '+String(r.level||'?')+' · 서버 /online/regions 확인 필요');
+    setStatus('함평(CMB_GN_HP) 권한 또는 서버 등록을 확인하세요 · 등급 '+String(r.level||'?'));
     return;
   }}
-  setStatus('온라인 지역 '+items.length+'개 · 등급 '+String(r.level||'?'));
-  if(items.length===1){{
-    sel.value=String(items[0].id);
-    sel.dispatchEvent(new Event('change'));
-  }}
+  setStatus('함평 도면 사용 가능 · 등급 '+String(r.level||'?'));
 }}
 
 async function bootstrapAuth(){{
