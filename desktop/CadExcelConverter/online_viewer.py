@@ -489,6 +489,7 @@ async function apiCall(name,payload={{}}){{
 }}
 let map;
 let overlays=[];
+let loadGeneration=0;
 let selectedOverlay=null;
 let lodReferenceSpan=null;
 let idleMinutes=10;
@@ -584,6 +585,7 @@ async function loadSessionPolicy(){{
 }}
 
 function clearOverlays(){{
+  loadGeneration++;
   overlays.forEach(x=>x.setMap(null));
   overlays=[];
   selectedOverlay=null;
@@ -833,19 +835,17 @@ async function loadObjects(force=false){{
   const queryLat=Number(center.getLat());
   const queryLng=Number(center.getLng());
   const mapLevelNow=map.getLevel();
-  const detailMode=mapLevelNow<=1;
+  const detailMode=mapLevelNow<=3;
+  const myGeneration=++loadGeneration;
 
-  // L2 이상에서는 네트워크 도면 오버레이를 전부 숨긴다.
-  // 지도 배경만 유지하고 서버 객체 조회/렌더링도 생략해 확대/이동을 가볍게 한다.
+  // L4 이상부터 네트워크 도면 오버레이를 전부 숨긴다.
+  // 이전 L1~L3 서버 요청이 늦게 끝나더라도 loadGeneration 검증으로 다시 그리지 못한다.
   if(!detailMode){{
-    const previousOverlays=overlays;
-    overlays=[];
-    selectedOverlay=null;
-    previousOverlays.forEach(x=>x.setMap(null));
+    clearOverlays();
     lastQueryLat=queryLat;
     lastQueryLng=queryLng;
     lastDetailMode=false;
-    setStatus('L'+mapLevelNow+' · 도면 숨김 · 확대하면 광/동축/전주/관로 표시');
+    setStatus('L'+mapLevelNow+' · 도면 숨김 · L3 이하에서 광/동축/전주/관로 표시');
     return;
   }}
 
@@ -864,6 +864,8 @@ async function loadObjects(force=false){{
 
   setStatus('지도 중심 '+QUERY_RADIUS_METERS+'m · 불러오는 중...');
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
+  if(myGeneration!==loadGeneration)return;
+  if(map.getLevel()>3){{clearOverlays();return;}}
   if(r.error){{setStatus(r.error);return}}
   lastQueryLat=queryLat;
   lastQueryLng=queryLng;
@@ -873,7 +875,7 @@ async function loadObjects(force=false){{
   selectedOverlay=null;
   const allFeatures=r.features||[];
   const mapLevel=map.getLevel();
-  const isMaxDetail=mapLevel<=1;
+  const isMaxDetail=mapLevel<=3;
   const features=allFeatures.filter(f=>{{
     const p=f.properties||{{}};
     const layerName=String(p.layer||'').trim().toUpperCase();
@@ -881,7 +883,7 @@ async function loadObjects(force=false){{
 
     const group=String(p.group_id||'').toUpperCase();
 
-    // L1에서만 체크된 네트워크 그룹을 표시한다.
+    // L1~L3에서 체크된 네트워크 그룹을 표시한다.
     return isMaxDetail && groupEnabled[group]===true;
   }});
   const pointFeatures=features.filter(f=>{{
