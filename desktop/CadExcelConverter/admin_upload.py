@@ -14,6 +14,7 @@ from server_client_windows import CMBServerClient
 from backup_v2 import enrich_payload_v2
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
+MANAGED_ITEMS = GROUPS + ("SYMBOL",)
 
 
 def classify_entity(e):
@@ -230,6 +231,57 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     return payload
 
 
+def build_symbol_payload(scene, source_path, region_code, memo=""):
+    region_code = str(region_code or "").strip()
+    if not region_code:
+        raise RuntimeError("서버 지역코드를 선택해주세요.")
+
+    symbols = {}
+    for e in scene.entities:
+        entity_type = str(e.entity_type or "").upper()
+        kind = _symbol_kind(e)
+        is_device = entity_type in {"INSERT", "POINT"} or kind != "generic"
+        if not is_device:
+            continue
+
+        block = str(e.block_name or "").strip()
+        layer = str(e.layer or "").strip()
+        key = block or f"{layer}|{kind}"
+        if not key:
+            continue
+
+        dxf = dict(getattr(e, "dxf_data", {}) or {})
+        symbols[key] = {
+            "key": key,
+            "symbol_kind": kind,
+            "block_name": block,
+            "layer": layer,
+            "entity_type": entity_type,
+            "rotation_default_deg": _rotation_deg(e),
+            "xscale": dxf.get("xscale"),
+            "yscale": dxf.get("yscale"),
+            "zscale": dxf.get("zscale"),
+        }
+
+    p = Path(source_path)
+    payload = {
+        "region_code": region_code,
+        "source_file": p.name,
+        "source_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+        "memo": str(memo or "").strip(),
+        "symbol_count": len(symbols),
+        "symbols": list(symbols.values()),
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    payload["package_sha256"] = hashlib.sha256(canonical).hexdigest()
+    return payload
+
+
 class AdminUploadWindow(tk.Toplevel):
     def __init__(self, master, scene, source_path, source_epsg, client=None, current_user=None):
         super().__init__(master)
@@ -303,6 +355,7 @@ class AdminUploadWindow(tk.Toplevel):
             "POLE": "전주 + CATV/자가주",
             "CONDUIT": "관로 + 맨홀 + 핸드홀",
             "USER": "사용자 작성 건물/지형/관리구역",
+            "SYMBOL": "기기 심볼 정의 · 도면 객체와 별도 관리",
         }
 
         counts = {g: 0 for g in GROUPS}
@@ -312,9 +365,15 @@ class AdminUploadWindow(tk.Toplevel):
             if g:
                 counts[g] += 1
 
+        symbol_payload = build_symbol_payload(
+            scene,
+            source_path,
+            "PREVIEW",
+        )
+        counts["SYMBOL"] = int(symbol_payload.get("symbol_count") or 0)
         self.group_counts = counts
 
-        for g in GROUPS:
+        for g in MANAGED_ITEMS:
             scope = desc[g] if counts[g] > 0 else desc[g] + " · 객체 없음(업로드 제외)"
             self.tree.insert(
                 "",
@@ -339,11 +398,19 @@ class AdminUploadWindow(tk.Toplevel):
         ).pack(fill="x")
         ttk.Label(
             memo_box,
-            text="현재 도면 전체 업로드 메모입니다.",
+            text="선택 항목 또는 전체 업로드에 적용할 메모입니다.",
         ).pack(anchor="w", pady=(4, 0))
 
         row = ttk.Frame(root)
         row.pack(fill="x", pady=12)
+
+        self.upload_one_btn = ttk.Button(
+            row,
+            text="선택 항목 업로드",
+            command=self.upload_selected,
+            state="disabled",
+        )
+        self.upload_one_btn.pack(side="left")
 
         self.upload_all_btn = ttk.Button(
             row,
@@ -351,7 +418,7 @@ class AdminUploadWindow(tk.Toplevel):
             command=self.upload_all,
             state="disabled",
         )
-        self.upload_all_btn.pack(side="left")
+        self.upload_all_btn.pack(side="left", padx=6)
 
         ttk.Button(
             row,
@@ -392,10 +459,12 @@ class AdminUploadWindow(tk.Toplevel):
         )
         self.login_status.set(label)
         if level == 1:
+            self.upload_one_btn.configure(state="normal")
             self.upload_all_btn.configure(state="normal")
             self.status.set("관리자 세션 연결 완료")
             self._load_server_regions()
         else:
+            self.upload_one_btn.configure(state="disabled")
             self.upload_all_btn.configure(state="disabled")
             self.status.set("1등급 관리자만 업로드할 수 있습니다.")
 
@@ -513,41 +582,88 @@ class AdminUploadWindow(tk.Toplevel):
 
         return result
 
+    def _upload_symbol(self, allow_empty=False):
+        self._require_admin()
+        region_code = self._selected_region_code()
+        payload = build_symbol_payload(
+            self.scene,
+            self.source_path,
+            region_code,
+            self.memo_var.get(),
+        )
+        if payload["symbol_count"] <= 0 and not allow_empty:
+            raise RuntimeError("업로드 가능한 심볼 정의가 없습니다.")
+
+        self.session_busy = True
+        self.status.set(
+            f"SYMBOL · {payload['symbol_count']:,}개 업로드 중..."
+        )
+        self.update_idletasks()
+        try:
+            result = self.client.upload_symbols(region_code, payload)
+        finally:
+            self.session_busy = False
+
+        self.status.set(
+            "SYMBOL 업로드 완료 · "
+            f"revision {result.get('revision')} · "
+            f"{result.get('symbol_count', payload['symbol_count'])}개"
+        )
+        return result
+
+    def upload_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        item = selected[0]
+        try:
+            if item == "SYMBOL":
+                self._upload_symbol()
+            else:
+                self._upload(item)
+        except Exception as exc:
+            messagebox.showerror(
+                "업로드 오류",
+                str(exc),
+                parent=self,
+            )
+
     def upload_all(self):
         try:
             self._require_admin()
 
             uploaded = []
-            cleared = []
+            failed = []
 
-            # 전체 업로드는 현재 도면을 서버의 기준본으로 사용한다.
-            # 0개 그룹도 빈 Revision으로 교체하여 이전 분류/이동 객체가 남지 않게 한다.
-            for group in GROUPS:
-                count = int(self.group_counts.get(group, 0))
-                self._upload(group, allow_empty=True)
-                uploaded.append(group)
-                if count <= 0:
-                    cleared.append(group)
+            # 전체 업로드는 6개 관리 항목을 순차적으로 각각 교체한다.
+            # 한 항목 실패가 다른 항목의 성공본을 되돌리지 않는다.
+            for item in MANAGED_ITEMS:
+                try:
+                    if item == "SYMBOL":
+                        self._upload_symbol(allow_empty=True)
+                    else:
+                        self._upload(item, allow_empty=True)
+                    uploaded.append(item)
+                except Exception as exc:
+                    failed.append(f"{item}: {exc}")
 
-            skipped_text = (
-                "\n\n기존 데이터 제거(현재 도면 0개): " + ", ".join(cleared)
-                if cleared else ""
-            )
+            if not uploaded:
+                raise RuntimeError(
+                    "모든 업로드 항목이 실패했습니다.\n" + "\n".join(failed)
+                )
+
+            text = "성공: " + ", ".join(uploaded)
+            if failed:
+                text += "\n\n실패:\n" + "\n".join(failed)
 
             messagebox.showinfo(
-                "업로드",
-                "현재 도면 전체 업로드가 완료되었습니다."
-                + skipped_text,
+                "전체 업로드 결과",
+                text,
                 parent=self,
             )
-
             self.status.set(
-                "업로드 완료 · "
-                + ", ".join(uploaded)
-                + (
-                    " · 기존 데이터 제거: " + ", ".join(cleared)
-                    if cleared else ""
-                )
+                "전체 업로드 완료 · 성공 " + ", ".join(uploaded)
+                + (f" · 실패 {len(failed)}개" if failed else "")
             )
 
         except Exception as exc:
@@ -631,7 +747,7 @@ class AdminUploadWindow(tk.Toplevel):
             if isinstance(rows, dict):
                 rows = rows.get("items") or rows.get("revisions") or []
 
-            order = {g: i for i, g in enumerate(GROUPS)}
+            order = {g: i for i, g in enumerate(MANAGED_ITEMS)}
             rows = sorted(
                 list(rows),
                 key=lambda r: (
