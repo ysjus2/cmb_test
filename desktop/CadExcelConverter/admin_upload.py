@@ -11,6 +11,7 @@ from pyproj import Transformer
 
 from drawing_identity import drawing_code
 from server_client_windows import CMBServerClient
+from backup_v2 import enrich_payload_v2
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
 
@@ -171,6 +172,22 @@ def build_payload(scene, source_path, group, epsg, memo=""):
         separators=(",", ":"),
     ).encode("utf-8")
     payload["package_sha256"] = hashlib.sha256(canonical).hexdigest()
+
+    payload = enrich_payload_v2(
+        scene,
+        source_path,
+        group,
+        payload,
+        classify_entity,
+    )
+
+    canonical_v2 = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    payload["package_sha256"] = hashlib.sha256(canonical_v2).hexdigest()
 
     return payload
 
