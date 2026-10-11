@@ -23,7 +23,7 @@ def classify_entity(e):
     text = f"{layer} {block}"
 
     # 지형/배경 레이어는 온라인 서버 업로드 대상이 아니다.
-    if layer.startswith("TS_"):
+    if layer.startswith("TS_") or layer == "TL_SCCO_SIG":
         return None
 
     # 광선로 / 광장비
