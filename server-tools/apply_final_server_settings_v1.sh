@@ -593,7 +593,7 @@ _CMB_FINAL_RUNTIME_INFO = _cmb_install_final_runtime_patch(app)
 PY
 
 echo "[6/9] 오래된 SQLite 보조 DB 제거 준비"
-for old in   /var/lib/cmb-server/map_display.sqlite3   /var/lib/cmb-server/cmb.sqlite3
+for old in /var/lib/cmb-server/map_display.sqlite3
 do
   if [[ -f "${old}" ]]; then
     mv "${old}" "${BACKUP_DIR}/obsolete-$(basename "${old}")-${STAMP}"
@@ -662,7 +662,7 @@ echo "============================================================"
 echo "CMB FINAL SERVER V3 적용 완료"
 echo "- 현재 실행 서버 1개 유지"
 echo "- PostgreSQL/PostGIS 운영 DB 1개 사용"
-echo "- SQLite 보조/중복 DB 제거"
+echo "- 과거 map_display SQLite 보조 DB만 백업 이동"
 echo "- FIBER/COAX/POLE/CONDUIT/USER Revision 기존 DB 사용"
 echo "- SYMBOL Revision 동일 PostgreSQL DB 사용"
 echo "- /online/{region}/versions 추가"
