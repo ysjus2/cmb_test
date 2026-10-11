@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import secrets
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from server_client_windows import CMBServerClient, ServerError
 
-CFG = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer" / "online.json"
+APP_DATA_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer"
+CFG = APP_DATA_DIR / "online.json"
+CACHE_DIR = APP_DATA_DIR / "online_cache"
 SESSION_ENDED_EXIT_CODE = 41
 
 
@@ -33,6 +37,8 @@ class Api:
         self.user = None
         self.window = None
         self.session_ended = False
+        self.cache_state = {"versions": {}, "features": {}, "coverage": []}
+        self.last_version_check = 0.0
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
@@ -43,6 +49,169 @@ class Api:
                 self.user = json.loads(raw_user)
             except Exception:
                 self.user = None
+
+    def _cache_path(self):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(self.region or "")
+        )
+        return CACHE_DIR / f"{safe}.json.gz"
+
+    @staticmethod
+    def _feature_key(feature):
+        props = feature.get("properties") or {}
+        group = str(props.get("group_id") or "").upper()
+        ident = str(
+            props.get("regional_object_id")
+            or props.get("entity_id")
+            or props.get("object_id")
+            or props.get("source_handle")
+            or ""
+        )
+        if not ident:
+            ident = json.dumps(
+                feature.get("geometry") or {},
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+        return f"{group}|{ident}"
+
+    @staticmethod
+    def _geometry_bounds(geometry):
+        coords = (geometry or {}).get("coordinates")
+        points = []
+
+        def walk(value):
+            if (
+                isinstance(value, (list, tuple))
+                and len(value) >= 2
+                and isinstance(value[0], (int, float))
+                and isinstance(value[1], (int, float))
+            ):
+                points.append((float(value[0]), float(value[1])))
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    walk(item)
+
+        walk(coords)
+        if not points:
+            return None
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    @classmethod
+    def _feature_intersects(cls, feature, west, south, east, north):
+        bounds = cls._geometry_bounds(feature.get("geometry") or {})
+        if not bounds:
+            return False
+        fw, fs, fe, fn = bounds
+        return fe >= west and fw <= east and fn >= south and fs <= north
+
+    def _load_cache(self):
+        self.cache_state = {"versions": {}, "features": {}, "coverage": []}
+        path = self._cache_path()
+        if not path.exists():
+            return
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            features = {}
+            for feature in raw.get("features") or []:
+                if isinstance(feature, dict):
+                    features[self._feature_key(feature)] = feature
+            self.cache_state = {
+                "versions": {
+                    str(k).upper(): str(v)
+                    for k, v in (raw.get("versions") or {}).items()
+                },
+                "features": features,
+                "coverage": list(raw.get("coverage") or [])[-200:],
+            }
+        except Exception:
+            self.cache_state = {"versions": {}, "features": {}, "coverage": []}
+
+    def _save_cache(self):
+        if not self.region:
+            return
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            path = self._cache_path()
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            raw = {
+                "versions": self.cache_state.get("versions") or {},
+                "features": list((self.cache_state.get("features") or {}).values()),
+                "coverage": list(self.cache_state.get("coverage") or [])[-200:],
+            }
+            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+                json.dump(raw, fh, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, path)
+        except Exception:
+            pass
+
+    def _apply_versions(self, versions):
+        versions = {
+            str(k).upper(): str(v)
+            for k, v in (versions or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+        previous = self.cache_state.get("versions") or {}
+        changed = {
+            group
+            for group, version in versions.items()
+            if group in previous and previous.get(group) != version
+        }
+        if changed:
+            kept = {}
+            for key, feature in (self.cache_state.get("features") or {}).items():
+                group = str(
+                    ((feature.get("properties") or {}).get("group_id") or "")
+                ).upper()
+                if group not in changed:
+                    kept[key] = feature
+            self.cache_state["features"] = kept
+            self.cache_state["coverage"] = []
+        self.cache_state["versions"] = versions
+        if changed:
+            self._save_cache()
+        return changed
+
+    def _version_signature(self):
+        versions = self.cache_state.get("versions") or {}
+        return "|".join(f"{k}={versions[k]}" for k in sorted(versions))
+
+    def _cache_covers(self, west, south, east, north):
+        signature = self._version_signature()
+        for item in self.cache_state.get("coverage") or []:
+            if str(item.get("version") or "") != signature:
+                continue
+            try:
+                if (
+                    float(item["west"]) <= west
+                    and float(item["south"]) <= south
+                    and float(item["east"]) >= east
+                    and float(item["north"]) >= north
+                ):
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _cached_features(self, west, south, east, north):
+        return [
+            feature
+            for feature in (self.cache_state.get("features") or {}).values()
+            if self._feature_intersects(feature, west, south, east, north)
+        ]
+
+    def _refresh_versions_if_due(self, force=False):
+        now = time.monotonic()
+        if not force and now - self.last_version_check < 60:
+            return set()
+        versions = self.c.online_versions(self.region) if self.region else {}
+        self.last_version_check = now
+        return self._apply_versions(versions)
 
     def _handle_error(self, exc, fallback=None):
         if isinstance(exc, ServerError) and exc.status == 401:
@@ -146,9 +315,13 @@ class Api:
 
     def select(self, region):
         self.region = str(region or "")
+        self.last_version_check = 0.0
         if not self.region:
+            self.cache_state = {"versions": {}, "features": {}, "coverage": []}
             return {"ok": True, "bounds": None, "layers": []}
         try:
+            self._load_cache()
+            self._refresh_versions_if_due(force=True)
             info = self.c.online_layers(self.region) or {}
             layers = info.get("layers") or []
             group_summary = []
@@ -187,19 +360,15 @@ class Api:
             limit = 2000
             max_depth = 5
 
+            self._refresh_versions_if_due()
+            if self._cache_covers(west, south, east, north):
+                return {
+                    "features": self._cached_features(west, south, east, north),
+                    "cache": "hit",
+                }
+
             def feature_key(feature):
-                props = feature.get("properties") or {}
-                return str(
-                    props.get("regional_object_id")
-                    or props.get("entity_id")
-                    or props.get("object_id")
-                    or props.get("source_handle")
-                    or json.dumps(
-                        feature.get("geometry") or {},
-                        sort_keys=True,
-                        ensure_ascii=False,
-                    )
-                )
+                return self._feature_key(feature)
 
             def fetch_cell(cw, cs, ce, cn, depth=0):
                 raw = self.c.online_objects(
@@ -237,7 +406,24 @@ class Api:
                 for feature in fetch_cell(*cell):
                     merged[feature_key(feature)] = feature
 
-            return {"features": list(merged.values())}
+            feature_store = self.cache_state.setdefault("features", {})
+            for feature in merged.values():
+                feature_store[self._feature_key(feature)] = feature
+
+            self.cache_state.setdefault("coverage", []).append({
+                "west": west,
+                "south": south,
+                "east": east,
+                "north": north,
+                "version": self._version_signature(),
+            })
+            self.cache_state["coverage"] = self.cache_state["coverage"][-200:]
+            self._save_cache()
+
+            return {
+                "features": self._cached_features(west, south, east, north),
+                "cache": "network",
+            }
         except Exception as exc:
             handled = self._handle_error(exc, {"features": []})
             return handled
