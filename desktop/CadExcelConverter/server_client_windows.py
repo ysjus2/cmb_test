@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import ssl
 import sys
@@ -161,6 +162,57 @@ class CMBServerClient:
     def online_layers(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/online/{q}/layers")
+
+    def online_versions(self, region):
+        q = urllib.parse.quote(region, safe="")
+        try:
+            raw = self._request("GET", f"/online/{q}/versions")
+            if isinstance(raw, dict):
+                return {
+                    str(k).upper(): str(v)
+                    for k, v in raw.items()
+                    if str(k).strip() and str(v).strip()
+                }
+        except ServerError as exc:
+            if exc.status != 404:
+                raise
+
+        # 구버전 서버 호환: /online/{region}/layers 메타데이터로
+        # 그룹별 서명을 만들어 캐시 무효화에 사용한다.
+        info = self.online_layers(region) or {}
+        rows = info.get("layers") or []
+        grouped = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            group = str(row.get("group_id") or "").strip().upper()
+            if not group:
+                continue
+            stable = {
+                key: row.get(key)
+                for key in (
+                    "group_id", "layer", "revision", "revision_id",
+                    "version", "package_sha256", "object_count",
+                    "count", "updated_at",
+                )
+                if row.get(key) is not None
+            }
+            grouped.setdefault(group, []).append(stable)
+
+        versions = {}
+        for group, items in grouped.items():
+            payload = json.dumps(
+                sorted(items, key=lambda x: json.dumps(x, sort_keys=True, ensure_ascii=False)),
+                sort_keys=True,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            versions[group] = "meta:" + hashlib.sha256(payload).hexdigest()
+        return versions
+
+    def online_symbols(self, region):
+        q = urllib.parse.quote(region, safe="")
+        return self._request("GET", f"/online/{q}/symbols")
 
     def online_objects(self, region, bbox, limit=5000):
         q = urllib.parse.quote(region, safe="")
