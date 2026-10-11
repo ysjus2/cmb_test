@@ -42,7 +42,7 @@ class Api:
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-        self.c.on_session_expired = self.end_session
+        self.c.on_session_expired = self.expire_session
         raw_user = os.getenv("CMB_AUTH_USER", "").strip()
         if raw_user:
             try:
@@ -215,7 +215,7 @@ class Api:
 
     def _handle_error(self, exc, fallback=None):
         if isinstance(exc, ServerError) and exc.status == 401:
-            self.end_session()
+            self.expire_session()
             result = {"ok": False, "session_ended": True}
             if isinstance(fallback, dict):
                 result.update(fallback)
@@ -258,11 +258,7 @@ class Api:
         except Exception as exc:
             return self._handle_error(exc)
 
-    def end_session(self):
-        try:
-            self.c.logout()
-        except Exception:
-            pass
+    def _close_session_window(self):
         self.user = None
         self.region = ""
         self.session_ended = True
@@ -272,6 +268,19 @@ class Api:
         except Exception:
             pass
         return True
+
+    def expire_session(self):
+        # 401/refresh 실패는 현재 Viewer만 종료한다.
+        # 다른 Viewer/런처가 공유 중인 서버 세션을 여기서 revoke하지 않는다.
+        return self._close_session_window()
+
+    def end_session(self):
+        # 사용자가 명시적으로 로그아웃한 경우에만 서버 세션을 revoke한다.
+        try:
+            self.c.logout()
+        except Exception:
+            pass
+        return self._close_session_window()
 
     def logout(self):
         return self.end_session()
