@@ -8,21 +8,21 @@ import org.json.JSONObject;
 final class ServerCadParser {
     static ArrayList<CadRecord> feature(String dataset,JSONObject feature) throws Exception {
         JSONObject properties=feature.getJSONObject("properties"),geometry=feature.getJSONObject("geometry");
-        String type=geometry.getString("type"),group=properties.getString("group_id");
+        String type=geometry.getString("type"),group=properties.optString("group_id","");
         JSONArray coordinates=geometry.getJSONArray("coordinates");
         if(!type.equals("Point")&&!type.equals("LineString"))throw new Exception("지원하지 않는 서버 객체입니다.");
         ArrayList<CadRecord> rows=new ArrayList<>();
         int count=type.equals("Point")?1:coordinates.length();
         if(count<1||count>5000)throw new Exception("서버 객체의 정점 수가 잘못되었습니다.");
         JSONObject fields=properties.optJSONObject("attributes");
-        fields=fields==null?null:fields.optJSONObject("fields");
+        if(fields!=null&&fields.optJSONObject("fields")!=null)fields=fields.optJSONObject("fields");
         for(int i=0;i<count;i++){
             JSONArray point=type.equals("Point")?coordinates:coordinates.getJSONArray(i);
             CadRecord record=new CadRecord();
-            record.layer=properties.getString("layer");
-            String entity=properties.getString("entity_id");
+            record.layer=properties.optString("layer","SERVER");
+            String entity=properties.optString("entity_id",properties.optString("regional_object_id",properties.optString("source_handle","")));
             record.id=dataset+":"+record.layer+":"+entity;
-            record.category=type.equals("LineString")?(group.equals("FIBER")?"FIBER":"COAX"):(group.equals("POLE")?"FACILITY":"EQUIPMENT");
+            record.category=type.equals("LineString")?(group.equals("FIBER")?"FIBER":group.equals("COAX")?"COAX":"EQUIPMENT"):(group.equals("POLE")?"FACILITY":"EQUIPMENT");
             record.name=properties.optString("name",record.layer);record.source="SERVER";record.sequence=i;
             record.longitude=point.getDouble(0);record.latitude=point.getDouble(1);
             if(!record.hasCoordinates())throw new Exception("서버 좌표가 잘못되었습니다.");
