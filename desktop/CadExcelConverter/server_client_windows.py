@@ -412,6 +412,16 @@ class CMBServerClient:
             {},
         )
 
+    def drawing_status(self, region):
+        """Read-only regional drawing status for admin/view functions."""
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        return self._request("GET", f"/admin/drawings/{q}/status")
+
+    def force_delete_drawing(self, region):
+        """Delete drawing data only; keep region and user-region permissions."""
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        return self._request("DELETE", f"/admin/drawings/{q}/force")
+
     def admin_users(self):
         return self._request("GET", "/admin/users")
 
