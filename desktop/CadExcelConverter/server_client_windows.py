@@ -214,11 +214,33 @@ class CMBServerClient:
 
     def revisions(self, region):
         q = urllib.parse.quote(region, safe="")
-        return self._request("GET", f"/admin/drawings/{q}/revisions")
+        rows = self._request("GET", f"/admin/drawings/{q}/revisions")
+        if isinstance(rows, dict):
+            base = list(rows.get("items") or rows.get("revisions") or [])
+        else:
+            base = list(rows or [])
+        try:
+            symbol_rows = self._request(
+                "GET",
+                f"/admin/drawings/{q}/symbol-revisions",
+            )
+            if isinstance(symbol_rows, dict):
+                symbol_rows = symbol_rows.get("items") or symbol_rows.get("revisions") or []
+            base.extend(list(symbol_rows or []))
+        except ServerError as exc:
+            if exc.status != 404:
+                raise
+        return base
 
-    def restore_revision(self, region, revision_id):
+    def restore_revision(self, region, revision_id, group_id=None):
         q = urllib.parse.quote(region, safe="")
         rid = urllib.parse.quote(str(revision_id).strip(), safe="")
+        if str(group_id or "").upper() == "SYMBOL":
+            return self._request(
+                "POST",
+                f"/admin/drawings/{q}/symbol-revisions/{rid}/restore",
+                {},
+            )
         return self._request(
             "POST",
             f"/admin/drawings/{q}/revisions/{rid}/restore",
