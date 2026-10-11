@@ -668,7 +668,7 @@ public class MapActivity extends Activity {
         status.setText("허용 지역을 조회하는 중…");
         serverTask=serverWorker.submit(()->{
             try{
-                org.json.JSONArray regions=client.onlineRegions();ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
+                org.json.JSONArray regions=client.regions();ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
                 for(int i=0;i<regions.length();i++){
                     org.json.JSONObject region=regions.getJSONObject(i);
                     String id=region.optString("id",region.optString("region_id",region.optString("region_code",""))).trim();
@@ -739,7 +739,7 @@ public class MapActivity extends Activity {
         final ServerApiClient client=server;final int generation=serverGeneration;
         serverTask=serverWorker.submit(()->{
             try{
-                client.onlineRegions();
+                client.regions();
                 runOnUiThread(()->{if(!destroyed&&foreground&&server==client&&generation==serverGeneration)markServerOnline();});
             }catch(Exception error){
                 runOnUiThread(()->{if(!destroyed&&foreground&&server==client&&generation==serverGeneration)markServerOffline();});
