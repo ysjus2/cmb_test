@@ -33,6 +33,7 @@ final class ServerCadParser {
             if(type.equals("Point")&&layout!=null&&"cmb-authored-v1".equals(layout.optString("source")))
                 record.fields.put("__cmbLayout",layout.toString());
             record.fields.put("__serverDataset",dataset);record.fields.put("__serverEntity",entity);
+            record.fields.put("__serverGroup",group);
             rows.add(record);
         }
         return rows;
