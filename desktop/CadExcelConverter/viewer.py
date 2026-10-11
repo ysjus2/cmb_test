@@ -219,6 +219,173 @@ def _is_cable_layer(layer_name):
     return _is_optical_cable_layer(name) or "CABLE" in upper or "케이블" in name or "선로" in name
 
 
+def _viewer_symbol_kind(ent):
+    """Semantic CMB icon kind for INSERT/POINT equipment only."""
+    if str(getattr(ent, "entity_type", "") or "").upper() not in {"INSERT", "POINT"}:
+        return None
+    text = " ".join([
+        str(getattr(ent, "layer", "") or ""),
+        str(getattr(ent, "block_name", "") or ""),
+        str(getattr(ent, "text", "") or ""),
+    ]).upper()
+    if "ONU" in text:
+        return "onu"
+    if "AMP" in text or "증폭" in text:
+        return "amp"
+    if "MANHOLE" in text or "맨홀" in text:
+        return "manhole"
+    if "POLE" in text or "전주" in text:
+        return "pole"
+    if "3WAY" in text or "3-WAY" in text or "3분기" in text:
+        return "splitter3"
+    if "2WAY" in text or "2-WAY" in text or "2분기" in text:
+        return "splitter2"
+    if "TAP" in text:
+        return "tap"
+    if "POWER" in text or re.search(r"(^|[^A-Z0-9])PS([^A-Z0-9]|$)", text):
+        return "power_ps"
+    if any(k in text for k in ("CLOSURE", "TERMINAL", "광함체")):
+        return "closure"
+    return None
+
+
+def _viewer_symbol_center(ent):
+    for kind, data in getattr(ent, "primitives", []) or []:
+        if kind in {"insert", "point"} and len(data) >= 2:
+            return float(data[0]), float(data[1])
+    box = getattr(ent, "bbox", None)
+    if box:
+        return ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
+    return None
+
+
+def _viewer_rotation(ent):
+    data = dict(getattr(ent, "dxf_data", {}) or {})
+    for key in ("rotation", "ROTATION", "angle", "ANGLE"):
+        value = data.get(key)
+        if value not in (None, ""):
+            try:
+                return float(value) % 360.0
+            except Exception:
+                pass
+    return 0.0
+
+
+def _rotate_screen_points(points, cx, cy, deg):
+    if not deg:
+        return points
+    a = math.radians(-deg)
+    ca, sa = math.cos(a), math.sin(a)
+    out = []
+    for x, y in points:
+        dx, dy = x - cx, y - cy
+        out.append((cx + dx * ca - dy * sa, cy + dx * sa + dy * ca))
+    return out
+
+
+def _draw_cmb_viewer_symbol(canvas, kind, sx, sy, ent, selected=False):
+    """Draw the same high-visibility vector symbol family used by Online/Android."""
+    ids = []
+    outline = "#22a7ff" if selected else None
+    rot = _viewer_rotation(ent)
+
+    def poly(points, fill, stroke, width=2):
+        pts = _rotate_screen_points(points, sx, sy, rot)
+        coords = [v for pt in pts for v in pt]
+        ids.append(canvas.create_polygon(
+            *coords,
+            fill=fill,
+            outline=outline or stroke,
+            width=3 if selected else width,
+        ))
+
+    if kind == "onu":
+        w, h = 32, 16
+        ids.append(canvas.create_rectangle(
+            sx-w/2, sy-h/2, sx+w/2, sy+h/2,
+            fill="#12c978", outline=outline or "#075c3c",
+            width=3 if selected else 2,
+        ))
+        ids.append(canvas.create_text(
+            sx, sy, text="ONU", fill="#053b2b",
+            font=("Malgun Gothic", 8, "bold"),
+        ))
+    elif kind == "amp":
+        poly(
+            [(sx, sy-9), (sx+9, sy+9), (sx-9, sy+9)],
+            "#ff8f00", "#6d3b00",
+        )
+    elif kind == "tap":
+        w, h = 9, 8
+        poly(
+            [(sx-w*.55,sy-h),(sx+w*.55,sy-h),(sx+w,sy),
+             (sx+w*.55,sy+h),(sx-w*.55,sy+h),(sx-w,sy)],
+            "#ffc928", "#6d4c00",
+        )
+    elif kind in {"splitter2", "splitter3"}:
+        r = 8
+        ids.append(canvas.create_oval(
+            sx-r, sy-r, sx+r, sy+r,
+            fill="#ffffff", outline=outline or "#424242",
+            width=3 if selected else 2,
+        ))
+        ids.append(canvas.create_text(
+            sx, sy,
+            text="2" if kind == "splitter2" else "3",
+            fill="#212121",
+            font=("Malgun Gothic", 8, "bold"),
+        ))
+    elif kind == "closure":
+        w, h = 13, 7
+        pts = [
+            (sx-w*.38,sy-h),(sx+w*.38,sy-h),
+            (sx+w*.78,sy-h*.72),(sx+w,sy),
+            (sx+w*.78,sy+h*.72),(sx+w*.38,sy+h),
+            (sx-w*.38,sy+h),(sx-w*.78,sy+h*.72),
+            (sx-w,sy),(sx-w*.78,sy-h*.72),
+        ]
+        poly(pts, "#2196f3", "#0d47a1")
+    elif kind == "power_ps":
+        w = 18
+        ids.append(canvas.create_rectangle(
+            sx-w/2, sy-w/2, sx+w/2, sy+w/2,
+            fill="#e53935", outline=outline or "#7f0000",
+            width=3 if selected else 2,
+        ))
+        r = 7.2
+        ids.append(canvas.create_oval(
+            sx-r, sy-r, sx+r, sy+r,
+            fill="#ffffff", outline=outline or "#7f0000",
+            width=2,
+        ))
+        ids.append(canvas.create_text(
+            sx, sy, text="PS", fill="#7f0000",
+            font=("Malgun Gothic", 7, "bold"),
+        ))
+    elif kind == "manhole":
+        r = 9
+        ids.append(canvas.create_oval(
+            sx-r, sy-r, sx+r, sy+r,
+            fill="#f5f5f5", outline=outline or "#424242",
+            width=3 if selected else 2,
+        ))
+        r2 = 5.5
+        ids.append(canvas.create_oval(
+            sx-r2, sy-r2, sx+r2, sy+r2,
+            outline=outline or "#424242", width=2,
+        ))
+    elif kind == "pole":
+        r = 3
+        ids.append(canvas.create_oval(
+            sx-r, sy-r, sx+r, sy+r,
+            fill="#ffffff", outline=outline or "#6d4c41",
+            width=2,
+        ))
+        ids.append(canvas.create_line(sx-2,sy-2,sx+2,sy+2,fill=outline or "#6d4c41",width=2))
+        ids.append(canvas.create_line(sx-2,sy+2,sx+2,sy-2,fill=outline or "#6d4c41",width=2))
+    return ids
+
+
 def _optical_arrow_primitive(primitives):
     # Proxy graphics split one cable into multiple line primitives. Only the
     # final open path receives an arrow; closed symbol outlines are excluded.
@@ -1064,6 +1231,16 @@ class DXFViewer(ttk.Frame):
             color = "#22a7ff" if selected else ent.color
             width = 3 if selected else 1
             ids = []
+            symbol_kind = _viewer_symbol_kind(ent)
+            symbol_center = _viewer_symbol_center(ent) if symbol_kind else None
+            if symbol_kind and symbol_center:
+                sx, sy = self.world_to_screen(*symbol_center)
+                ids.extend(_draw_cmb_viewer_symbol(c, symbol_kind, sx, sy, ent, selected))
+                for item in ids:
+                    self.item_to_entity[item] = ent.index
+                self.entity_items[ent.index] = ids
+                continue
+
             arrow_primitive = _optical_arrow_primitive(ent.primitives) if _is_optical_cable_layer(ent.layer) else None
             for primitive_index, (kind, data) in enumerate(ent.primitives):
                 if kind == "text" and (lod < MAX_LEVEL or getattr(self, "hide_extraction_text", False)):
