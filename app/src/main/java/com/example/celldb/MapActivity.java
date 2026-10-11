@@ -670,12 +670,16 @@ public class MapActivity extends Activity {
             try{
                 org.json.JSONArray regions=client.regions();ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
                 for(int i=0;i<regions.length();i++){
-                    org.json.JSONObject region=regions.getJSONObject(i);org.json.JSONArray datasets=client.datasets(region.getString("id"));
-                    for(int j=0;j<datasets.length();j++){org.json.JSONObject dataset=datasets.getJSONObject(j);titles.add(region.getString("name")+" · "+dataset.getString("id"));ids.add(dataset.getString("id"));}
+                    org.json.JSONObject region=regions.getJSONObject(i);
+                    String id=region.optString("id",region.optString("region_id",region.optString("region_code",""))).trim();
+                    if(id.isEmpty())continue;
+                    String name=region.optString("name",region.optString("region_name",id)).trim();
+                    titles.add(name.equals(id)?id:(name+" ("+id+")"));
+                    ids.add(id);
                 }
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
-                    if(ids.isEmpty()){status.setText("허용 지역에 게시된 자료가 없습니다.");return;}
+                    if(ids.isEmpty()){status.setText("관리자에서 배정된 허용 지역이 없습니다.");return;}
                     if(ids.size()==1)selectServerDataset(client,ids.get(0),titles.get(0));
                     else new AlertDialog.Builder(this).setTitle("허용 지역 선택").setItems(titles.toArray(new String[0]),(d,i)->selectServerDataset(client,ids.get(i),titles.get(i))).setNegativeButton("닫기",null).show();
                 });
@@ -687,7 +691,7 @@ public class MapActivity extends Activity {
         cancelServerRequest();final int generation=serverGeneration;
         serverTask=serverWorker.submit(()->{
             try{
-                org.json.JSONObject metadata=client.layers(dataset);
+                org.json.JSONObject metadata=client.onlineLayers(dataset);
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration||client!=server)return;
                     markServerOnline();serverDataset=dataset;serverRegion=title;serverLayers=metadata.optJSONArray("layers");
@@ -762,7 +766,7 @@ public class MapActivity extends Activity {
         status.setText("지도 영역의 서버 자료를 조회하는 중…");
         serverTask=serverWorker.submit(()->{
             try{
-                ArrayList<CadRecord> rows=client.objects(dataset,viewport,filter);
+                ArrayList<CadRecord> rows=client.onlineObjects(dataset,viewport,filter);
                 runOnUiThread(()->{if(destroyed||generation!=serverGeneration)return;markServerOnline();lastServerFetch=android.os.SystemClock.uptimeMillis();allRecords=rows;renderMarkers();regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));});
             }catch(Exception error){runOnUiThread(()->{
                 if(destroyed||generation!=serverGeneration)return;
@@ -773,6 +777,7 @@ public class MapActivity extends Activity {
     }
 
     private void loadServerDetails(CadRecord record,MapPoint point){
+        if(record!=null&&record.fields.containsKey("__onlineRegion")){showDetails(record,point);return;}
         if(server==null)return;cancelServerRequest();final int generation=serverGeneration;final ServerApiClient client=server;
         status.setText("서버에서 객체 속성을 조회하는 중…");
         serverTask=serverWorker.submit(()->{
