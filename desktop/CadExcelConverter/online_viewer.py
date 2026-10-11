@@ -489,6 +489,7 @@ async function apiCall(name,payload={{}}){{
 }}
 let map;
 let overlays=[];
+const overlayGroups=new Map();
 let loadGeneration=0;
 let selectedOverlay=null;
 let lodReferenceSpan=null;
@@ -584,10 +585,37 @@ async function loadSessionPolicy(){{
   }}catch(e){{idleMinutes=10;}}
 }}
 
+function registerOverlay(overlay,group){{
+  if(!overlay)return overlay;
+  const g=String(group||'').toUpperCase();
+  overlays.push(overlay);
+  overlayGroups.set(overlay,g);
+  return overlay;
+}}
+
 function clearOverlays(){{
   loadGeneration++;
-  overlays.forEach(x=>x.setMap(null));
+  overlays.forEach(x=>{{
+    try{{x.setMap(null);}}catch(e){{}}
+    overlayGroups.delete(x);
+  }});
   overlays=[];
+  selectedOverlay=null;
+}}
+
+function clearGroupOverlays(group){{
+  const target=String(group||'').toUpperCase();
+  loadGeneration++;
+  const kept=[];
+  overlays.forEach(x=>{{
+    if(overlayGroups.get(x)===target){{
+      try{{x.setMap(null);}}catch(e){{}}
+      overlayGroups.delete(x);
+    }}else{{
+      kept.push(x);
+    }}
+  }});
+  overlays=kept;
   selectedOverlay=null;
 }}
 
@@ -749,7 +777,7 @@ function drawDevice(center,props){{
       path.push(pxToLatLng(cx+Math.cos(a)*d.r,cy+Math.sin(a)*d.r));
     }}
     const poly=new kakao.maps.Polygon({{path:path,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
-    poly.setMap(map);overlays.push(poly);parts.push(poly);bindClick(poly,props);
+    poly.setMap(map);registerOverlay(poly,props.group_id);parts.push(poly);bindClick(poly,props);
     if(d.shape==='double_circle'){{
       const path2=[];
       for(let i=0;i<20;i++){{
@@ -757,27 +785,27 @@ function drawDevice(center,props){{
         path2.push(pxToLatLng(cx+Math.cos(a)*d.r*.62,cy+Math.sin(a)*d.r*.62));
       }}
       const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillOpacity:0}});
-      inner.setMap(map);overlays.push(inner);parts.push(inner);bindClick(inner,props);
+      inner.setMap(map);registerOverlay(inner,props.group_id);parts.push(inner);bindClick(inner,props);
     }}
     if(d.shape==='circle_x'){{
       const a1=pxToLatLng(cx-d.r*.7,cy-d.r*.7),a2=pxToLatLng(cx+d.r*.7,cy+d.r*.7);
       const b1=pxToLatLng(cx-d.r*.7,cy+d.r*.7),b2=pxToLatLng(cx+d.r*.7,cy-d.r*.7);
       [ [a1,a2],[b1,b2] ].forEach(path2=>{{
         const l=new kakao.maps.Polyline({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
-        l.setMap(map);overlays.push(l);parts.push(l);bindClick(l,props);
+        l.setMap(map);registerOverlay(l,props.group_id);parts.push(l);bindClick(l,props);
       }});
     }}
   }}else{{
     const pts=polygonPoints(kind,cx,cy,deg).map(p=>pxToLatLng(p[0],p[1]));
     const poly=new kakao.maps.Polygon({{path:pts,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
-    poly.setMap(map);overlays.push(poly);parts.push(poly);bindClick(poly,props);
+    poly.setMap(map);registerOverlay(poly,props.group_id);parts.push(poly);bindClick(poly,props);
   }}
 
   const a=deg*Math.PI/180;
   const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
   const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
   const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
-  dirLine.setMap(map);overlays.push(dirLine);parts.push(dirLine);
+  dirLine.setMap(map);registerOverlay(dirLine,props.group_id);parts.push(dirLine);
 
   const labelText=deviceLabel(props,kind);
   if(labelText){{
@@ -786,7 +814,7 @@ function drawDevice(center,props){{
       content:'<div style="font:700 10px Malgun Gothic;color:#00363a;transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
       yAnchor:.5,xAnchor:.5
     }});
-    label.setMap(map);overlays.push(label);parts.push(label);
+    label.setMap(map);registerOverlay(label,props.group_id);parts.push(label);
   }}
 
   return {{kind,center,cx,cy,props,parts,deg}};
@@ -938,7 +966,7 @@ async function loadObjects(force=false){{
       }});
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(5);
-      overlays.push(l);
+      registerOverlay(l,group);
       bindClick(l,p);
 
       renderedLines++;
@@ -947,7 +975,10 @@ async function loadObjects(force=false){{
     }});
   }});
 
-  previousOverlays.forEach(x=>x.setMap(null));
+  previousOverlays.forEach(x=>{{
+    try{{x.setMap(null);}}catch(e){{}}
+    overlayGroups.delete(x);
+  }});
   const visibleGroups=Object.keys(groupEnabled).filter(k=>groupEnabled[k]&&k!=='USER').join('/');
   const rawGroups={{}};
   allFeatures.forEach(f=>{{
@@ -1040,10 +1071,21 @@ function bindUi(){{
 
   document.querySelectorAll('.layerBtn').forEach(btn=>{{
     btn.onclick=()=>{{
-      const g=btn.dataset.group;
+      const g=String(btn.dataset.group||'').toUpperCase();
       groupEnabled[g]=!groupEnabled[g];
       btn.classList.toggle('on',groupEnabled[g]);
-      loadObjects(true);
+
+      if(groupEnabled[g]){{
+        loadObjects(true);
+      }}else{{
+        clearGroupOverlays(g);
+        const active=Object.keys(groupEnabled).filter(k=>groupEnabled[k]).join('/');
+        setStatus(
+          'L'+map.getLevel()+
+          ' · '+g+' 즉시 숨김'+
+          (active ? ' · 활성 '+active : ' · 활성 그룹 없음')
+        );
+      }}
     }};
   }});
 
