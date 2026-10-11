@@ -28,6 +28,14 @@ class Launcher(tk.Tk):
         self.geometry(DEFAULT_GEOMETRY)
         self.minsize(560, 390)
 
+        session_dir = Path(
+            os.getenv("LOCALAPPDATA")
+            or (Path.home() / "AppData" / "Local")
+        ) / "CMB_DXF_Viewer"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        self.session_state_path = session_dir / f"session_{os.getpid()}.json"
+        os.environ["CMB_AUTH_STATE_PATH"] = str(self.session_state_path)
+
         self.client = CMBServerClient()
         self.user = None
         self.session_guard = None
@@ -239,12 +247,17 @@ class Launcher(tk.Tk):
         env["CMB_AUTH_ACCESS"] = self.client.access_token
         env["CMB_AUTH_REFRESH"] = self.client.refresh_token
         env["CMB_AUTH_USER"] = json.dumps(self.user or {}, ensure_ascii=False)
+        env["CMB_AUTH_STATE_PATH"] = str(self.session_state_path)
         return env
 
     def _reset_login_state(self, message="로그인이 필요합니다."):
         self.user = None
         self.client.access_token = ""
         self.client.refresh_token = ""
+        try:
+            self.client.clear_shared_state()
+        except Exception:
+            pass
         self.password.set("")
         self.login_status.set(message)
         self.username_entry.configure(state="normal")
