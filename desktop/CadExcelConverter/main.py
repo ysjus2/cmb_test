@@ -880,16 +880,7 @@ if __name__ == "__main__":
         SINGLE_INSTANCE_PORT,
     )
 
-    instance_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        instance_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        instance_socket.bind((SINGLE_INSTANCE_HOST, SINGLE_INSTANCE_PORT))
-        instance_socket.listen(4)
-    except OSError:
-        try:
-            instance_socket.close()
-        except Exception:
-            pass
+    def activate_existing_instance():
         try:
             with socket.create_connection(
                 (SINGLE_INSTANCE_HOST, SINGLE_INSTANCE_PORT),
@@ -898,19 +889,73 @@ if __name__ == "__main__":
                 active.sendall(b"ACTIVATE")
         except Exception:
             pass
+
+    # Windows에서는 named mutex로 EXE 자체를 단일 인스턴스로 강제한다.
+    # 두 번째 실행은 Launcher/Tk 창을 만들기 전에 기존 인스턴스만 활성화하고 종료한다.
+    instance_mutex = None
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CreateMutexW.argtypes = [
+                wintypes.LPVOID,
+                wintypes.BOOL,
+                wintypes.LPCWSTR,
+            ]
+            kernel32.CreateMutexW.restype = wintypes.HANDLE
+            instance_mutex = kernel32.CreateMutexW(
+                None,
+                False,
+                "Local\\CMB_DXF_VIEWER_SINGLE_INSTANCE_V1",
+            )
+            if not instance_mutex:
+                raise OSError(ctypes.get_last_error(), "CreateMutexW failed")
+            if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+                activate_existing_instance()
+                raise SystemExit(0)
+        except SystemExit:
+            raise
+        except Exception:
+            # Mutex 생성이 실패해도 아래 독점 TCP 포트 검사를 한 번 더 수행한다.
+            instance_mutex = None
+
+    instance_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            instance_socket.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_EXCLUSIVEADDRUSE,
+                1,
+            )
+        instance_socket.bind((SINGLE_INSTANCE_HOST, SINGLE_INSTANCE_PORT))
+        instance_socket.listen(4)
+    except OSError:
+        try:
+            instance_socket.close()
+        except Exception:
+            pass
+        activate_existing_instance()
         raise SystemExit(0)
 
     app = Launcher()
     app.start_single_instance_listener(instance_socket)
 
-    def close_instance_socket():
+    def close_single_instance_resources():
         try:
             instance_socket.close()
         except Exception:
             pass
+        if instance_mutex and os.name == "nt":
+            try:
+                import ctypes
+                ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(instance_mutex)
+            except Exception:
+                pass
 
     app.protocol(
         "WM_DELETE_WINDOW",
-        lambda: (close_instance_socket(), app.destroy()),
+        lambda: (close_single_instance_resources(), app.destroy()),
     )
     app.mainloop()
