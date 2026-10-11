@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -149,7 +150,7 @@ class Api:
             return {"features": [], "error": str(exc)}
 
 
-def html(k):
+def html(k, local_token):
     return f"""<!doctype html>
 <html>
 <head>
@@ -189,6 +190,23 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 <div id='detail'></div>
 
 <script>
+const LOCAL_API_TOKEN={JSON.stringify("__TOKEN__")};
+async function apiCall(name,payload={{}}){{
+  const response=await fetch('/api/'+name,{{
+    method:'POST',
+    headers:{{
+      'Content-Type':'application/json',
+      'X-CMB-Local-Token':LOCAL_API_TOKEN
+    }},
+    body:JSON.stringify(payload||{{}})
+  }});
+  let data={{}};
+  try{{data=await response.json();}}catch(e){{}}
+  if(!response.ok){{
+    throw new Error((data&&data.error)||('내부 Viewer API 오류 '+response.status));
+  }}
+  return data;
+}}
 let map;
 let overlays=[];
 let selectedOverlay=null;
@@ -252,7 +270,7 @@ function noteActivity(){{
   lastActivity=now;
   if(now-lastServerTouch>=30000){{
     lastServerTouch=now;
-    pywebview.api.touch_session().catch(()=>{{}});
+    apiCall('touch_session').catch(()=>{{}});
   }}
 }}
 
@@ -260,7 +278,7 @@ async function forceIdleLogout(){{
   if(!authenticated)return;
   authenticated=false;
   setStatus('유휴시간 만료 · 최초 로그인 화면으로 이동');
-  try{{await pywebview.api.end_session();}}catch(e){{}}
+  try{{await apiCall('end_session');}}catch(e){{}}
 }}
 
 function startIdleWatch(){{
@@ -275,7 +293,7 @@ function startIdleWatch(){{
 
 async function loadSessionPolicy(){{
   try{{
-    const r=await pywebview.api.session_policy();
+    const r=await apiCall('session_policy');
     if(r&&r.ok&&Number(r.idle_minutes)>0)idleMinutes=Number(r.idle_minutes);
   }}catch(e){{idleMinutes=10;}}
 }}
@@ -519,7 +537,7 @@ async function loadObjects(){{
   if(!region||!map)return;
   const b=map.getBounds(),sw=b.getSouthWest(),ne=b.getNorthEast();
   setStatus('불러오는 중...');
-  const r=await pywebview.api.objects(sw.getLng(),sw.getLat(),ne.getLng(),ne.getLat());
+  const r=await apiCall('objects',{west:sw.getLng(),south:sw.getLat(),east:ne.getLng(),north:ne.getLat()});
   if(r.error){{setStatus(r.error);return}}
   clearOverlays();
   const allFeatures=r.features||[];
@@ -577,7 +595,7 @@ async function loadObjects(){{
 }}
 
 async function loadRegions(){{
-  const r=await pywebview.api.regions();
+  const r=await apiCall('regions');
   if(!r.ok){{setStatus('지역 조회 실패 · '+(r.error||'서버 오류'));return}}
   const sel=document.getElementById('region');
   const items=(r.items||[]).filter(x=>x&&x.id);
@@ -630,7 +648,7 @@ function bindUi(){{
   document.getElementById('region').onchange=async e=>{{
     clearOverlays();
     document.getElementById('detail').style.display='none';
-    const r=await pywebview.api.select(e.target.value);
+    const r=await apiCall('select',{region:e.target.value});
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
     if(!map){{
       setStatus('카카오맵 초기화 대기');
@@ -682,35 +700,12 @@ bindUi();
 initMap();
 
 let authBootstrapped=false;
-let apiWaitStarted=Date.now();
-
 async function runBootstrapOnce(){{
   if(authBootstrapped)return;
-  if(!(window.pywebview&&window.pywebview.api)){{
-    setStatus('세션 연결 준비 중');
-    return;
-  }}
   authBootstrapped=true;
   await bootstrapAuth();
 }}
-
-function waitForPywebviewApi(){{
-  if(authBootstrapped)return;
-  if(window.pywebview&&window.pywebview.api){{
-    runBootstrapOnce();
-    return;
-  }}
-  if(Date.now()-apiWaitStarted>15000){{
-    setStatus('Viewer 연결 실패 · 프로그램을 다시 실행해주세요');
-    return;
-  }}
-  setTimeout(waitForPywebviewApi,200);
-}}
-
-window.addEventListener('pywebviewready',()=>{{
-  runBootstrapOnce();
-}});
-waitForPywebviewApi();
+runBootstrapOnce();
 </script>
 </body>
 </html>"""
@@ -723,9 +718,26 @@ def run_online_viewer():
 
     import webview
 
-    page = html(k).encode("utf-8")
+    api = Api()
+
+    # 런처가 자식 실행 직전에 검증한 세션이 없으면 Viewer를 열지 않는다.
+    if not api.c.access_token:
+        api.session_ended = True
+        return SESSION_ENDED_EXIT_CODE
+
+    local_token = secrets.token_urlsafe(32)
+    page = html(k, local_token).encode("utf-8")
 
     class Handler(BaseHTTPRequestHandler):
+        def _json(self, status, payload):
+            raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
         def do_GET(self):
             if self.path not in ("/", "/index.html"):
                 self.send_response(404)
@@ -734,9 +746,53 @@ def run_online_viewer():
 
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(page)))
             self.end_headers()
             self.wfile.write(page)
+
+        def do_POST(self):
+            if not self.path.startswith("/api/"):
+                self._json(404, {"ok": False, "error": "API 경로 없음"})
+                return
+
+            if self.headers.get("X-CMB-Local-Token", "") != local_token:
+                self._json(403, {"ok": False, "error": "로컬 Viewer 인증 실패"})
+                return
+
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                body = self.rfile.read(length) if length > 0 else b"{}"
+                data = json.loads(body.decode("utf-8")) if body else {}
+                name = self.path[len("/api/"):].split("?", 1)[0]
+
+                if name == "regions":
+                    result = api.regions()
+                elif name == "select":
+                    result = api.select(data.get("region"))
+                elif name == "objects":
+                    result = api.objects(
+                        data.get("west"),
+                        data.get("south"),
+                        data.get("east"),
+                        data.get("north"),
+                    )
+                elif name == "session_policy":
+                    result = api.session_policy()
+                elif name == "touch_session":
+                    result = api.touch_session()
+                elif name == "end_session":
+                    result = api.end_session()
+                else:
+                    self._json(404, {"ok": False, "error": "지원하지 않는 API"})
+                    return
+
+                if isinstance(result, dict) and result.get("error") and result.get("ok") is False:
+                    self._json(400, result)
+                else:
+                    self._json(200, result if result is not None else {"ok": True})
+            except Exception as exc:
+                self._json(500, {"ok": False, "error": str(exc)})
 
         def log_message(self, format, *args):
             pass
@@ -745,18 +801,9 @@ def run_online_viewer():
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:
-        api = Api()
-
-        # 로그인 토큰 자체가 전달되지 않은 경우에만 즉시 로그인 화면으로 복귀한다.
-        # 토큰 유효성은 런처가 자식 실행 직전에 검증한다.
-        if not api.c.access_token:
-            api.session_ended = True
-            return SESSION_ENDED_EXIT_CODE
-
         window = webview.create_window(
             "CMB 온라인 Viewer",
             url="http://127.0.0.1:8765/",
-            js_api=api,
             width=1450,
             height=900,
             min_size=(900, 600),
@@ -768,3 +815,4 @@ def run_online_viewer():
         server.server_close()
 
     return SESSION_ENDED_EXIT_CODE if api.session_ended else 0
+
