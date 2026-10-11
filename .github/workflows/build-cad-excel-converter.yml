@@ -1,4 +1,4 @@
-name: Build current CMB DXF Viewer v3.69_FINAL
+name: Build current CMB DXF Viewer v3.70_FINAL
 
 on:
   workflow_dispatch:
@@ -35,28 +35,28 @@ jobs:
         shell: powershell
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name CMB_DXF_Viewer_v3.69_FINAL --collect-all pyproj --collect-all ezdxf --collect-all webview `
+            --name CMB_DXF_Viewer_v3.70_FINAL --collect-all pyproj --collect-all ezdxf --collect-all webview `
             --add-data "cmb_dev_ca.crt;." `
             --exclude-module numpy --exclude-module fontTools main.py
-          Get-FileHash dist/CMB_DXF_Viewer_v3.69_FINAL.exe -Algorithm SHA256
+          Get-FileHash dist/CMB_DXF_Viewer_v3.70_FINAL.exe -Algorithm SHA256
       - name: Upload current build
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-current-v3.69_FINAL
-          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.69_FINAL.exe
+          name: CMB-DXF-Viewer-current-v3.70_FINAL
+          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.70_FINAL.exe
           if-no-files-found: error
           retention-days: 7
 
       - name: Package direct download ZIP
         shell: powershell
         run: |
-          Compress-Archive -Path dist/CMB_DXF_Viewer_v3.69_FINAL.exe -DestinationPath dist/CMB_DXF_Viewer_v3.69_FINAL.zip -Force
+          Compress-Archive -Path dist/CMB_DXF_Viewer_v3.70_FINAL.exe -DestinationPath dist/CMB_DXF_Viewer_v3.70_FINAL.zip -Force
 
       - name: Publish direct-download GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v3.69_FINAL
-          name: CMB DXF Viewer v3.69 FINAL
+          tag_name: v3.70_FINAL
+          name: CMB DXF Viewer v3.70 FINAL
           body: Windows online viewer final build. Includes fiber/coax/conduit/pole display and device Point upload fixes.
-          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.69_FINAL.zip
+          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.70_FINAL.zip
           make_latest: true
