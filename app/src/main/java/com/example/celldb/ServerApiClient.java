@@ -6,6 +6,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import org.json.*;
+import javax.net.ssl.*;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 
 /** Session tokens and server CAD rows are kept in memory only. */
 final class ServerApiClient {
@@ -18,7 +21,31 @@ final class ServerApiClient {
     private final ConnectionFactory connections;
     private volatile String access="",refresh="";
     private volatile HttpURLConnection active;
-    ServerApiClient() { this(url -> (HttpURLConnection)url.openConnection()); }
+    ServerApiClient() { this(ServerApiClient::openInternalServerConnection); }
+    private static HttpURLConnection openInternalServerConnection(URL url) throws IOException {
+        URLConnection raw=url.openConnection();
+        if(!(raw instanceof HttpsURLConnection))return (HttpURLConnection)raw;
+        HttpsURLConnection https=(HttpsURLConnection)raw;
+        String host=(url.getHost()==null?"":url.getHost().trim());
+        // 개발용 고정 사설 CMB 서버에서만 자체서명 인증서를 허용한다.
+        // 다른 HTTPS 호스트는 Android 기본 인증서 검증을 그대로 사용한다.
+        if("192.168.246.54".equals(host)){
+            try{
+                TrustManager[] trustAll=new TrustManager[]{new X509TrustManager(){
+                    public X509Certificate[] getAcceptedIssuers(){return new X509Certificate[0];}
+                    public void checkClientTrusted(X509Certificate[] chain,String authType){}
+                    public void checkServerTrusted(X509Certificate[] chain,String authType){}
+                }};
+                SSLContext context=SSLContext.getInstance("TLS");
+                context.init(null,trustAll,new SecureRandom());
+                https.setSSLSocketFactory(context.getSocketFactory());
+                https.setHostnameVerifier((hostname,session)->"192.168.246.54".equals(hostname));
+            }catch(Exception error){
+                throw new IOException("내부 서버 TLS 초기화 실패",error);
+            }
+        }
+        return https;
+    }
     // Transport injection for JVM tests; the app always uses the default HTTPS transport.
     ServerApiClient(ConnectionFactory connections) { this.connections=connections; }
     void cancel(){HttpURLConnection connection=active;if(connection!=null)connection.disconnect();}
