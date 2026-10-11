@@ -27,11 +27,18 @@ class CMBServerClient:
     def __init__(self, base_url=BASE_URL):
         self.base_url = base_url.rstrip("/")
         ca = resource_path("cmb_dev_ca.crt")
-        self.ssl_context = (
-            ssl.create_default_context(cafile=ca)
-            if os.path.exists(ca)
-            else ssl.create_default_context()
-        )
+        if os.path.exists(ca):
+            self.ssl_context = ssl.create_default_context(cafile=ca)
+        else:
+            parsed = urllib.parse.urlparse(self.base_url)
+            host = (parsed.hostname or "").strip().lower()
+            # 개발용 내부 CMB 서버는 자체서명 인증서를 사용한다.
+            # 번들 CA가 없는 개발 빌드에서만 해당 고정 사설 IP에 한해
+            # 인증서 체인 검증을 생략한다. 다른 서버에는 기본 검증을 유지한다.
+            if host == "192.168.246.54":
+                self.ssl_context = ssl._create_unverified_context()
+            else:
+                self.ssl_context = ssl.create_default_context()
         self.access_token = ""
         self.refresh_token = ""
 
