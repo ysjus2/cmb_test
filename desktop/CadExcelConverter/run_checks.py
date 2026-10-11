@@ -82,3 +82,17 @@ assert "let QUERY_RECENTER_METERS=200;" in page
 assert "apiCall('map_display_settings')" in page
 assert "myLat=lat;" in page and "myLng=lng;" in page
 print("ONLINE_SHARED_MAP_DISPLAY_SETTINGS_OK")
+
+
+# Windows 온라인 Viewer는 지역별 gzip 영구 캐시와 Revision 확인을 사용한다.
+from online_viewer import CACHE_DIR
+from server_client_windows import CMBServerClient
+assert "online_cache" in str(CACHE_DIR)
+assert hasattr(CMBServerClient, "online_versions")
+assert hasattr(CMBServerClient, "online_symbols")
+_api2 = Api()
+assert hasattr(_api2, "_load_cache")
+assert hasattr(_api2, "_save_cache")
+assert hasattr(_api2, "_apply_versions")
+assert hasattr(_api2, "_cache_covers")
+print("WINDOWS_REVISION_CACHE_OK")
