@@ -353,12 +353,34 @@ if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
 fi
 
 echo "[8/8] 보호 상태 확인"
-# 인증 없이 접근했을 때 200이면 보안 문제이므로 실패 처리한다.
+# curl 없이 Python 표준 라이브러리로 인증 없는 접근을 확인한다.
 SERVER_IP="${CMB_SERVER_IP:-192.168.246.54}"
-HTTP_CODE="$(curl -k -s -o /tmp/cmb_map_display_probe.out -w '%{http_code}'   "https://${SERVER_IP}:8443/settings/map-display" || true)"
+HTTP_CODE="$(
+  SERVER_IP="${SERVER_IP}" "${PYTHON_BIN}" - <<'PY'
+import os
+import ssl
+import urllib.error
+import urllib.request
+
+url = f"https://{os.environ['SERVER_IP']}:8443/settings/map-display"
+req = urllib.request.Request(url, method="GET")
+ctx = ssl._create_unverified_context()
+try:
+    with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
+        print(resp.status)
+except urllib.error.HTTPError as exc:
+    print(exc.code)
+except Exception:
+    print("000")
+PY
+)"
 echo "UNAUTH_GET_STATUS=${HTTP_CODE}"
 if [[ "${HTTP_CODE}" == "200" ]]; then
   echo "ERROR: 인증 없이 지도 설정 API가 열렸습니다."
+  false
+fi
+if [[ "${HTTP_CODE}" == "000" ]]; then
+  echo "ERROR: 지도 설정 API 보호 상태를 확인하지 못했습니다."
   false
 fi
 
