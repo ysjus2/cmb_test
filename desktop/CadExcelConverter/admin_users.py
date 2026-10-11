@@ -805,11 +805,123 @@ class UserAdminWindow(tk.Toplevel):
         footer = ttk.Frame(root)
         footer.pack(fill="x", pady=(14, 8))
 
+        def selected_region():
+            sel = existing.selection()
+            if not sel:
+                messagebox.showinfo(
+                    "지역 선택",
+                    "수정하거나 삭제할 지역을 목록에서 선택해주세요.",
+                    parent=win,
+                )
+                return None
+            values = existing.item(sel[0], "values")
+            if not values:
+                return None
+            rid = str(values[0]).strip()
+            name = str(values[1]).strip() if len(values) > 1 else ""
+            return rid, name
+
+        def edit_region_name():
+            selected = selected_region()
+            if not selected:
+                return
+            rid, old_name = selected
+
+            new_name = simpledialog.askstring(
+                "지역명 수정",
+                f"지역코드: {rid}\n\n새 지역명을 입력해주세요.",
+                initialvalue=old_name,
+                parent=win,
+            )
+            if new_name is None:
+                return
+            new_name = new_name.strip()
+            if not new_name:
+                messagebox.showinfo(
+                    "지역명 수정",
+                    "지역명을 입력해주세요.",
+                    parent=win,
+                )
+                return
+            if new_name == old_name:
+                return
+
+            try:
+                self.client.update_region(rid, new_name)
+                load_regions()
+                if self.users:
+                    self.load_users()
+                self.status.set(
+                    f"지역명 수정 완료 · {new_name} ({rid})"
+                )
+                messagebox.showinfo(
+                    "지역명 수정 완료",
+                    f"지역코드: {rid}\n기존 지역명: {old_name}\n새 지역명: {new_name}",
+                    parent=win,
+                )
+            except Exception as exc:
+                messagebox.showerror(
+                    "지역명 수정 오류",
+                    str(exc),
+                    parent=win,
+                )
+
+        def delete_region():
+            selected = selected_region()
+            if not selected:
+                return
+            rid, name = selected
+
+            if not messagebox.askyesno(
+                "지역 삭제",
+                (
+                    f"다음 지역을 삭제하시겠습니까?\n\n"
+                    f"지역명: {name or '-'}\n"
+                    f"지역코드: {rid}\n\n"
+                    "도면 Revision이 존재하면 서버에서 삭제가 차단됩니다.\n"
+                    "도면이 없는 지역만 삭제할 수 있습니다."
+                ),
+                parent=win,
+            ):
+                return
+
+            try:
+                self.client.delete_region(rid)
+                load_regions()
+                if self.users:
+                    self.load_users()
+                self.status.set(
+                    f"지역 삭제 완료 · {name or rid} ({rid})"
+                )
+                messagebox.showinfo(
+                    "지역 삭제 완료",
+                    f"{name or rid} ({rid}) 지역을 삭제했습니다.",
+                    parent=win,
+                )
+            except Exception as exc:
+                messagebox.showerror(
+                    "지역 삭제 오류",
+                    str(exc),
+                    parent=win,
+                )
+
         ttk.Button(
             footer,
             text="목록 새로고침",
             command=load_regions,
         ).pack(side="left")
+
+        ttk.Button(
+            footer,
+            text="지역명 수정",
+            command=edit_region_name,
+        ).pack(side="left", padx=(6, 0))
+
+        ttk.Button(
+            footer,
+            text="지역 삭제",
+            command=delete_region,
+        ).pack(side="left", padx=(6, 0))
 
         ttk.Button(
             footer,
