@@ -31,6 +31,7 @@ def _e(layer, block=""):
     return SimpleNamespace(layer=layer, block_name=block)
 
 assert classify_entity(_e("TS_BASEMAP")) is None
+assert classify_entity(_e("TL_SCCO_SIG")) is None
 assert classify_entity(_e("CN_F_CLOSURE")) == "FIBER"
 assert classify_entity(_e("CN_C_ONU")) == "FIBER"
 assert classify_entity(_e("CN_C_CABLE")) == "COAX"
