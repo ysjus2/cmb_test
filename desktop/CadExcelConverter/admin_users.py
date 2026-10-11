@@ -83,6 +83,16 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.region_register_btn.pack(side="left", padx=(6, 0))
 
+        self.drawing_status_btn = ttk.Button(
+            tools, text="도면 버전 확인", command=self.view_drawing_status, state="disabled"
+        )
+        self.drawing_status_btn.pack(side="left", padx=(6, 0))
+
+        self.drawing_delete_btn = ttk.Button(
+            tools, text="도면 강제 삭제", command=self.open_force_delete_drawing, state="disabled"
+        )
+        self.drawing_delete_btn.pack(side="left", padx=(6, 0))
+
         self.session_btn = ttk.Button(
             tools, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
         )
@@ -152,6 +162,8 @@ class UserAdminWindow(tk.Toplevel):
         self.activate_btn.configure(state="normal")
         self.region_btn.configure(state="normal")
         self.region_register_btn.configure(state="normal")
+        self.drawing_status_btn.configure(state="normal")
+        self.drawing_delete_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
         self.backup_btn.configure(state="normal")
         self.map_display_btn.configure(state="normal")
@@ -937,6 +949,211 @@ class UserAdminWindow(tk.Toplevel):
             command=win.destroy,
         ).pack(side="right", padx=(0, 6))
 
+        load_regions()
+
+
+    def _region_choices(self):
+        rows = self.client.admin_regions() or []
+        if isinstance(rows, dict):
+            rows = rows.get("items") or rows.get("regions") or []
+        result = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            rid = str(row.get("id") or row.get("region_id") or row.get("region_code") or "").strip()
+            if not rid:
+                continue
+            name = str(row.get("name") or row.get("region_name") or rid).strip()
+            result.append((rid, name))
+        return result
+
+    def view_drawing_status(self):
+        """조회 전용: 지역별 현재 도면 revision/객체 수만 보여준다."""
+        win = tk.Toplevel(self)
+        win.title("도면 버전/업로드 현황 조회")
+        win.geometry("980x560")
+        win.minsize(820, 460)
+        win.transient(self)
+
+        root = ttk.Frame(win, padding=12)
+        root.pack(fill="both", expand=True)
+        ttk.Label(root, text="도면 버전/업로드 현황", font=("Malgun Gothic", 15, "bold")).pack(anchor="w")
+        ttk.Label(
+            root,
+            text="조회 전용 화면입니다. 이 창에서는 도면 삭제나 수정이 불가능합니다.",
+        ).pack(anchor="w", pady=(2, 10))
+
+        top = ttk.Frame(root)
+        top.pack(fill="x", pady=(0, 8))
+        ttk.Label(top, text="지역").pack(side="left")
+        region_var = tk.StringVar()
+        combo = ttk.Combobox(top, textvariable=region_var, state="readonly", width=48)
+        combo.pack(side="left", padx=(6, 6))
+
+        region_map = {}
+        def load_regions():
+            try:
+                choices = self._region_choices()
+                region_map.clear()
+                values = []
+                for rid, name in choices:
+                    display = f"{name} ({rid})" if name and name != rid else rid
+                    values.append(display)
+                    region_map[display] = rid
+                combo["values"] = values
+                if values and not region_var.get():
+                    region_var.set(values[0])
+            except Exception as exc:
+                messagebox.showerror("도면 현황 조회", str(exc), parent=win)
+
+        columns=("group","revision","state","count","date","memo")
+        tree=ttk.Treeview(root, columns=columns, show="headings", height=16)
+        for key,title,width in (
+            ("group","그룹",90),
+            ("revision","Revision",90),
+            ("state","상태",80),
+            ("count","객체수",90),
+            ("date","저장일시",170),
+            ("memo","메모",360),
+        ):
+            tree.heading(key,text=title)
+            tree.column(key,width=width,anchor="w")
+        tree.pack(fill="both", expand=True)
+
+        status_var=tk.StringVar(value="")
+        ttk.Label(root,textvariable=status_var).pack(fill="x",pady=(8,0))
+
+        def refresh():
+            display=region_var.get().strip()
+            rid=region_map.get(display,"")
+            if not rid:
+                return
+            try:
+                for item in tree.get_children():
+                    tree.delete(item)
+                data=self.client.drawing_status(rid) or {}
+                rows=data.get("groups") or data.get("items") or data.get("revisions") or []
+                for idx,row in enumerate(rows):
+                    group=str(row.get("group_id") or row.get("group") or "")
+                    rev=row.get("revision")
+                    active=row.get("active", True)
+                    state="현재" if active else "백업"
+                    count=int(row.get("object_count") or row.get("count") or 0)
+                    created=str(row.get("created_at") or "").replace("T"," ")[:19]
+                    memo=str(row.get("memo") or "").strip()
+                    tree.insert("", "end", iid=f"r{idx}", values=(group, rev if rev is not None else "-", state, f"{count:,}", created or "-", memo or "-"))
+                status_var.set(f"{rid} · 조회 완료 · {len(rows)}개 항목")
+            except Exception as exc:
+                messagebox.showerror("도면 현황 조회", str(exc), parent=win)
+
+        ttk.Button(top,text="조회",command=refresh).pack(side="left")
+        ttk.Button(top,text="지역 새로고침",command=load_regions).pack(side="left",padx=(6,0))
+        load_regions()
+
+    def open_force_delete_drawing(self):
+        """위험 작업 전용 창: 조회 창과 완전히 분리한다."""
+        win = tk.Toplevel(self)
+        win.title("도면 강제 삭제")
+        win.geometry("700x460")
+        win.minsize(620, 420)
+        win.transient(self)
+
+        root = ttk.Frame(win, padding=14)
+        root.pack(fill="both", expand=True)
+        ttk.Label(root, text="도면 강제 삭제", font=("Malgun Gothic", 15, "bold")).pack(anchor="w")
+        ttk.Label(
+            root,
+            text="주의: 지역 등록과 사용자 지역 권한은 유지하고, 선택 지역의 도면 데이터와 revision만 삭제합니다.",
+            wraplength=640,
+        ).pack(anchor="w", pady=(4, 12))
+
+        region_var=tk.StringVar()
+        region_map={}
+        row=ttk.Frame(root)
+        row.pack(fill="x")
+        ttk.Label(row,text="삭제할 지역").pack(side="left")
+        combo=ttk.Combobox(row,textvariable=region_var,state="readonly",width=48)
+        combo.pack(side="left",padx=(8,0),fill="x",expand=True)
+
+        summary=tk.Text(root,height=11,wrap="word")
+        summary.pack(fill="both",expand=True,pady=(12,10))
+        summary.configure(state="disabled")
+
+        confirm_var=tk.StringVar()
+        confirm=ttk.Entry(root,textvariable=confirm_var)
+        ttk.Label(root,text='실행하려면 아래 칸에 지역코드를 정확히 입력한 뒤 "도면 강제 삭제"를 누르세요.').pack(anchor="w")
+        confirm.pack(fill="x",pady=(5,10))
+
+        def load_regions():
+            choices=self._region_choices()
+            values=[]
+            region_map.clear()
+            for rid,name in choices:
+                display=f"{name} ({rid})" if name and name != rid else rid
+                values.append(display)
+                region_map[display]=rid
+            combo["values"]=values
+            if values and not region_var.get():
+                region_var.set(values[0])
+                preview()
+
+        def preview(event=None):
+            rid=region_map.get(region_var.get().strip(),"")
+            if not rid:
+                return
+            try:
+                data=self.client.drawing_status(rid) or {}
+                rows=data.get("groups") or data.get("items") or data.get("revisions") or []
+                lines=[f"지역코드: {rid}", "", "현재 서버 도면 현황:"]
+                if not rows:
+                    lines.append("- 저장된 도면 데이터 없음")
+                else:
+                    for row in rows:
+                        group=str(row.get("group_id") or row.get("group") or "")
+                        if not row.get("active", True):
+                            continue
+                        count=int(row.get("object_count") or row.get("count") or 0)
+                        rev=row.get("revision")
+                        lines.append(f"- {group}: revision {rev if rev is not None else '-'} / {count:,}개")
+                lines += [
+                    "",
+                    "삭제 후에도 지역 등록/사용자 권한은 유지됩니다.",
+                    "Viewer에서 다시 업로드하면 기존 도면이 없는 상태에서 새 current revision이 생성됩니다.",
+                ]
+                summary.configure(state="normal")
+                summary.delete("1.0","end")
+                summary.insert("1.0","\n".join(lines))
+                summary.configure(state="disabled")
+                confirm_var.set("")
+            except Exception as exc:
+                messagebox.showerror("도면 강제 삭제",str(exc),parent=win)
+
+        combo.bind("<<ComboboxSelected>>",preview)
+
+        def execute_delete():
+            rid=region_map.get(region_var.get().strip(),"")
+            if not rid:
+                return
+            if confirm_var.get().strip()!=rid:
+                messagebox.showerror("도면 강제 삭제",f"확인을 위해 지역코드 {rid} 를 정확히 입력해주세요.",parent=win)
+                return
+            ok=messagebox.askyesno(
+                "최종 확인",
+                f"{rid} 지역의 도면 데이터와 모든 도면 revision을 강제로 삭제합니다.\n\n지역 등록과 사용자 권한은 유지됩니다.\n복구할 수 없습니다.\n\n정말 삭제하시겠습니까?",
+                parent=win,
+            )
+            if not ok:
+                return
+            try:
+                result=self.client.force_delete_drawing(rid) or {}
+                deleted=result.get("deleted") or {}
+                total=sum(int(v or 0) for v in deleted.values() if isinstance(v,(int,float)))
+                messagebox.showinfo("도면 강제 삭제 완료",f"{rid} 도면 데이터를 삭제했습니다.\n삭제 처리 항목: {total:,}건",parent=win)
+                preview()
+            except Exception as exc:
+                messagebox.showerror("도면 강제 삭제 오류",str(exc),parent=win)
+
+        ttk.Button(root,text="도면 강제 삭제",command=execute_delete).pack(anchor="e")
         load_regions()
 
     def edit_regions(self):
