@@ -96,13 +96,37 @@ class Api:
 
     def regions(self):
         try:
-            raw = self.c.online_regions() or []
+            # 사용자에게 관리자에서 배정한 지역(/regions)을 정본으로 사용한다.
+            # /online/regions는 과거 서버 호환용 보조 목록으로만 병합한다.
+            raw = self.c.regions() or []
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
+            try:
+                online_raw = self.c.online_regions() or []
+                if isinstance(online_raw, dict):
+                    online_raw = online_raw.get("items") or online_raw.get("regions") or []
+            except Exception:
+                online_raw = []
+
+            rows = list(raw or [])
+            assigned_ids = {
+                str(
+                    row.get("id")
+                    or row.get("region_id")
+                    or row.get("region_code")
+                    or ""
+                ).strip()
+                for row in rows
+                if isinstance(row, dict)
+            }
+            # /regions가 비어 있는 구형 서버에서만 online 목록을 fallback으로 사용한다.
+            if not assigned_ids:
+                rows.extend(list(online_raw or []))
+
             items = []
             seen = set()
-            for row in raw:
+            for row in rows:
                 if not isinstance(row, dict):
                     continue
                 # 서버 경계에서만 과거 키를 흡수하고, 뷰어 내부에서는 id 하나만 사용한다.
