@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CMB FINAL SERVER PATCH V2
+# CMB FINAL SERVER PATCH V3
 # Canonical rule:
 #   - one running FastAPI server
 #   - one existing PostgreSQL/PostGIS database
@@ -12,8 +12,8 @@ set -euo pipefail
 SERVICE_NAME="${CMB_SERVICE_NAME:-cmb-cad-api}"
 BACKUP_DIR="${CMB_BACKUP_DIR:-/opt/cmb-backups}"
 PATCH_MODULE="cmb_final_runtime_patch.py"
-MARK_BEGIN="# === CMB_FINAL_RUNTIME_PATCH_V2_BEGIN ==="
-MARK_END="# === CMB_FINAL_RUNTIME_PATCH_V2_END ==="
+MARK_BEGIN="# === CMB_FINAL_RUNTIME_PATCH_V3_BEGIN ==="
+MARK_END="# === CMB_FINAL_RUNTIME_PATCH_V3_END ==="
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "ERROR: sudo bash $0 로 실행해주세요."
@@ -54,26 +54,22 @@ ENTRY_FILE="${APP_DIR}/${ENTRY_MODULE}.py"
 echo "SERVICE=${SERVICE_NAME}"
 echo "ENTRY=${ENTRY_FILE}"
 
-echo "[2/9] systemd 환경파일 로드"
-ENV_FILES="$(systemctl show -p EnvironmentFiles --value "${SERVICE_NAME}" 2>/dev/null || true)"
-for candidate in   /etc/cmb-server.env   "${APP_DIR}/server.env"   "${APP_DIR}/.env"
-do
-  [[ -f "${candidate}" ]] || continue
-  set -a
-  # shellcheck disable=SC1090
-  source "${candidate}" || true
-  set +a
-  echo "ENV=${candidate}"
-done
-for token in ${ENV_FILES}; do
-  token="${token#-}"
-  [[ -f "${token}" ]] || continue
-  set -a
-  # shellcheck disable=SC1090
-  source "${token}" || true
-  set +a
-  echo "ENV=${token}"
-done
+echo "[2/9] 현재 실행 프로세스 환경값 사용"
+MAIN_PID="$(systemctl show -p MainPID --value "${SERVICE_NAME}")"
+if [[ -z "${MAIN_PID}" || "${MAIN_PID}" == "0" || ! -r "/proc/${MAIN_PID}/environ" ]]; then
+  echo "ERROR: 실행 중인 ${SERVICE_NAME} 프로세스 환경을 읽을 수 없습니다."
+  exit 1
+fi
+
+# 현재 서버 프로세스가 실제 사용하는 DB/서비스 환경만 가져온다.
+# env 파일을 shell source하지 않아 따옴표/공백/특수문자 문제를 피한다.
+while IFS= read -r -d '' item; do
+  case "${item}" in
+    DATABASE_URL=*|CMB_DATABASE_URL=*|DB_URL=*|POSTGRES_DSN=*|PG_DSN=*|PGHOST=*|PGPORT=*|PGDATABASE=*|PGUSER=*|PGPASSWORD=*|PGSSLMODE=*)
+      export "${item}"
+      ;;
+  esac
+done < "/proc/${MAIN_PID}/environ"
 
 PYTHON_BIN="${APP_DIR}/venv/bin/python"
 [[ -x "${PYTHON_BIN}" ]] || PYTHON_BIN="$(command -v python3)"
@@ -104,7 +100,35 @@ with connect() as conn:
     cur.execute("SELECT current_database(), current_user")
     print("POSTGRES_OK", cur.fetchone())
     cur.execute("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='postgis')")
-    print("POSTGIS", bool(cur.fetchone()[0]))
+    postgis=bool(cur.fetchone()[0])
+    print("POSTGIS", postgis)
+    if not postgis:
+        raise RuntimeError("현재 운영 DB에 PostGIS가 활성화되어 있지 않습니다.")
+
+    cur.execute("""
+        SELECT table_name,column_name
+        FROM information_schema.columns
+        WHERE table_schema='public'
+    """)
+    tables={}
+    for table,col in cur.fetchall():
+        tables.setdefault(str(table),set()).add(str(col))
+
+    candidates=[]
+    for table,cols in tables.items():
+        if (
+            "region_code" in cols
+            and ("group_id" in cols or "group" in cols)
+            and "revision" in cols
+            and ("active" in cols or "is_active" in cols)
+        ):
+            candidates.append(table)
+    if not candidates:
+        raise RuntimeError(
+            "현재 운영 DB에서 지역/그룹 Revision 테이블을 찾지 못했습니다. "
+            "DB를 변경하지 않고 중단합니다."
+        )
+    print("REVISION_TABLE_CANDIDATES", sorted(candidates))
 PY
 
 echo "[4/9] 기존 서버 파일 백업"
@@ -135,6 +159,7 @@ patterns=[
     r"\n?# === CMB_MAP_DISPLAY_PATCH_V1_BEGIN ===.*?# === CMB_MAP_DISPLAY_PATCH_V1_END ===\n?",
     r"\n?# === CMB_FINAL_SETTINGS_V1_BEGIN ===.*?# === CMB_FINAL_SETTINGS_V1_END ===\n?",
     r"\n?# === CMB_FINAL_RUNTIME_PATCH_V2_BEGIN ===.*?# === CMB_FINAL_RUNTIME_PATCH_V2_END ===\n?",
+    r"\n?# === CMB_FINAL_RUNTIME_PATCH_V3_BEGIN ===.*?# === CMB_FINAL_RUNTIME_PATCH_V3_END ===\n?",
 ]
 for pattern in patterns:
     text=re.sub(pattern,"\n",text,flags=re.S)
@@ -561,10 +586,10 @@ PY
 
 cat >> "${ENTRY_FILE}" <<'PY'
 
-# === CMB_FINAL_RUNTIME_PATCH_V2_BEGIN ===
+# === CMB_FINAL_RUNTIME_PATCH_V3_BEGIN ===
 from cmb_final_runtime_patch import install as _cmb_install_final_runtime_patch
 _CMB_FINAL_RUNTIME_INFO = _cmb_install_final_runtime_patch(app)
-# === CMB_FINAL_RUNTIME_PATCH_V2_END ===
+# === CMB_FINAL_RUNTIME_PATCH_V3_END ===
 PY
 
 echo "[6/9] 오래된 SQLite 보조 DB 제거 준비"
@@ -634,7 +659,7 @@ trap - ERR
 
 echo
 echo "============================================================"
-echo "CMB FINAL SERVER V2 적용 완료"
+echo "CMB FINAL SERVER V3 적용 완료"
 echo "- 현재 실행 서버 1개 유지"
 echo "- PostgreSQL/PostGIS 운영 DB 1개 사용"
 echo "- SQLite 보조/중복 DB 제거"
@@ -646,4 +671,4 @@ echo "- Windows/Android Revision 캐시 지원"
 echo "- 지도 반경/재조회 거리 운영 DB 저장"
 echo "- 백업: ${BACKUP}"
 echo "============================================================"
-echo "CMB_FINAL_SERVER_V2"
+echo "CMB_FINAL_SERVER_V3"
