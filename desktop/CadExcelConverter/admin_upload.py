@@ -469,6 +469,9 @@ class AdminUploadWindow(tk.Toplevel):
             self.status.set("1등급 관리자만 업로드할 수 있습니다.")
 
     def _load_server_regions(self):
+        self.upload_one_btn.configure(state="disabled")
+        self.upload_all_btn.configure(state="disabled")
+        self.region_display_to_id = {}
         try:
             rows = self.client.admin_regions() or []
             if isinstance(rows, dict):
@@ -504,12 +507,12 @@ class AdminUploadWindow(tk.Toplevel):
             # 업로드 지역은 사용자가 선택하지 않는다.
             # 현재 DXF 파일명(stem)과 canonical 지역코드가 정확히 일치할 때만 자동 연결한다.
             # 예: CMB_GN_HP.dxf -> CMB_GN_HP
-            source_region = Path(self.source_path).stem.strip().upper()
+            source_region = Path(self.source_path).stem.strip()
             auto_display = next(
                 (
                     display
                     for display, rid in self.region_display_to_id.items()
-                    if str(rid).strip().upper() == source_region
+                    if rid == source_region
                 ),
                 "",
             )
@@ -546,8 +549,8 @@ class AdminUploadWindow(tk.Toplevel):
     def _selected_region_code(self):
         display = self.region_var.get().strip()
         rid = self.region_display_to_id.get(display, "")
-        if not rid:
-            source_region = Path(self.source_path).stem.strip().upper()
+        if not rid or rid != Path(self.source_path).stem.strip():
+            source_region = Path(self.source_path).stem.strip()
             raise RuntimeError(
                 f"현재 도면과 일치하는 서버 지역이 없습니다: {source_region}"
             )

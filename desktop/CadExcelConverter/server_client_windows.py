@@ -5,6 +5,7 @@ import hashlib
 import os
 import ssl
 import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -43,6 +44,7 @@ class CMBServerClient:
         self.access_token = ""
         self.refresh_token = ""
         self.on_session_expired = None
+        self._refresh_lock = threading.RLock()
 
     @property
     def authenticated(self):
@@ -94,12 +96,16 @@ class CMBServerClient:
                 pass
 
     def _request(self, method, path, payload=None, auth=True, retry_refresh=True, timeout=60):
+        failed_access = self.access_token
         try:
             return self._raw_request(method, path, payload, auth=auth, timeout=timeout)
         except ServerError as exc:
             if auth and exc.status == 401 and retry_refresh and self.refresh_token:
                 try:
-                    self.refresh()
+                    # Another worker may already have rotated this session.
+                    with self._refresh_lock:
+                        if self.access_token == failed_access:
+                            self.refresh()
                     return self._request(
                         method,
                         path,
@@ -133,6 +139,10 @@ class CMBServerClient:
         return self.me()
 
     def refresh(self):
+        with self._refresh_lock:
+            return self._refresh_locked()
+
+    def _refresh_locked(self):
         if not self.refresh_token:
             raise ServerError("갱신할 로그인 세션이 없습니다.", status=401)
         tokens = self._raw_request(
@@ -141,7 +151,10 @@ class CMBServerClient:
             {"refresh_token": self.refresh_token},
             auth=False,
         )
-        self.access_token = str(tokens.get("access_token") or "")
+        access = str(tokens.get("access_token") or "")
+        if not access:
+            raise ServerError("갱신 응답에 access_token이 없습니다.")
+        self.access_token = access
         self.refresh_token = str(tokens.get("refresh_token") or self.refresh_token)
         return tokens
 

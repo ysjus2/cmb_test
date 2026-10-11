@@ -1,9 +1,9 @@
 {
-  "version": "3.43_FINAL",
+  "version": "3.71_FINAL",
   "release_date": "2026-10-11",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v3.43_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v3.71_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -17,5 +17,7 @@
     "/online/{regions.id}/objects"
   ],
   "legacy_region_aliases_enabled": false,
-  "dxf_filename_region_detection": false
+  "dxf_filename_region_detection": true,
+  "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
+  "release_tag": "v3.71_FINAL"
 }

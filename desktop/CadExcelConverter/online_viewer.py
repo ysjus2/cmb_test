@@ -864,8 +864,6 @@ async function loadObjects(force=false){{
   const queryLng=Number(center.getLng());
   const mapLevelNow=map.getLevel();
   const detailMode=mapLevelNow<=3;
-  const myGeneration=++loadGeneration;
-
   // L4 이상부터 네트워크 도면 오버레이를 전부 숨긴다.
   // 이전 L1~L3 서버 요청이 늦게 끝나더라도 loadGeneration 검증으로 다시 그리지 못한다.
   if(!detailMode){{
@@ -882,6 +880,7 @@ async function loadObjects(force=false){{
     if(moved<QUERY_RECENTER_METERS && lastDetailMode===detailMode)return;
   }}
 
+  const myGeneration=++loadGeneration;
   const latDelta=QUERY_RADIUS_METERS/111320;
   const lngScale=Math.max(0.2,Math.cos(queryLat*Math.PI/180));
   const lngDelta=QUERY_RADIUS_METERS/(111320*lngScale);
@@ -893,6 +892,7 @@ async function loadObjects(force=false){{
   setStatus('지도 중심 '+QUERY_RADIUS_METERS+'m · 불러오는 중...');
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
+  if(region!==document.getElementById('region').value)return;
   if(map.getLevel()>3){{clearOverlays();return;}}
   if(r.error){{setStatus(r.error);return}}
   lastQueryLat=queryLat;
@@ -925,7 +925,10 @@ async function loadObjects(force=false){{
   pointFeatures.forEach(f=>{{
     const g=f.geometry||{{}},p=f.properties||{{}};
     const a=g.coordinates;
-    devices.push(drawDevice(new kakao.maps.LatLng(a[1],a[0]),p));
+    if(!Array.isArray(a)||a.length<2||a[0]===null||a[1]===null||
+      !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
+    try{{devices.push(drawDevice(new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p));}}
+    catch(e){{console.warn('Device render failed',e);}}
   }});
 
   let renderedLines=0;
@@ -942,17 +945,23 @@ async function loadObjects(force=false){{
       if(!Array.isArray(before))return;
 
       // 원본 좌표를 먼저 정상화한다.
-      const originalPath=before
-        .filter(a=>Array.isArray(a)&&a.length>=2&&Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1])))
-        .map(a=>new kakao.maps.LatLng(Number(a[1]),Number(a[0])));
+      const validCoords=before.filter(a=>Array.isArray(a)&&a.length>=2&&
+        a[0]!==null&&a[1]!==null&&a[0]!==''&&a[1]!==''&&
+        Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1]))&&
+        Math.abs(Number(a[0]))<=180&&Math.abs(Number(a[1]))<=90)
+        .map(a=>[Number(a[0]),Number(a[1])]);
+      const originalPath=validCoords.map(a=>new kakao.maps.LatLng(a[1],a[0]));
 
       if(originalPath.length<2)return;
 
       // 스냅은 보조 기능이다. 스냅 결과가 잘못되면 반드시 원본 선을 사용한다.
       let path=originalPath;
       try{{
-        const snappedPath=snapCablePath(before,devices);
-        if(Array.isArray(snappedPath)&&snappedPath.length>=2)path=snappedPath;
+        const snappedPath=snapCablePath(validCoords,devices);
+        if(Array.isArray(snappedPath)&&snappedPath.length>=2&&snappedPath.every(a=>
+          a&&typeof a.getLat==='function'&&typeof a.getLng==='function'&&
+          Number.isFinite(a.getLat())&&Number.isFinite(a.getLng())&&
+          Math.abs(a.getLat())<=90&&Math.abs(a.getLng())<=180))path=snappedPath;
       }}catch(e){{
         path=originalPath;
       }}
@@ -1148,6 +1157,9 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      kakao.maps.event.addListener(map,'zoom_changed',()=>{{
+        if(map.getLevel()>3)clearOverlays();
+      }});
       centerMyLocation(false);
       const sel=document.getElementById('region');
       if(sel&&sel.value){{

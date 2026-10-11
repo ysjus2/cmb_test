@@ -1,4 +1,6 @@
-# CMB DXF Viewer + Excel v3.36 — 현재 동작 기준
+# CMB DXF Viewer + Excel v3.71_FINAL — 현재 동작 기준
+
+2026-10-11 Windows 온라인/관리자 통합 기준은 `WINDOWS_FINAL_3.71.md`와 현재 소스입니다. Windows는 서버 V4.1에 연결하며, 업로드 지역은 DXF 파일 stem과 서버 canonical 지역 ID가 정확히 일치할 때만 연결됩니다. 현재 포터블 FINAL 배포본은 GitHub Release의 v3.71_FINAL ZIP이며 실행 파일과 검증 manifest를 포함합니다. 아래 v3.36 설명은 로컬 DXF 기능의 과거 기준으로, 서버 미연결·이전 버전 배포 설명은 현재 온라인 기능에 적용하지 않습니다.
 
 2026-10-09 기준 PC 배포본과 개발의 기준 문서입니다. 실행 파일은 `pc-releases/current/CMB_DXF_Viewer_v3.36.exe`, 실제 소스는 `desktop/CadExcelConverter/`입니다. 버전·실행 파일 SHA256·런타임 소스 SHA256은 `CURRENT_VERSION.json`에 기록합니다. 이후 GPT/Codex 작업은 이 문서와 실제 코드를 함께 읽어야 합니다.
 

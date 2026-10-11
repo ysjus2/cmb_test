@@ -21,7 +21,7 @@ from admin_users import UserAdminWindow
 from server_client_windows import CMBServerClient
 from session_guard import TkIdleSessionGuard
 
-APP_NAME = "CMB DXF Viewer + Excel v3.36"
+APP_NAME = "CMB DXF Viewer + Excel v3.71_FINAL"
 SESSION_ENDED_EXIT_CODE = 41
 
 
@@ -402,19 +402,22 @@ class App(NetworkExtractionMixin, tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"온라인 Viewer 실행 실패\n{exc}")
 
+    def _get_session_client(self):
+        if self.session_client is None:
+            client = CMBServerClient()
+            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+            client.on_session_expired = self._expire_session
+            self.session_client = client
+        return self.session_client
+
     def _open_admin_upload(self):
         if not self._require_admin_permission():
             return
         if not self.input_path or not os.path.isfile(self.input_path) or self.viewer.scene is None:
             messagebox.showinfo(APP_NAME, "먼저 서버에 올릴 DXF 도면을 열어주세요.")
             return
-        client = self.session_client
-        if client is None:
-            client = CMBServerClient()
-            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-            client.on_session_expired = self._expire_session
-            self.session_client = client
+        client = self._get_session_client()
         AdminUploadWindow(
             self,
             self.viewer.scene,
@@ -427,13 +430,7 @@ class App(NetworkExtractionMixin, tk.Tk):
     def _open_server_extract(self):
         if not self._require_admin_permission():
             return
-        client = self.session_client
-        if client is None:
-            client = CMBServerClient()
-            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-            client.on_session_expired = self._expire_session
-            self.session_client = client
+        client = self._get_session_client()
         ServerExtractWindow(
             self,
             self.viewer,
@@ -443,13 +440,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         )
 
     def _open_user_admin(self):
-        client = self.session_client
-        if client is None:
-            client = CMBServerClient()
-            client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-            client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-            client.on_session_expired = self._expire_session
-            self.session_client = client
+        client = self._get_session_client()
         UserAdminWindow(
             self,
             client=client,
@@ -829,6 +820,29 @@ class App(NetworkExtractionMixin, tk.Tk):
 
 
 if __name__ == "__main__":
+    if "--build-smoke-test" in sys.argv:
+        # Exercise bundled imports, Tcl/Tk and geometry conversion without a login.
+        import hashlib
+        import pyproj
+        from online_viewer import html
+        from admin_upload import classify_entity
+        from types import SimpleNamespace
+        output = Path(sys.argv[sys.argv.index("--build-smoke-test") + 1]).resolve()
+        smoke_root = tk.Tk()
+        smoke_root.withdraw()
+        assert classify_entity(SimpleNamespace(layer="CN_F_CABLE", block_name="")) == "FIBER"
+        page = html("smoke-key", "smoke-token")
+        assert "clearGroupOverlays" in page and "snapCablePath" in page
+        transformer = pyproj.Transformer.from_crs(5174, 4326, always_xy=True)
+        lng, lat = transformer.transform(200000, 300000)
+        assert 120 < lng < 135 and 30 < lat < 45
+        smoke_root.destroy()
+        output.write_text(json.dumps({"ok": True, "version": "3.71_FINAL",
+            "frozen": bool(getattr(sys, "frozen", False)),
+            "tcl_tk": True, "coordinate_conversion": True,
+            "viewer_page_sha256": hashlib.sha256(page.encode()).hexdigest()}), encoding="utf-8")
+        raise SystemExit(0)
+
     if "--online-viewer" in sys.argv:
         from online_viewer import run_online_viewer
         raise SystemExit(run_online_viewer())

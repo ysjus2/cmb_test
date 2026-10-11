@@ -21,7 +21,7 @@ assert "pywebview.api" not in page
 assert "/api/" in page
 print('ONLINE_VIEWER_LOCAL_API_OK')
 
-print('ALL CURRENT CHECKS PASSED')
+# Success is printed only after every regression completes.
 
 
 from types import SimpleNamespace
@@ -58,7 +58,7 @@ assert _points(device) == [(15.0, 15.0)]
 print("DEVICE_POINT_GEOMETRY_OK")
 
 # 온라인 Viewer는 초기 광-only 상태를 유지하되,
-# L2 이상에서는 네트워크 오버레이를 전부 숨기고 L1에서만 체크 그룹을 표시한다.
+# L1~L3에서는 체크 그룹을 표시하고 L4 이상에서는 모두 숨긴다.
 assert "FIBER:true,COAX:false,POLE:false,CONDUIT:false" in page
 assert "const mapLevelNow=map.getLevel();" in page
 assert "const detailMode=mapLevelNow<=3;" in page
@@ -111,5 +111,9 @@ main_source = (root / "main.py").read_text(encoding="utf-8")
 assert "def __init__(self, session_user=None, session_client=None):" in main_source
 assert "self.session_client = session_client" in main_source
 assert "session_client=session_client" in main_source
-assert main_source.count("client = self.session_client") >= 3
+assert main_source.count("client = self._get_session_client()") == 3
 print("SHARED_SESSION_CLIENT_OK")
+
+subprocess.run([sys.executable, str(root / "session_regression_selftest.py")], cwd=root, check=True)
+subprocess.run([sys.executable, str(root / "online_render_selftest.py")], cwd=root, check=True)
+print("ALL CURRENT CHECKS PASSED")
