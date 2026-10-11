@@ -135,9 +135,6 @@ class CMBServerClient:
     def regions(self):
         return self._request("GET", "/regions")
 
-    def online_regions(self):
-        return self._request("GET", "/online/regions")
-
     def online_layers(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/online/{q}/layers")
