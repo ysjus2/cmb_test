@@ -290,6 +290,8 @@ let overlays=[];
 let selectedOverlay=null;
 let lodReferenceSpan=null;
 let idleMinutes=10;
+let myLat=null,myLng=null;
+const QUERY_RADIUS_METERS=500;
 let lastActivity=Date.now();
 let idleTimer=null;
 let authenticated=false;
@@ -614,9 +616,21 @@ function bindClick(overlay,props){{
 async function loadObjects(){{
   const region=document.getElementById('region').value;
   if(!region||!map)return;
-  const b=map.getBounds(),sw=b.getSouthWest(),ne=b.getNorthEast();
-  setStatus('불러오는 중...');
-  const r=await apiCall('objects',{{west:sw.getLng(),south:sw.getLat(),east:ne.getLng(),north:ne.getLat()}});
+  let west,south,east,north;
+  if(Number.isFinite(myLat)&&Number.isFinite(myLng)){{
+    const latDelta=QUERY_RADIUS_METERS/111320;
+    const lngScale=Math.max(0.2,Math.cos(myLat*Math.PI/180));
+    const lngDelta=QUERY_RADIUS_METERS/(111320*lngScale);
+    west=myLng-lngDelta;
+    east=myLng+lngDelta;
+    south=myLat-latDelta;
+    north=myLat+latDelta;
+  }}else{{
+    const b=map.getBounds(),sw=b.getSouthWest(),ne=b.getNorthEast();
+    west=sw.getLng();south=sw.getLat();east=ne.getLng();north=ne.getLat();
+  }}
+  setStatus('현재 위치 기준 500m · 불러오는 중...');
+  const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(r.error){{setStatus(r.error);return}}
   clearOverlays();
   const allFeatures=r.features||[];
@@ -741,16 +755,13 @@ function bindUi(){{
       setStatus('카카오맵 초기화 대기');
       return;
     }}
-    const b=r.bounds||null;
-    if(b&&b.west!=null&&b.south!=null&&b.east!=null&&b.north!=null){{
-      const bounds=new kakao.maps.LatLngBounds();
-      bounds.extend(new kakao.maps.LatLng(Number(b.south),Number(b.west)));
-      bounds.extend(new kakao.maps.LatLng(Number(b.north),Number(b.east)));
-      map.setBounds(bounds);
+    if(Number.isFinite(myLat)&&Number.isFinite(myLng)){{
+      map.setCenter(new kakao.maps.LatLng(myLat,myLng));
+      map.setLevel(3);
       setTimeout(()=>loadObjects(),80);
       return;
     }}
-    await loadObjects();
+    centerMyLocation(true);
   }};
 
 }}
@@ -766,9 +777,11 @@ function centerMyLocation(loadAfter){{
       if(!map)return;
       const lat=Number(pos.coords.latitude);
       const lng=Number(pos.coords.longitude);
+      myLat=lat;
+      myLng=lng;
       map.setCenter(new kakao.maps.LatLng(lat,lng));
       map.setLevel(3);
-      setStatus('현재 위치');
+      setStatus('현재 위치 · 반경 500m');
       if(loadAfter)loadObjects();
     }},
     err=>{{
@@ -790,11 +803,12 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      centerMyLocation(false);
       const sel=document.getElementById('region');
       if(sel&&sel.value){{
         sel.dispatchEvent(new Event('change'));
       }} else {{
-        setStatus('카카오맵 준비 완료 · 지역을 선택하세요');
+        setStatus('현재 위치 확인 후 지역을 선택하세요');
       }}
     }});
   }}catch(err){{
