@@ -742,6 +742,18 @@ def run_online_viewer():
 
     try:
         api = Api()
+
+        # 온라인 Viewer는 인증된 자식 프로세스로만 연다.
+        # 인증 토큰 전달 누락/만료 상태에서 빈 지역 선택 화면을 보여주지 않는다.
+        if not api.c.access_token:
+            api.session_ended = True
+            return SESSION_ENDED_EXIT_CODE
+        try:
+            api.user = api.c.me()
+        except Exception:
+            api.session_ended = True
+            return SESSION_ENDED_EXIT_CODE
+
         window = webview.create_window(
             "CMB 온라인 Viewer",
             url="http://127.0.0.1:8765/",
