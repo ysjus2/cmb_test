@@ -627,6 +627,7 @@ async function apiCall(name,payload={{}}){{
 let map;
 let overlays=[];
 const overlayGroups=new Map();
+const overlayKinds=new Map();
 let loadGeneration=0;
 let selectedOverlay=null;
 let lodReferenceSpan=null;
@@ -735,6 +736,7 @@ function clearOverlays(){{
   overlays.forEach(x=>{{
     try{{x.setMap(null);}}catch(e){{}}
     overlayGroups.delete(x);
+    overlayKinds.delete(x);
   }});
   overlays=[];
   selectedOverlay=null;
@@ -940,7 +942,7 @@ function drawDevice(center,props){{
       path.push(pxToLatLng(cx+Math.cos(a)*d.r,cy+Math.sin(a)*d.r));
     }}
     const poly=new kakao.maps.Polygon({{path:path,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
-    poly.setMap(map);registerOverlay(poly,props.group_id);parts.push(poly);bindClick(poly,props);
+    poly.setMap(map);registerOverlay(poly,props.group_id,kind);parts.push(poly);bindClick(poly,props);
     if(d.shape==='double_circle'){{
       const path2=[];
       for(let i=0;i<20;i++){{
@@ -948,20 +950,20 @@ function drawDevice(center,props){{
         path2.push(pxToLatLng(cx+Math.cos(a)*d.r*.62,cy+Math.sin(a)*d.r*.62));
       }}
       const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillOpacity:0}});
-      inner.setMap(map);registerOverlay(inner,props.group_id);parts.push(inner);bindClick(inner,props);
+      inner.setMap(map);registerOverlay(inner,props.group_id,kind);parts.push(inner);bindClick(inner,props);
     }}
     if(d.shape==='circle_x'){{
       const a1=pxToLatLng(cx-d.r*.7,cy-d.r*.7),a2=pxToLatLng(cx+d.r*.7,cy+d.r*.7);
       const b1=pxToLatLng(cx-d.r*.7,cy+d.r*.7),b2=pxToLatLng(cx+d.r*.7,cy-d.r*.7);
       [ [a1,a2],[b1,b2] ].forEach(path2=>{{
         const l=new kakao.maps.Polyline({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
-        l.setMap(map);registerOverlay(l,props.group_id);parts.push(l);bindClick(l,props);
+        l.setMap(map);registerOverlay(l,props.group_id,kind);parts.push(l);bindClick(l,props);
       }});
     }}
   }}else{{
     const pts=polygonPoints(kind,cx,cy,deg).map(p=>pxToLatLng(p[0],p[1]));
     const poly=new kakao.maps.Polygon({{path:pts,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
-    poly.setMap(map);registerOverlay(poly,props.group_id);parts.push(poly);bindClick(poly,props);
+    poly.setMap(map);registerOverlay(poly,props.group_id,kind);parts.push(poly);bindClick(poly,props);
       if(d.shape==='square_circle'){{
       const rr=Math.min(d.w,d.h)*.42;
       const path2=[];
@@ -970,7 +972,7 @@ function drawDevice(center,props){{
         path2.push(pxToLatLng(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr));
       }}
       const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.innerFill||'#ffffff',fillOpacity:1}});
-      inner.setMap(map);registerOverlay(inner,props.group_id);parts.push(inner);bindClick(inner,props);
+      inner.setMap(map);registerOverlay(inner,props.group_id,kind);parts.push(inner);bindClick(inner,props);
     }}
   }}
 
@@ -978,7 +980,7 @@ function drawDevice(center,props){{
   const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
   const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
   const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
-  dirLine.setMap(map);registerOverlay(dirLine,props.group_id);parts.push(dirLine);
+  dirLine.setMap(map);registerOverlay(dirLine,props.group_id,kind);parts.push(dirLine);
 
   const labelText=deviceLabel(props,kind);
   if(labelText){{
@@ -987,7 +989,7 @@ function drawDevice(center,props){{
       content:'<div style="font:700 10px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
       yAnchor:.5,xAnchor:.5
     }});
-    label.setMap(map);registerOverlay(label,props.group_id);parts.push(label);
+    label.setMap(map);registerOverlay(label,props.group_id,kind);parts.push(label);
   }}
 
   return {{kind,center,cx,cy,props,parts,deg}};
@@ -1029,11 +1031,7 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
   return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }}
 
-function deviceVisibleAtLevel(feature,mapLevel){{
-  const p=feature.properties||{{}};
-  const group=String(p.group_id||'').toUpperCase();
-  if(group!=='COAX')return true;
-  const kind=symbolKind(p);
+function coaxKindVisibleAtLevel(kind,mapLevel){{
   if(mapLevel===3){{
     return ['onu','amp','splitter','power','power_ps','closure'].includes(kind);
   }}
@@ -1041,6 +1039,34 @@ function deviceVisibleAtLevel(feature,mapLevel){{
     return ['onu','amp','splitter','power','power_ps','closure','tap'].includes(kind);
   }}
   return mapLevel<=1;
+}}
+
+function deviceVisibleAtLevel(feature,mapLevel){{
+  const p=feature.properties||{{}};
+  const group=String(p.group_id||'').toUpperCase();
+  if(group!=='COAX')return true;
+  return coaxKindVisibleAtLevel(symbolKind(p),mapLevel);
+}}
+
+function pruneDeviceOverlaysForLevel(mapLevel){{
+  const kept=[];
+  overlays.forEach(x=>{{
+    const group=overlayGroups.get(x);
+    const kind=overlayKinds.get(x);
+    const remove =
+      mapLevel>3
+        ? Boolean(kind)
+        : (group==='COAX' && kind && !coaxKindVisibleAtLevel(kind,mapLevel));
+    if(remove){{
+      try{{x.setMap(null);}}catch(e){{}}
+      overlayGroups.delete(x);
+      overlayKinds.delete(x);
+    }}else{{
+      kept.push(x);
+    }}
+  }});
+  overlays=kept;
+  selectedOverlay=null;
 }}
 
 async function loadObjects(force=false){{
@@ -1352,11 +1378,19 @@ function initMap(){{
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
       kakao.maps.event.addListener(map,'zoom_changed',()=>{{
         const level=map.getLevel();
+
+        // 확대 때 생성되는 단계와 반대로, 축소 때는 이전 단계 장비를 즉시 제거한다.
+        pruneDeviceOverlaysForLevel(level);
+
         if(level>3){{
-          clearOverlays();
-          setStatus('L'+level+' · 도면 숨김 · L3 이하에서 표시');
+          // L4 이상에서는 네트워크 장비는 즉시 숨김.
+          // 선로는 loadObjects 정책에 따라 정리된다.
+          lastQueryLat=NaN;
+          lastQueryLng=NaN;
+          loadObjects(true);
           return;
         }}
+
         lastQueryLat=NaN;
         lastQueryLng=NaN;
         loadObjects(true);
