@@ -711,8 +711,11 @@ public class MapActivity extends Activity {
                     regionStatus.setText(title+" · 서버 조회");viewportKey="";pendingViewportKey="";
                     org.json.JSONObject box=metadata.optJSONObject("bounds");
                     if(box!=null){
-                        serverBounds.clear();serverBounds.add(new MapPoint(box.optDouble("south"),box.optDouble("west")));serverBounds.add(new MapPoint(box.optDouble("north"),box.optDouble("east")));if(mapReady)map.showAll(serverBounds);
-                    }else if(mapReady&&currentLocation!=null)map.center(new MapPoint(currentLocation),true);
+                        serverBounds.clear();
+                        serverBounds.add(new MapPoint(box.optDouble("south"),box.optDouble("west")));
+                        serverBounds.add(new MapPoint(box.optDouble("north"),box.optDouble("east")));
+                    }
+                    if(mapReady&&currentLocation!=null)map.center(new MapPoint(currentLocation),true);
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
         });
