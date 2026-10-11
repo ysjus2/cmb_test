@@ -7,7 +7,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from server_client_windows import CMBServerClient
+from server_client_windows import CMBServerClient, ServerError
 
 CFG = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer" / "online.json"
 SESSION_ENDED_EXIT_CODE = 41
@@ -43,6 +43,18 @@ class Api:
             except Exception:
                 self.user = None
 
+    def _handle_error(self, exc, fallback=None):
+        if isinstance(exc, ServerError) and exc.status == 401:
+            self.end_session()
+            result = {"ok": False, "session_ended": True}
+            if isinstance(fallback, dict):
+                result.update(fallback)
+            return result
+        result = {"ok": False, "error": str(exc)}
+        if isinstance(fallback, dict):
+            result.update(fallback)
+        return result
+
     def session_policy(self):
         try:
             policy = self.c.session_policy() or {}
@@ -51,14 +63,14 @@ class Api:
                 "idle_minutes": int(policy.get("idle_minutes", 10)),
             }
         except Exception as exc:
-            return {"ok": False, "idle_minutes": 10, "error": str(exc)}
+            return self._handle_error(exc, {"idle_minutes": 10})
 
     def touch_session(self):
         try:
             self.c.touch_session()
             return {"ok": True}
         except Exception as exc:
-            return {"ok": False, "error": str(exc)}
+            return self._handle_error(exc)
 
     def end_session(self):
         try:
@@ -106,13 +118,14 @@ class Api:
                 "level": int((self.user or {}).get("level") or 0),
             }
         except Exception as exc:
-            return {
-                "ok": False,
-                "error": str(exc),
-                "items": [],
-                "count": 0,
-                "level": int((self.user or {}).get("level") or 0),
-            }
+            return self._handle_error(
+                exc,
+                {
+                    "items": [],
+                    "count": 0,
+                    "level": int((self.user or {}).get("level") or 0),
+                },
+            )
 
     def select(self, region):
         self.region = str(region or "")
@@ -209,7 +222,8 @@ class Api:
 
             return {"features": list(merged.values())}
         except Exception as exc:
-            return {"features": [], "error": str(exc)}
+            handled = self._handle_error(exc, {"features": []})
+            return handled
 
 
 def html(k, local_token):
