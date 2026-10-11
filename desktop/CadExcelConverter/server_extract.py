@@ -13,7 +13,7 @@ from recovery_v2 import export_network_preserving_dxf
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
 GROUP_LABELS = {
     "FIBER": "광",
-    "COAX": "동축",
+    "COAX": "동축(케이블+기기)",
     "POLE": "전주",
     "CONDUIT": "관로",
     "USER": "사용자 지정영역(USER)",
