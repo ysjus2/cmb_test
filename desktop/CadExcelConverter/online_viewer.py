@@ -89,24 +89,14 @@ class Api:
             for row in raw:
                 if not isinstance(row, dict):
                     continue
-                region_id = str(
-                    row.get("id")
-                    or row.get("region_id")
-                    or row.get("region_code")
-                    or ""
-                ).strip()
-                # 최종 뷰는 서버의 canonical 지역코드만 사용한다.
-                if not region_id.startswith("CMB_GN_"):
+                region_id = str(row.get("id") or "").strip()
+                if not region_id:
                     continue
                 key = region_id.casefold()
                 if key in seen:
                     continue
                 seen.add(key)
-                name = str(
-                    row.get("name")
-                    or row.get("region_name")
-                    or region_id
-                ).strip()
+                name = str(row.get("name") or region_id).strip()
                 items.append({"id": region_id, "name": name or region_id})
 
             return {
