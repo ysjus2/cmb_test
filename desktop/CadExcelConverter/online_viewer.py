@@ -832,7 +832,22 @@ async function loadObjects(force=false){{
   const center=map.getCenter();
   const queryLat=Number(center.getLat());
   const queryLng=Number(center.getLng());
-  const detailMode=map.getLevel()<=1;
+  const mapLevelNow=map.getLevel();
+  const detailMode=mapLevelNow<=1;
+
+  // L2 이상에서는 네트워크 도면 오버레이를 전부 숨긴다.
+  // 지도 배경만 유지하고 서버 객체 조회/렌더링도 생략해 확대/이동을 가볍게 한다.
+  if(!detailMode){{
+    const previousOverlays=overlays;
+    overlays=[];
+    selectedOverlay=null;
+    previousOverlays.forEach(x=>x.setMap(null));
+    lastQueryLat=queryLat;
+    lastQueryLng=queryLng;
+    lastDetailMode=false;
+    setStatus('L'+mapLevelNow+' · 도면 숨김 · 확대하면 광/동축/전주/관로 표시');
+    return;
+  }}
 
   if(!force && Number.isFinite(lastQueryLat) && Number.isFinite(lastQueryLng)){{
     const moved=distanceMeters(lastQueryLat,lastQueryLng,queryLat,queryLng);
@@ -865,17 +880,9 @@ async function loadObjects(force=false){{
     if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG') return false;
 
     const group=String(p.group_id||'').toUpperCase();
-    const geomType=String((f.geometry||{{}}).type||'');
 
-    // level 2 이상: 광이 활성화된 경우 광케이블만 표시.
-    if(!isMaxDetail){{
-      return groupEnabled.FIBER===true
-        && group==='FIBER'
-        && ['LineString','MultiLineString'].includes(geomType);
-    }}
-
-    // level 1: 체크된 그룹 전체 표시.
-    return groupEnabled[group]===true;
+    // L1에서만 체크된 네트워크 그룹을 표시한다.
+    return isMaxDetail && groupEnabled[group]===true;
   }});
   const pointFeatures=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
@@ -913,7 +920,29 @@ async function loadObjects(force=false){{
     rawGroups[g]=(rawGroups[g]||0)+1;
   }});
   const rawText=Object.keys(rawGroups).sort().map(k=>k+':'+rawGroups[k]).join('/');
-  setStatus('L'+map.getLevel()+' · 서버 '+allFeatures.length+'개 ['+rawText+'] · 표시 '+features.length+' · 심볼 '+devices.length+' · 선로 '+snapped);
+
+  const geomStats={{}};
+  allFeatures.forEach(f=>{{
+    const group=String(((f.properties||{{}}).group_id)||'NONE').toUpperCase();
+    const type=String(((f.geometry||{{}}).type)||'');
+    if(!geomStats[group])geomStats[group]={{line:0,point:0,other:0}};
+    if(type==='LineString'||type==='MultiLineString')geomStats[group].line++;
+    else if(type==='Point')geomStats[group].point++;
+    else geomStats[group].other++;
+  }});
+  const cableDiag=['FIBER','COAX','CONDUIT'].map(g=>{{
+    const s=geomStats[g]||{{line:0,point:0,other:0}};
+    return g+' 선:'+s.line+'/점:'+s.point;
+  }}).join(' · ');
+
+  setStatus(
+    'L'+map.getLevel()+
+    ' · 서버 '+allFeatures.length+'개 ['+rawText+']'+
+    ' · '+cableDiag+
+    ' · 표시 '+features.length+
+    ' · 심볼 '+devices.length+
+    ' · 선로 '+snapped
+  );
 }}
 
 async function loadRegions(){{
