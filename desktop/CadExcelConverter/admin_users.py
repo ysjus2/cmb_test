@@ -39,74 +39,97 @@ class UserAdminWindow(tk.Toplevel):
             textvariable=self.backup_retention_text,
         ).pack(anchor="w", pady=(0, 8))
 
-        tools = ttk.Frame(root)
-        tools.pack(fill="x", pady=(10, 6))
+        # 관리자 기능을 한 줄에 몰지 않고 3개 업무 그룹으로 분리한다.
+        groups = ttk.Frame(root)
+        groups.pack(fill="x", pady=(10, 8))
+        groups.columnconfigure(0, weight=1)
+        groups.columnconfigure(1, weight=1)
+        groups.columnconfigure(2, weight=1)
 
+        user_group = ttk.LabelFrame(groups, text="사용자 관리", padding=8)
+        user_group.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        region_group = ttk.LabelFrame(groups, text="지역 관리", padding=8)
+        region_group.grid(row=0, column=1, sticky="nsew", padx=3)
+        drawing_group = ttk.LabelFrame(groups, text="도면 관리", padding=8)
+        drawing_group.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
+
+        # 사용자 관리
+        search_row = ttk.Frame(user_group)
+        search_row.pack(fill="x", pady=(0, 6))
         self.search_var = tk.StringVar()
-        ttk.Label(tools, text="검색").pack(side="left")
-        search = ttk.Entry(tools, textvariable=self.search_var, width=28)
-        search.pack(side="left", padx=(6, 6))
+        ttk.Label(search_row, text="검색").pack(side="left")
+        search = ttk.Entry(search_row, textvariable=self.search_var, width=18)
+        search.pack(side="left", padx=(6, 0), fill="x", expand=True)
         search.bind("<KeyRelease>", lambda e: self.apply_filter())
 
         self.lookup_btn = ttk.Button(
-            tools, text="사용자 조회", command=self.load_users, state="disabled"
+            user_group, text="사용자 조회", command=self.load_users, state="disabled"
         )
-        self.lookup_btn.pack(side="left")
+        self.lookup_btn.pack(fill="x", pady=2)
 
         self.new_btn = ttk.Button(
-            tools, text="신규 등록", command=self.create_user, state="disabled"
+            user_group, text="신규 등록", command=self.create_user, state="disabled"
         )
-        self.new_btn.pack(side="left", padx=(6, 0))
+        self.new_btn.pack(fill="x", pady=2)
 
         self.reset_btn = ttk.Button(
-            tools, text="비밀번호 초기화", command=self.reset_password, state="disabled"
+            user_group, text="비밀번호 초기화", command=self.reset_password, state="disabled"
         )
-        self.reset_btn.pack(side="left", padx=(6, 0))
+        self.reset_btn.pack(fill="x", pady=2)
 
         self.deactivate_btn = ttk.Button(
-            tools, text="퇴사처리", command=self.deactivate_user, state="disabled"
+            user_group, text="퇴사처리", command=self.deactivate_user, state="disabled"
         )
-        self.deactivate_btn.pack(side="left", padx=(6, 0))
+        self.deactivate_btn.pack(fill="x", pady=2)
 
         self.activate_btn = ttk.Button(
-            tools, text="재입사/재사용", command=self.activate_user, state="disabled"
+            user_group, text="재입사/재사용", command=self.activate_user, state="disabled"
         )
-        self.activate_btn.pack(side="left", padx=(6, 0))
+        self.activate_btn.pack(fill="x", pady=2)
 
         self.region_btn = ttk.Button(
-            tools, text="지역/권한 관리", command=self.edit_regions, state="disabled"
+            user_group, text="사용자 지역/권한", command=self.edit_regions, state="disabled"
         )
-        self.region_btn.pack(side="left", padx=(6, 0))
-
-        self.region_register_btn = ttk.Button(
-            tools, text="지역 등록", command=self.register_region, state="disabled"
-        )
-        self.region_register_btn.pack(side="left", padx=(6, 0))
-
-        self.drawing_status_btn = ttk.Button(
-            tools, text="도면 버전 확인", command=self.view_drawing_status, state="disabled"
-        )
-        self.drawing_status_btn.pack(side="left", padx=(6, 0))
-
-        self.drawing_delete_btn = ttk.Button(
-            tools, text="도면 강제 삭제", command=self.open_force_delete_drawing, state="disabled"
-        )
-        self.drawing_delete_btn.pack(side="left", padx=(6, 0))
+        self.region_btn.pack(fill="x", pady=2)
 
         self.session_btn = ttk.Button(
-            tools, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
+            user_group, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
         )
-        self.session_btn.pack(side="left", padx=(6, 0))
+        self.session_btn.pack(fill="x", pady=2)
+
+        # 지역 관리
+        self.region_register_btn = ttk.Button(
+            region_group, text="지역 등록/수정/삭제", command=self.register_region, state="disabled"
+        )
+        self.region_register_btn.pack(fill="x", pady=2)
+
+        ttk.Label(
+            region_group,
+            text="지역코드 등록, 지역명 수정, 지역 자체 삭제를 관리합니다.",
+            wraplength=300,
+            justify="left",
+        ).pack(fill="x", pady=(8, 0))
+
+        # 도면 관리
+        self.drawing_status_btn = ttk.Button(
+            drawing_group, text="도면 버전 확인", command=self.view_drawing_status, state="disabled"
+        )
+        self.drawing_status_btn.pack(fill="x", pady=2)
+
+        self.drawing_delete_btn = ttk.Button(
+            drawing_group, text="도면 강제 삭제", command=self.open_force_delete_drawing, state="disabled"
+        )
+        self.drawing_delete_btn.pack(fill="x", pady=2)
 
         self.backup_btn = ttk.Button(
-            tools, text="백업 보관 설정", command=self.edit_backup_retention, state="disabled"
+            drawing_group, text="백업 보관 설정", command=self.edit_backup_retention, state="disabled"
         )
-        self.backup_btn.pack(side="left", padx=(6, 0))
+        self.backup_btn.pack(fill="x", pady=2)
 
         self.map_display_btn = ttk.Button(
-            tools, text="지도 표시 설정", command=self.edit_map_display_settings, state="disabled"
+            drawing_group, text="지도 표시 설정", command=self.edit_map_display_settings, state="disabled"
         )
-        self.map_display_btn.pack(side="left", padx=(6, 0))
+        self.map_display_btn.pack(fill="x", pady=2)
 
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True)
