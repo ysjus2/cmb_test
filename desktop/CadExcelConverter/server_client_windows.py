@@ -6,6 +6,7 @@ import os
 import ssl
 import sys
 import threading
+import contextlib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -45,6 +46,96 @@ class CMBServerClient:
         self.refresh_token = ""
         self.on_session_expired = None
         self._refresh_lock = threading.RLock()
+        self.shared_state_path = os.getenv("CMB_AUTH_STATE_PATH", "").strip()
+        self._sync_from_shared_state()
+
+    @contextlib.contextmanager
+    def _shared_state_lock(self):
+        path = self.shared_state_path
+        if not path:
+            yield
+            return
+        lock_path = path + ".lock"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fh = open(lock_path, "a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                fh.seek(0)
+                fh.write(b"0")
+                fh.flush()
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+            yield
+        finally:
+            if os.name == "nt":
+                try:
+                    import msvcrt
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except Exception:
+                    pass
+            fh.close()
+
+    def _sync_from_shared_state_unlocked(self):
+        path = self.shared_state_path
+        if not path or not os.path.isfile(path):
+            return False
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            access = str(data.get("access_token") or "")
+            refresh = str(data.get("refresh_token") or "")
+            changed = access != self.access_token or refresh != self.refresh_token
+            if access:
+                self.access_token = access
+            if refresh:
+                self.refresh_token = refresh
+            return changed
+        except Exception:
+            return False
+
+    def _sync_from_shared_state(self):
+        if not self.shared_state_path:
+            return False
+        with self._shared_state_lock():
+            return self._sync_from_shared_state_unlocked()
+
+    def _sync_to_shared_state_unlocked(self):
+        path = self.shared_state_path
+        if not path:
+            return
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_name(
+            target.name + f".{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        temp.write_text(
+            json.dumps(
+                {
+                    "access_token": self.access_token,
+                    "refresh_token": self.refresh_token,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        os.replace(str(temp), str(target))
+
+    def _sync_to_shared_state(self):
+        if not self.shared_state_path:
+            return
+        with self._shared_state_lock():
+            self._sync_to_shared_state_unlocked()
+
+    def clear_shared_state(self):
+        path = self.shared_state_path
+        if not path:
+            return
+        with self._shared_state_lock():
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
 
     @property
     def authenticated(self):
@@ -59,6 +150,7 @@ class CMBServerClient:
             headers["Content-Type"] = "application/json; charset=utf-8"
 
         if auth:
+            self._sync_from_shared_state()
             if not self.access_token:
                 raise ServerError("로그인이 필요합니다.", status=401)
             headers["Authorization"] = "Bearer " + self.access_token
@@ -102,10 +194,14 @@ class CMBServerClient:
         except ServerError as exc:
             if auth and exc.status == 401 and retry_refresh and self.refresh_token:
                 try:
-                    # Another worker may already have rotated this session.
+                    # 다른 프로세스가 이미 refresh token을 회전했을 수 있으므로
+                    # 공용 세션 상태를 먼저 다시 읽고, 여전히 같은 access일 때만 refresh한다.
                     with self._refresh_lock:
-                        if self.access_token == failed_access:
-                            self.refresh()
+                        with self._shared_state_lock():
+                            self._sync_from_shared_state_unlocked()
+                            if self.access_token == failed_access:
+                                self._refresh_locked(sync_shared=False)
+                                self._sync_to_shared_state_unlocked()
                     return self._request(
                         method,
                         path,
@@ -134,6 +230,7 @@ class CMBServerClient:
         )
         self.access_token = str(tokens.get("access_token") or "")
         self.refresh_token = str(tokens.get("refresh_token") or "")
+        self._sync_to_shared_state()
         if not self.access_token:
             raise ServerError("로그인 응답에 access_token이 없습니다.")
         return self.me()
@@ -142,7 +239,7 @@ class CMBServerClient:
         with self._refresh_lock:
             return self._refresh_locked()
 
-    def _refresh_locked(self):
+    def _refresh_locked(self, sync_shared=True):
         if not self.refresh_token:
             raise ServerError("갱신할 로그인 세션이 없습니다.", status=401)
         tokens = self._raw_request(
@@ -156,6 +253,8 @@ class CMBServerClient:
             raise ServerError("갱신 응답에 access_token이 없습니다.")
         self.access_token = access
         self.refresh_token = str(tokens.get("refresh_token") or self.refresh_token)
+        if sync_shared:
+            self._sync_to_shared_state()
         return tokens
 
     def logout(self):
@@ -165,6 +264,7 @@ class CMBServerClient:
         finally:
             self.access_token = ""
             self.refresh_token = ""
+            self.clear_shared_state()
 
     def me(self):
         return self._request("GET", "/me")
