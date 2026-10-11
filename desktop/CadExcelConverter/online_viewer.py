@@ -38,6 +38,7 @@ class Api:
         self.window = None
         self.session_ended = False
         self.cache_state = {"versions": {}, "features": {}, "coverage": []}
+        self.fiber_cache = {"version": "", "features": []}
         self.last_version_check = 0.0
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
@@ -108,6 +109,95 @@ class Api:
             return False
         fw, fs, fe, fn = bounds
         return fe >= west and fw <= east and fn >= south and fs <= north
+
+    def _fiber_cache_path(self):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(self.region or "")
+        )
+        return CACHE_DIR / f"{safe}.fiber.json.gz"
+
+    def _load_fiber_cache(self):
+        self.fiber_cache = {"version": "", "features": []}
+        path = self._fiber_cache_path()
+        if not path.exists():
+            return
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            self.fiber_cache = {
+                "version": str(raw.get("version") or ""),
+                "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
+            }
+        except Exception:
+            self.fiber_cache = {"version": "", "features": []}
+
+    def _save_fiber_cache(self):
+        if not self.region:
+            return
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            path = self._fiber_cache_path()
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+                json.dump(self.fiber_cache, fh, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, path)
+        except Exception:
+            pass
+
+    def _delete_fiber_cache(self):
+        self.fiber_cache = {"version": "", "features": []}
+        path = self._fiber_cache_path()
+        for candidate in (path, path.with_suffix(path.suffix + ".tmp")):
+            try:
+                candidate.unlink()
+            except Exception:
+                pass
+
+    def _fiber_features(self):
+        return list(self.fiber_cache.get("features") or [])
+
+    def _fetch_all_region_features(self):
+        limit = 2000
+        max_depth = 7
+
+        def fetch_cell(w, s, e, n, depth=0):
+            raw = self.c.online_objects(self.region, f"{w},{s},{e},{n}", limit=limit) or {}
+            features = list(raw.get("features") or [])
+            if len(features) < limit or depth >= max_depth:
+                return features
+            mx = (w + e) / 2.0
+            my = (s + n) / 2.0
+            merged = {}
+            for cell in ((w,s,mx,my),(mx,s,e,my),(w,my,mx,n),(mx,my,e,n)):
+                for feature in fetch_cell(*cell, depth + 1):
+                    merged[self._feature_key(feature)] = feature
+            return list(merged.values())
+
+        merged = {}
+        for feature in fetch_cell(-180.0, -90.0, 180.0, 90.0):
+            merged[self._feature_key(feature)] = feature
+        return list(merged.values())
+
+    def ensure_fiber_all(self, force=False):
+        if not self.region:
+            return {"ok": True, "features": [], "cache": "none"}
+        versions = self.c.online_versions(self.region) or {}
+        fiber_version = str(versions.get("FIBER") or "")
+        self._load_fiber_cache()
+        if not force and fiber_version and self.fiber_cache.get("version") == fiber_version:
+            return {"ok": True, "features": self._fiber_features(), "cache": "hit", "version": fiber_version}
+        if not fiber_version:
+            self._delete_fiber_cache()
+            return {"ok": True, "features": [], "cache": "empty", "version": ""}
+        all_features = self._fetch_all_region_features()
+        fiber_features = [
+            feature for feature in all_features
+            if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
+        ]
+        self.fiber_cache = {"version": fiber_version, "features": fiber_features}
+        self._save_fiber_cache()
+        return {"ok": True, "features": fiber_features, "cache": "network", "version": fiber_version}
 
     def _load_cache(self):
         self.cache_state = {"versions": {}, "features": {}, "coverage": []}
@@ -354,6 +444,7 @@ class Api:
             # 지역 선택 직후에는 캐시를 먼저 읽고 서버에는 버전만 확인한다.
             # 버전이 동일하면 /layers 응답을 기다리지 않고 바로 캐시 렌더 단계로 넘긴다.
             self._load_cache()
+            self._load_fiber_cache()
             previous_versions = dict(self.cache_state.get("versions") or {})
             cached_count = len(self.cache_state.get("features") or {})
 
@@ -400,8 +491,12 @@ class Api:
 
             self._refresh_versions_if_due()
             if self._cache_covers(west, south, east, north):
+                nearby = [
+                    feature for feature in self._cached_features(west, south, east, north)
+                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+                ]
                 return {
-                    "features": self._cached_features(west, south, east, north),
+                    "features": self._fiber_features() + nearby,
                     "cache": "hit",
                 }
 
@@ -458,8 +553,12 @@ class Api:
             self.cache_state["coverage"] = self.cache_state["coverage"][-200:]
             self._save_cache()
 
+            nearby = [
+                feature for feature in self._cached_features(west, south, east, north)
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+            ]
             return {
-                "features": self._cached_features(west, south, east, north),
+                "features": self._fiber_features() + nearby,
                 "cache": "network",
             }
         except Exception as exc:
@@ -1158,11 +1257,12 @@ function bindUi(){{
     const r=await apiCall('select',{{region:e.target.value}});
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
     const summary=(r.group_summary||[]).map(x=>String(x.group_id)+':'+String(x.count||0)).join(' / ');
-    if(r.cache_ready){{
-      setStatus('캐시 즉시 표시 준비 · '+String(r.cache_count||0)+'개'+(summary?' · '+summary:''));
-    }}else if(summary){{
-      setStatus('캐시 갱신 필요 · '+summary);
-    }}
+    setStatus('광케이블 전체 확인 중...'+(summary?' · '+summary:''));
+    const fiber=await apiCall('fiber_all',{{force:false}});
+    if(fiber.error){{setStatus(fiber.error);return}}
+    const fiberCount=(fiber.features||[]).length;
+    const fiberSource=fiber.cache==='hit'?'광 캐시':'광 전체 다운로드';
+    setStatus(fiberSource+' · FIBER '+fiberCount+'개 · 주변 도면 준비 중...');
     if(!map){{
       setStatus('카카오맵 초기화 대기');
       return;
@@ -1312,6 +1412,10 @@ def run_online_viewer():
                     result = api.regions()
                 elif name == "select":
                     result = api.select(data.get("region"))
+                elif name == "fiber_all":
+                    result = api.ensure_fiber_all(
+                        force=bool(data.get("force", False)),
+                    )
                 elif name == "objects":
                     result = api.objects(
                         data.get("west"),
