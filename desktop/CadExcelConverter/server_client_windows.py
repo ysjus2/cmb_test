@@ -46,7 +46,7 @@ class CMBServerClient:
     def authenticated(self):
         return bool(self.access_token)
 
-    def _raw_request(self, method, path, payload=None, auth=True):
+    def _raw_request(self, method, path, payload=None, auth=True, timeout=60):
         body = None
         headers = {"Accept": "application/json"}
 
@@ -67,7 +67,7 @@ class CMBServerClient:
         )
 
         try:
-            with urllib.request.urlopen(req, context=self.ssl_context, timeout=60) as resp:
+            with urllib.request.urlopen(req, context=self.ssl_context, timeout=timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as exc:
@@ -83,13 +83,13 @@ class CMBServerClient:
         except Exception as exc:
             raise ServerError(str(exc)) from exc
 
-    def _request(self, method, path, payload=None, auth=True, retry_refresh=True):
+    def _request(self, method, path, payload=None, auth=True, retry_refresh=True, timeout=60):
         try:
-            return self._raw_request(method, path, payload, auth=auth)
+            return self._raw_request(method, path, payload, auth=auth, timeout=timeout)
         except ServerError as exc:
             if auth and exc.status == 401 and retry_refresh and self.refresh_token:
                 self.refresh()
-                return self._request(method, path, payload, auth=True, retry_refresh=False)
+                return self._request(method, path, payload, auth=True, retry_refresh=False, timeout=timeout)
             raise
 
     def health(self):
@@ -142,7 +142,7 @@ class CMBServerClient:
     def online_objects(self, region, bbox, limit=5000):
         q = urllib.parse.quote(region, safe="")
         bb = urllib.parse.quote(bbox, safe=",.-")
-        return self._request("GET", f"/online/{q}/objects?bbox={bb}&limit={int(limit)}")
+        return self._request("GET", f"/online/{q}/objects?bbox={bb}&limit={int(limit)}", timeout=15)
 
     def upload_group(self, payload):
         try:
