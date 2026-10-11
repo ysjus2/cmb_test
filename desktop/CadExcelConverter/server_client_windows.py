@@ -204,6 +204,14 @@ class CMBServerClient:
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/admin/drawings/{q}/symbols")
 
+    def upload_symbols(self, region, payload):
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        return self._request(
+            "POST",
+            f"/admin/drawings/{q}/symbols",
+            payload,
+        )
+
     def revisions(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/admin/drawings/{q}/revisions")
