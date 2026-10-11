@@ -26,10 +26,8 @@ import com.example.celldb.network.KakaoNetworkRenderer;
 import com.example.celldb.network.NetworkModels.*;
 
 public class MapActivity extends Activity {
-    // Temporary online-viewer test mode:
-    // open the Kakao/server viewer immediately without blocking on login UI.
-    // Server authentication itself is intentionally not bypassed here.
-    private static final boolean ONLINE_VIEW_TEST_MODE = true;
+    // Final single-server mode. Normal login is always used.
+    private static final boolean ONLINE_VIEW_TEST_MODE = false;
     private final ArrayList<CadRecord> visibleRecords = new ArrayList<>();
     private final ArrayList<MapPoint> visiblePoints = new ArrayList<>();
     private final ArrayList<MapPoint> boundsPoints = new ArrayList<>();
@@ -227,12 +225,12 @@ public class MapActivity extends Activity {
             loginScreen=null;
         }
         mapScreen.setVisibility(android.view.View.VISIBLE);
-        header.setText("CMB 온라인 지도 · 테스트");
-        status.setText("온라인 Viewer 테스트 모드 · 로그인 검증 생략");
-        connectionStatus.setText("● 테스트 모드 · 서버 인증은 아직 연결하지 않음");
+        header.setText("CMB 온라인 지도");
+        status.setText("CMB 서버 연결 준비");
+        connectionStatus.setText("● 서버 연결 준비");
         connectionStatus.setTextColor(Color.rgb(180,110,0));
         regionStatus.setText("카카오맵 배경 + CMB 서버 Overlay 연결 준비");
-        serverButton.setText("서버 연결(선택)");
+        serverButton.setText("서버 로그인");
         logoutButton.setEnabled(false);
         startMap();
         mapScreen.postDelayed(()->{
