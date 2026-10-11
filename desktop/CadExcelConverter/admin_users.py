@@ -1084,7 +1084,7 @@ class UserAdminWindow(tk.Toplevel):
             root,
             columns=("group", "revision", "count", "date", "memo"),
             show="headings",
-            selectmode="browse",
+            selectmode="extended",
             height=12,
         )
         for key, title, width in (
@@ -1098,7 +1098,7 @@ class UserAdminWindow(tk.Toplevel):
             tree.column(key, width=width, anchor="w")
         tree.pack(fill="both", expand=True, pady=(12, 8))
 
-        note = tk.StringVar(value="삭제할 항목을 선택해주세요.")
+        note = tk.StringVar(value="삭제할 항목을 하나 이상 선택해주세요. 전체 삭제가 필요하면 전체 선택을 사용하세요.")
         ttk.Label(root, textvariable=note).pack(anchor="w")
 
         confirm_var = tk.StringVar()
@@ -1175,25 +1175,40 @@ class UserAdminWindow(tk.Toplevel):
             except Exception as exc:
                 messagebox.showerror("도면 항목 조회", str(exc), parent=win)
 
-        def selected_group():
-            sel = tree.selection()
-            if not sel:
-                messagebox.showinfo("도면 항목 삭제", "삭제할 항목을 선택해주세요.", parent=win)
-                return None, None
-            info = current_rows.get(sel[0]) or {}
+        def selected_groups():
+            selected = list(tree.selection())
+            if not selected:
+                messagebox.showinfo("도면 항목 삭제", "삭제할 항목을 하나 이상 선택해주세요.", parent=win)
+                return "", []
             rid = region_map.get(region_var.get().strip(), "")
-            return rid, info
+            infos = [current_rows.get(iid) or {} for iid in selected]
+            infos = [x for x in infos if x.get("group")]
+            return rid, infos
+
+        def select_all_groups():
+            tree.selection_set(tree.get_children())
+            rid = region_map.get(region_var.get().strip(), "")
+            if rid:
+                confirm_var.set("")
+                note.set(f"{rid} · 전체 항목 선택됨")
+
+        def clear_group_selection():
+            tree.selection_remove(tree.selection())
+            confirm_var.set("")
+            note.set("삭제할 항목을 하나 이상 선택해주세요.")
 
         def execute_delete():
-            rid, info = selected_group()
-            if not rid or not info:
-                return
-            group = str(info.get("group") or "").upper()
-            if not info.get("exists"):
-                messagebox.showinfo("도면 항목 삭제", f"{group} 항목에는 현재 도면이 없습니다.", parent=win)
+            rid, infos = selected_groups()
+            if not rid or not infos:
                 return
 
-            expected = f"{rid}/{group}"
+            existing = [x for x in infos if x.get("exists")]
+            if not existing:
+                messagebox.showinfo("도면 항목 삭제", "선택한 항목에는 현재 도면이 없습니다.", parent=win)
+                return
+
+            groups = [str(x.get("group") or "").upper() for x in existing]
+            expected = f"{rid}/" + ("ALL" if len(groups) == 6 else "+".join(groups))
             if confirm_var.get().strip().upper() != expected.upper():
                 messagebox.showerror(
                     "도면 항목 삭제",
@@ -1202,14 +1217,14 @@ class UserAdminWindow(tk.Toplevel):
                 )
                 return
 
+            lines = [f"- {x.get('group')}: {int(x.get('count') or 0):,}개" for x in existing]
             ok = messagebox.askyesno(
                 "최종 확인",
                 (
                     f"지역: {rid}\n"
-                    f"삭제 항목: {group}\n"
-                    f"현재 객체수: {int(info.get('count') or 0):,}\n\n"
-                    "이 항목의 현재본과 백업 revision을 모두 삭제합니다.\n"
-                    "다른 도면 항목, 지역 등록, 사용자 지역 권한은 유지됩니다.\n\n"
+                    "삭제 항목:\n" + "\n".join(lines) + "\n\n"
+                    "선택한 항목의 현재본과 백업 revision을 모두 삭제합니다.\n"
+                    "선택하지 않은 항목, 다른 지역, 지역 등록, 사용자 지역 권한은 유지됩니다.\n\n"
                     "정말 삭제하시겠습니까?"
                 ),
                 parent=win,
@@ -1217,20 +1232,27 @@ class UserAdminWindow(tk.Toplevel):
             if not ok:
                 return
 
-            try:
-                result = self.client.force_delete_drawing_group(rid, group) or {}
-                deleted = result.get("deleted") or {}
-                total = sum(int(v or 0) for v in deleted.values() if isinstance(v, (int, float)))
-                messagebox.showinfo(
-                    "도면 항목 삭제 완료",
-                    f"{rid} / {group} 삭제 완료\n삭제 처리 항목: {total:,}건",
-                    parent=win,
-                )
-                load_status()
-            except Exception as exc:
-                messagebox.showerror("도면 항목 강제 삭제 오류", str(exc), parent=win)
+            deleted_groups = []
+            failed = []
+            for info in existing:
+                group = str(info.get("group") or "").upper()
+                try:
+                    self.client.force_delete_drawing_group(rid, group)
+                    deleted_groups.append(group)
+                except Exception as exc:
+                    failed.append(f"{group}: {exc}")
 
-        ttk.Button(root, text="선택 항목 강제 삭제", command=execute_delete).pack(anchor="e")
+            message = "삭제 완료: " + (", ".join(deleted_groups) if deleted_groups else "없음")
+            if failed:
+                message += "\n\n실패:\n" + "\n".join(failed)
+            messagebox.showinfo("도면 항목 삭제 결과", message, parent=win)
+            load_status()
+
+        action_row = ttk.Frame(root)
+        action_row.pack(fill="x")
+        ttk.Button(action_row, text="전체 선택", command=select_all_groups).pack(side="left")
+        ttk.Button(action_row, text="선택 해제", command=clear_group_selection).pack(side="left", padx=(6, 0))
+        ttk.Button(action_row, text="선택 항목 강제 삭제", command=execute_delete).pack(side="right")
         load_regions()
 
     def edit_regions(self):
