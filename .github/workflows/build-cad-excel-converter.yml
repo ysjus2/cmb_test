@@ -1,4 +1,4 @@
-name: Build current CMB DXF Viewer v3.38_FINAL
+name: Build current CMB DXF Viewer v3.39_FINAL
 
 on:
   workflow_dispatch:
@@ -32,14 +32,14 @@ jobs:
         shell: powershell
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name CMB_DXF_Viewer_v3.38_FINAL --collect-all pyproj --collect-all ezdxf --collect-all webview `
+            --name CMB_DXF_Viewer_v3.39_FINAL --collect-all pyproj --collect-all ezdxf --collect-all webview `
             --add-data "cmb_dev_ca.crt;." `
             --exclude-module numpy --exclude-module fontTools main.py
-          Get-FileHash dist/CMB_DXF_Viewer_v3.38_FINAL.exe -Algorithm SHA256
+          Get-FileHash dist/CMB_DXF_Viewer_v3.39_FINAL.exe -Algorithm SHA256
       - name: Upload current build
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-current-v3.38_FINAL
-          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.38_FINAL.exe
+          name: CMB-DXF-Viewer-current-v3.39_FINAL
+          path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.39_FINAL.exe
           if-no-files-found: error
           retention-days: 7
