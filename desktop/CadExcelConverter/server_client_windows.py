@@ -417,10 +417,11 @@ class CMBServerClient:
         q = urllib.parse.quote(str(region).strip(), safe="")
         return self._request("GET", f"/admin/drawings/{q}/status")
 
-    def force_delete_drawing(self, region):
-        """Delete drawing data only; keep region and user-region permissions."""
+    def force_delete_drawing_group(self, region, group_id):
+        """Delete one drawing group only; keep region, permissions and other groups."""
         q = urllib.parse.quote(str(region).strip(), safe="")
-        return self._request("DELETE", f"/admin/drawings/{q}/force")
+        g = urllib.parse.quote(str(group_id).strip().upper(), safe="")
+        return self._request("DELETE", f"/admin/drawings/{q}/groups/{g}/force")
 
     def admin_users(self):
         return self._request("GET", "/admin/users")
