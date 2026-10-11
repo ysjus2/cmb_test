@@ -1,574 +1,612 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CMB FINAL server settings patch
-# One FastAPI app + one main DB.
-# Adds shared map display settings to the existing server only.
+# CMB FINAL SERVER PATCH V2
+# Canonical rule:
+#   - one running FastAPI server
+#   - one existing PostgreSQL/PostGIS database
+#   - no SQLite sidecar database
+#   - FIBER/COAX/POLE/CONDUIT/USER/SYMBOL revisions
+#   - lightweight online version checks for Windows/Android caches
 
-SERVICE_NAME="${CMB_SERVICE_NAME:-cmb-server}"
-APP_DIR="${CMB_APP_DIR:-/opt/cmb-server}"
-ENV_FILE="${CMB_ENV_FILE:-/etc/cmb-server.env}"
+SERVICE_NAME="${CMB_SERVICE_NAME:-cmb-cad-api}"
 BACKUP_DIR="${CMB_BACKUP_DIR:-/opt/cmb-backups}"
-PATCH_MODULE="cmb_final_settings.py"
-MARK_BEGIN="# === CMB_FINAL_SETTINGS_V1_BEGIN ==="
+PATCH_MODULE="cmb_final_runtime_patch.py"
+MARK_BEGIN="# === CMB_FINAL_RUNTIME_PATCH_V2_BEGIN ==="
+MARK_END="# === CMB_FINAL_RUNTIME_PATCH_V2_END ==="
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "ERROR: sudo bash $0 로 실행해주세요."
   exit 1
 fi
 
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}" || true
-  set +a
+echo "[1/9] 현재 운영 서비스 확인"
+if ! systemctl cat "${SERVICE_NAME}" >/dev/null 2>&1; then
+  if systemctl cat cmb-server >/dev/null 2>&1; then
+    SERVICE_NAME="cmb-server"
+  else
+    echo "ERROR: cmb-cad-api/cmb-server 서비스를 찾지 못했습니다."
+    exit 1
+  fi
 fi
 
-DB_PATH="${CMB_DB_PATH:-/var/lib/cmb-server/cmb.sqlite3}"
-mkdir -p "${BACKUP_DIR}" "$(dirname "${DB_PATH}")"
-
-echo "[1/8] 현재 서버 진입점 확인"
-EXEC_START="$(systemctl show -p ExecStart --value "${SERVICE_NAME}" 2>/dev/null || true)"
-WORK_DIR="$(systemctl show -p WorkingDirectory --value "${SERVICE_NAME}" 2>/dev/null || true)"
-[[ -n "${WORK_DIR}" && "${WORK_DIR}" != "[not set]" ]] && APP_DIR="${WORK_DIR}"
+EXEC_START="$(systemctl show -p ExecStart --value "${SERVICE_NAME}")"
+WORK_DIR="$(systemctl show -p WorkingDirectory --value "${SERVICE_NAME}")"
+[[ -n "${WORK_DIR}" && "${WORK_DIR}" != "[not set]" ]] || WORK_DIR="/opt/cmb-server"
+APP_DIR="${CMB_APP_DIR:-${WORK_DIR}}"
 
 ENTRY_MODULE=""
 if [[ "${EXEC_START}" =~ ([A-Za-z_][A-Za-z0-9_]*):app ]]; then
   ENTRY_MODULE="${BASH_REMATCH[1]}"
 fi
 if [[ -z "${ENTRY_MODULE}" ]]; then
-  for candidate in cmb_asgi app main; do
-    if [[ -f "${APP_DIR}/${candidate}.py" ]]; then
-      ENTRY_MODULE="${candidate}"
-      break
-    fi
+  for candidate in cmb_asgi main app; do
+    [[ -f "${APP_DIR}/${candidate}.py" ]] && ENTRY_MODULE="${candidate}" && break
   done
 fi
 if [[ -z "${ENTRY_MODULE}" || ! -f "${APP_DIR}/${ENTRY_MODULE}.py" ]]; then
   echo "ERROR: 현재 FastAPI 진입 파일을 찾지 못했습니다."
   echo "ExecStart=${EXEC_START}"
+  echo "WorkingDirectory=${APP_DIR}"
   exit 1
 fi
 ENTRY_FILE="${APP_DIR}/${ENTRY_MODULE}.py"
+echo "SERVICE=${SERVICE_NAME}"
 echo "ENTRY=${ENTRY_FILE}"
-echo "DB=${DB_PATH}"
 
-echo "[2/8] 현재 서버/DB 백업"
+echo "[2/9] systemd 환경파일 로드"
+ENV_FILES="$(systemctl show -p EnvironmentFiles --value "${SERVICE_NAME}" 2>/dev/null || true)"
+for candidate in   /etc/cmb-server.env   "${APP_DIR}/server.env"   "${APP_DIR}/.env"
+do
+  [[ -f "${candidate}" ]] || continue
+  set -a
+  # shellcheck disable=SC1090
+  source "${candidate}" || true
+  set +a
+  echo "ENV=${candidate}"
+done
+for token in ${ENV_FILES}; do
+  token="${token#-}"
+  [[ -f "${token}" ]] || continue
+  set -a
+  # shellcheck disable=SC1090
+  source "${token}" || true
+  set +a
+  echo "ENV=${token}"
+done
+
+PYTHON_BIN="${APP_DIR}/venv/bin/python"
+[[ -x "${PYTHON_BIN}" ]] || PYTHON_BIN="$(command -v python3)"
+
+echo "[3/9] 현재 PostgreSQL/PostGIS 연결 검증"
+"${PYTHON_BIN}" - <<'PY'
+import os, sys
+
+def connect():
+    dsn = next((os.getenv(k) for k in (
+        "DATABASE_URL","CMB_DATABASE_URL","DB_URL","POSTGRES_DSN","PG_DSN"
+    ) if os.getenv(k)), None)
+    errors=[]
+    try:
+        import psycopg
+        return psycopg.connect(dsn or "")
+    except Exception as e:
+        errors.append("psycopg: "+str(e))
+    try:
+        import psycopg2
+        return psycopg2.connect(dsn or "")
+    except Exception as e:
+        errors.append("psycopg2: "+str(e))
+    raise RuntimeError("PostgreSQL 연결 실패: "+" | ".join(errors))
+
+with connect() as conn:
+    cur=conn.cursor()
+    cur.execute("SELECT current_database(), current_user")
+    print("POSTGRES_OK", cur.fetchone())
+    cur.execute("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='postgis')")
+    print("POSTGIS", bool(cur.fetchone()[0]))
+PY
+
+echo "[4/9] 기존 서버 파일 백업"
+mkdir -p "${BACKUP_DIR}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-BACKUP="${BACKUP_DIR}/cmb-final-settings-${STAMP}.tgz"
-FILES_TO_BACKUP=("$(basename "${ENTRY_FILE}")")
-[[ -f "${APP_DIR}/${PATCH_MODULE}" ]] && FILES_TO_BACKUP+=("${PATCH_MODULE}")
-tar -C "${APP_DIR}" -czf "${BACKUP}" "${FILES_TO_BACKUP[@]}"
-if [[ -f "${DB_PATH}" ]]; then
-  cp -a "${DB_PATH}" "${BACKUP_DIR}/cmb-main-db-${STAMP}.sqlite3"
-fi
+BACKUP="${BACKUP_DIR}/cmb-final-runtime-${STAMP}.tgz"
+FILES=("$(basename "${ENTRY_FILE}")")
+for extra in cmb_final_runtime_patch.py cmb_final_settings.py cmb_map_display_patch.py; do
+  [[ -f "${APP_DIR}/${extra}" ]] && FILES+=("${extra}")
+done
+tar -C "${APP_DIR}" -czf "${BACKUP}" "${FILES[@]}"
+echo "BACKUP=${BACKUP}"
 
-restore_backup() {
-  echo "ROLLBACK: 서버 파일 복구"
+restore_files() {
+  echo "ROLLBACK: 서버 소스 복구"
   tar -C "${APP_DIR}" -xzf "${BACKUP}" || true
   systemctl restart "${SERVICE_NAME}" || true
 }
-trap 'echo "ERROR: 적용 실패"; restore_backup' ERR
+trap 'echo "ERROR: 패치 실패"; restore_files' ERR
 
-echo "[3/8] 최종 공통 설정 모듈 설치"
+echo "[5/9] 기존 이중 패치 코드 제거 + 단일 런타임 패치 설치"
+ENTRY_FILE="${ENTRY_FILE}" "${PYTHON_BIN}" - <<'PY'
+import os, re
+from pathlib import Path
+p=Path(os.environ["ENTRY_FILE"])
+text=p.read_text(encoding="utf-8")
+patterns=[
+    r"\n?# === CMB_MAP_DISPLAY_PATCH_V1_BEGIN ===.*?# === CMB_MAP_DISPLAY_PATCH_V1_END ===\n?",
+    r"\n?# === CMB_FINAL_SETTINGS_V1_BEGIN ===.*?# === CMB_FINAL_SETTINGS_V1_END ===\n?",
+    r"\n?# === CMB_FINAL_RUNTIME_PATCH_V2_BEGIN ===.*?# === CMB_FINAL_RUNTIME_PATCH_V2_END ===\n?",
+]
+for pattern in patterns:
+    text=re.sub(pattern,"\n",text,flags=re.S)
+p.write_text(text.rstrip()+"\n",encoding="utf-8")
+print("OLD_PATCH_BLOCKS_REMOVED")
+PY
+
+rm -f "${APP_DIR}/cmb_final_settings.py" "${APP_DIR}/cmb_map_display_patch.py"
+
 cat > "${APP_DIR}/${PATCH_MODULE}" <<'PY'
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-import sqlite3
+import re
 import ssl
+import time
 import urllib.error
 import urllib.request
-import time
 import uuid
-from pathlib import Path
 
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field
 
-DB_PATH = Path(os.environ.get("CMB_DB_PATH", "/var/lib/cmb-server/cmb.sqlite3"))
 DEFAULT_RADIUS_M = 500
 DEFAULT_REFRESH_M = 200
+GROUPS = ("FIBER","COAX","POLE","CONDUIT","USER")
 
 
-class MapDisplaySettings(BaseModel):
-    radius_m: int = Field(DEFAULT_RADIUS_M, ge=100, le=3000)
-    refresh_distance_m: int = Field(DEFAULT_REFRESH_M, ge=25, le=1500)
+def _connect():
+    dsn = next((os.getenv(k) for k in (
+        "DATABASE_URL","CMB_DATABASE_URL","DB_URL","POSTGRES_DSN","PG_DSN"
+    ) if os.getenv(k)), None)
+    errors=[]
+    try:
+        import psycopg
+        return psycopg.connect(dsn or "")
+    except Exception as exc:
+        errors.append("psycopg: "+str(exc))
+    try:
+        import psycopg2
+        return psycopg2.connect(dsn or "")
+    except Exception as exc:
+        errors.append("psycopg2: "+str(exc))
+    raise RuntimeError("현재 PostgreSQL 연결 실패: "+" | ".join(errors))
 
 
-class SymbolPackage(BaseModel):
-    region_code: str
-    source_file: str = ""
-    source_sha256: str = ""
-    package_sha256: str = ""
-    memo: str = ""
-    symbol_count: int = 0
-    symbols: list[dict] = Field(default_factory=list)
+def _qident(name: str) -> str:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name or ""):
+        raise RuntimeError("잘못된 DB 식별자")
+    return '"' + name + '"'
 
 
-def _db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS settings(
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
+def _tables():
+    with _connect() as conn:
+        cur=conn.cursor()
+        cur.execute("""
+            SELECT table_name,column_name,data_type
+            FROM information_schema.columns
+            WHERE table_schema='public'
+        """)
+        out={}
+        for table,col,typ in cur.fetchall():
+            out.setdefault(str(table),{})[str(col)]=str(typ)
+        return out
 
-        CREATE TABLE IF NOT EXISTS symbol_revisions(
-          id TEXT PRIMARY KEY,
-          region_code TEXT NOT NULL,
-          revision INTEGER NOT NULL,
-          source_file TEXT,
-          source_sha256 TEXT,
-          package_sha256 TEXT,
-          symbol_count INTEGER NOT NULL DEFAULT 0,
-          memo TEXT NOT NULL DEFAULT '',
-          active INTEGER NOT NULL DEFAULT 0,
-          created_at INTEGER NOT NULL,
-          UNIQUE(region_code, revision)
-        );
-        CREATE INDEX IF NOT EXISTS idx_symbol_revisions_active
-          ON symbol_revisions(region_code, active);
 
-        CREATE TABLE IF NOT EXISTS symbol_defs(
-          revision_id TEXT NOT NULL,
-          symbol_key TEXT NOT NULL,
-          payload_json TEXT NOT NULL,
-          PRIMARY KEY(revision_id, symbol_key)
-        );
-        CREATE INDEX IF NOT EXISTS idx_symbol_defs_revision
-          ON symbol_defs(revision_id);
-        """
-    )
-    return conn
+def _settings_table():
+    tables=_tables()
+    for name in ("settings","server_settings","app_settings","cmb_settings"):
+        cols=tables.get(name,{})
+        if "key" in cols and "value" in cols:
+            return name
+    with _connect() as conn:
+        cur=conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cmb_settings(
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL,
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+    return "cmb_settings"
+
+
+def _revision_spec():
+    tables=_tables()
+    ranked=[]
+    for table,cols in tables.items():
+        region = "region_code" if "region_code" in cols else None
+        group = "group_id" if "group_id" in cols else ("group" if "group" in cols else None)
+        rev = "revision" if "revision" in cols else None
+        active = "active" if "active" in cols else ("is_active" if "is_active" in cols else None)
+        if region and group and rev and active:
+            score=0 if table=="revisions" else 1 if "revision" in table else 2
+            ranked.append((score,table,region,group,rev,active,cols))
+    if not ranked:
+        raise RuntimeError("현재 운영 DB에서 revision 테이블을 찾지 못했습니다.")
+    _,table,region,group,rev,active,cols=sorted(ranked)[0]
+    return table,region,group,rev,active,cols
+
+
+def _active_clause(active_col, cols):
+    typ=cols.get(active_col,"").lower()
+    return f"{_qident(active_col)}=TRUE" if "bool" in typ else f"{_qident(active_col)}=1"
 
 
 def _read_settings():
-    values = {
-        "radius_m": DEFAULT_RADIUS_M,
-        "refresh_distance_m": DEFAULT_REFRESH_M,
-    }
-    with _db() as conn:
-        rows = conn.execute(
-            "SELECT key,value FROM settings "
-            "WHERE key IN ('map_radius_m','map_refresh_distance_m')"
-        ).fetchall()
-    for row in rows:
-        try:
-            if row["key"] == "map_radius_m":
-                values["radius_m"] = int(row["value"])
-            elif row["key"] == "map_refresh_distance_m":
-                values["refresh_distance_m"] = int(row["value"])
-        except Exception:
-            pass
-
-    radius = max(100, min(3000, int(values["radius_m"])))
-    refresh = max(25, min(radius, 1500, int(values["refresh_distance_m"])))
-    return {
-        "radius_m": radius,
-        "refresh_distance_m": refresh,
-    }
-
-
-def _write_settings(radius_m: int, refresh_distance_m: int):
-    radius = max(100, min(3000, int(radius_m)))
-    refresh = max(25, min(radius, 1500, int(refresh_distance_m)))
-    with _db() as conn:
-        conn.execute(
-            "INSERT INTO settings(key,value) VALUES('map_radius_m',?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (str(radius),),
+    table=_settings_table()
+    values={"radius_m":DEFAULT_RADIUS_M,"refresh_distance_m":DEFAULT_REFRESH_M}
+    with _connect() as conn:
+        cur=conn.cursor()
+        cur.execute(
+            f"SELECT key,value FROM {_qident(table)} "
+            "WHERE key IN (%s,%s)",
+            ("map_radius_m","map_refresh_distance_m"),
         )
-        conn.execute(
-            "INSERT INTO settings(key,value) VALUES('map_refresh_distance_m',?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (str(refresh),),
+        for key,value in cur.fetchall():
+            try:
+                if key=="map_radius_m": values["radius_m"]=int(value)
+                if key=="map_refresh_distance_m": values["refresh_distance_m"]=int(value)
+            except Exception:
+                pass
+    radius=max(100,min(3000,values["radius_m"]))
+    refresh=max(25,min(radius,1500,values["refresh_distance_m"]))
+    return {"radius_m":radius,"refresh_distance_m":refresh}
+
+
+def _write_setting(key,value):
+    table=_settings_table()
+    with _connect() as conn:
+        cur=conn.cursor()
+        cols=_tables().get(table,{})
+        if "updated_at" in cols:
+            cur.execute(
+                f"INSERT INTO {_qident(table)}(key,value,updated_at) VALUES(%s,%s,NOW()) "
+                "ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW()",
+                (key,str(value)),
+            )
+        else:
+            cur.execute(
+                f"INSERT INTO {_qident(table)}(key,value) VALUES(%s,%s) "
+                "ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
+                (key,str(value)),
+            )
+        conn.commit()
+
+
+def _write_settings(radius,refresh):
+    radius=max(100,min(3000,int(radius)))
+    refresh=max(25,min(radius,1500,int(refresh)))
+    _write_setting("map_radius_m",radius)
+    _write_setting("map_refresh_distance_m",refresh)
+    return {"radius_m":radius,"refresh_distance_m":refresh}
+
+
+def _ensure_symbol_tables():
+    with _connect() as conn:
+        cur=conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS symbol_revisions(
+              id TEXT PRIMARY KEY,
+              region_code TEXT NOT NULL,
+              revision INTEGER NOT NULL,
+              source_file TEXT,
+              source_sha256 TEXT,
+              package_sha256 TEXT,
+              symbol_count INTEGER NOT NULL DEFAULT 0,
+              memo TEXT NOT NULL DEFAULT '',
+              active BOOLEAN NOT NULL DEFAULT FALSE,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              UNIQUE(region_code,revision)
+            )
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_symbol_revisions_active
+            ON symbol_revisions(region_code,active)
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS symbol_defs(
+              revision_id TEXT NOT NULL REFERENCES symbol_revisions(id) ON DELETE CASCADE,
+              symbol_key TEXT NOT NULL,
+              payload_json JSONB NOT NULL,
+              PRIMARY KEY(revision_id,symbol_key)
+            )
+        """)
+        conn.commit()
+
+
+def _versions(region):
+    table,region_col,group_col,rev_col,active_col,cols=_revision_spec()
+    signature_col=next((c for c in ("package_sha256","source_sha256","revision_id","id") if c in cols),None)
+    count_col=next((c for c in ("object_count","count") if c in cols),None)
+    select=[
+        _qident(group_col),
+        _qident(rev_col),
+    ]
+    select.append(_qident(signature_col) if signature_col else "NULL")
+    select.append(_qident(count_col) if count_col else "NULL")
+    sql=(
+        "SELECT "+",".join(select)+
+        f" FROM {_qident(table)} WHERE {_qident(region_col)}=%s AND "+
+        _active_clause(active_col,cols)
+    )
+    out={}
+    with _connect() as conn:
+        cur=conn.cursor()
+        cur.execute(sql,(region,))
+        for group,revision,signature,count in cur.fetchall():
+            g=str(group or "").upper()
+            if g in GROUPS:
+                out[g]=f"{revision}:{signature or ''}:{count if count is not None else ''}"
+        _ensure_symbol_tables()
+        cur=conn.cursor()
+        cur.execute(
+            "SELECT revision,COALESCE(package_sha256,''),symbol_count "
+            "FROM symbol_revisions WHERE region_code=%s AND active=TRUE "
+            "ORDER BY revision DESC LIMIT 1",
+            (region,),
         )
-    return {
-        "radius_m": radius,
-        "refresh_distance_m": refresh,
-    }
+        row=cur.fetchone()
+        if row:
+            out["SYMBOL"]=f"{row[0]}:{row[1]}:{row[2]}"
+    return out
 
 
-def _has_route(app, path: str, method: str):
-    method = method.upper()
-    for route in getattr(app, "routes", []):
-        if getattr(route, "path", None) != path:
-            continue
-        methods = set(getattr(route, "methods", set()) or set())
-        if method in methods:
+class MapDisplaySettings(BaseModel):
+    radius_m:int=Field(DEFAULT_RADIUS_M,ge=100,le=3000)
+    refresh_distance_m:int=Field(DEFAULT_REFRESH_M,ge=25,le=1500)
+
+
+class SymbolPackage(BaseModel):
+    region_code:str
+    source_file:str=""
+    source_sha256:str=""
+    package_sha256:str=""
+    memo:str=""
+    symbol_count:int=0
+    symbols:list[dict]=Field(default_factory=list)
+
+
+def _has_route(app,path,method):
+    method=method.upper()
+    for route in getattr(app,"routes",[]):
+        if getattr(route,"path",None)==path and method in set(getattr(route,"methods",set()) or set()):
             return True
     return False
 
 
-def _find_probe(app, candidates, method="GET"):
-    for path in candidates:
-        if _has_route(app, path, method):
-            return path
-    return None
-
-
-def _forward_headers(request: Request):
-    headers = {"Accept": "application/json"}
-    auth = request.headers.get("authorization")
-    if auth:
-        headers["Authorization"] = auth
-    cookie = request.headers.get("cookie")
-    if cookie:
-        headers["Cookie"] = cookie
-    return headers
-
-
-def _probe_sync(url: str, headers: dict):
-    ctx = ssl._create_unverified_context()
-    req = urllib.request.Request(url, headers=headers, method="GET")
+def _probe_sync(url,headers):
+    ctx=ssl._create_unverified_context()
+    req=urllib.request.Request(url,headers=headers,method="GET")
     try:
-        with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
-            return int(resp.status), resp.read(4096)
+        with urllib.request.urlopen(req,context=ctx,timeout=8) as resp:
+            return int(resp.status),resp.read(4096)
     except urllib.error.HTTPError as exc:
-        return int(exc.code), exc.read(4096)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"기존 서버 인증 확인 실패: {exc}",
-        ) from exc
+        return int(exc.code),exc.read(4096)
 
 
-async def _require_existing_auth(request: Request, probe_path: str):
-    base = str(request.base_url).rstrip("/")
-    status, body = await asyncio.to_thread(
-        _probe_sync,
-        base + probe_path,
-        _forward_headers(request),
-    )
-    if status == 401:
-        raise HTTPException(401, "로그인이 만료됐습니다. 다시 로그인해주세요.")
-    if status == 403:
-        raise HTTPException(403, "권한이 없습니다.")
-    if status < 200 or status >= 300:
-        detail = ""
-        try:
-            data = json.loads(body.decode("utf-8", "replace"))
-            detail = str(data.get("detail") or data.get("error") or "")
-        except Exception:
-            pass
-        raise HTTPException(status, detail or f"기존 인증 확인 실패 ({status})")
+async def _require_probe(request,path):
+    headers={"Accept":"application/json"}
+    if request.headers.get("authorization"):
+        headers["Authorization"]=request.headers["authorization"]
+    if request.headers.get("cookie"):
+        headers["Cookie"]=request.headers["cookie"]
+    base=str(request.base_url).rstrip("/")
+    status,body=await asyncio.to_thread(_probe_sync,base+path,headers)
+    if status==401: raise HTTPException(401,"로그인이 만료됐습니다.")
+    if status==403: raise HTTPException(403,"권한이 없습니다.")
+    if not 200<=status<300:
+        raise HTTPException(status,"기존 서버 권한 확인 실패")
 
 
-def install_final_settings(app):
-    user_probe = _find_probe(app, ("/session/policy", "/regions"), "GET")
-    admin_probe = _find_probe(
-        app,
-        (
-            "/admin/settings/session-timeout",
-            "/admin/settings/backup-retention",
-        ),
-        "GET",
-    )
-    if not user_probe:
-        raise RuntimeError("기존 사용자 인증 확인 API를 찾지 못했습니다.")
-    if not admin_probe:
-        raise RuntimeError("기존 관리자 인증 확인 API를 찾지 못했습니다.")
+def install(app):
+    _read_settings()
+    _ensure_symbol_tables()
 
-    # Same main DB. No sidecar DB.
-    _write_settings(**_read_settings())
-
-    if not _has_route(app, "/settings/map-display", "GET"):
+    if not _has_route(app,"/settings/map-display","GET"):
         @app.get("/settings/map-display")
-        async def cmb_map_display_settings(request: Request):
-            await _require_existing_auth(request, user_probe)
+        async def map_settings(request:Request):
+            await _require_probe(request,"/regions")
             return _read_settings()
 
-    if not _has_route(app, "/admin/settings/map-display", "GET"):
+    if not _has_route(app,"/admin/settings/map-display","GET"):
         @app.get("/admin/settings/map-display")
-        async def cmb_admin_map_display_settings(request: Request):
-            await _require_existing_auth(request, admin_probe)
+        async def admin_map_settings(request:Request):
+            await _require_probe(request,"/admin/settings/session-timeout")
             return _read_settings()
 
-    if not _has_route(app, "/admin/settings/map-display", "POST"):
+    if not _has_route(app,"/admin/settings/map-display","POST"):
         @app.post("/admin/settings/map-display")
-        async def cmb_set_admin_map_display_settings(
-            settings: MapDisplaySettings,
-            request: Request,
-        ):
-            await _require_existing_auth(request, admin_probe)
-            return _write_settings(
-                settings.radius_m,
-                settings.refresh_distance_m,
-            )
+        async def set_map_settings(settings:MapDisplaySettings,request:Request):
+            await _require_probe(request,"/admin/settings/session-timeout")
+            return _write_settings(settings.radius_m,settings.refresh_distance_m)
 
-    if not _has_route(app, "/admin/drawings/{region}/symbols", "GET"):
-        @app.get("/admin/drawings/{region}/symbols")
-        async def cmb_get_symbols(region: str, request: Request):
-            await _require_existing_auth(request, admin_probe)
-            region = str(region or "").strip().upper()
-            with _db() as conn:
-                rev = conn.execute(
-                    "SELECT * FROM symbol_revisions "
-                    "WHERE region_code=? AND active=1 "
-                    "ORDER BY revision DESC LIMIT 1",
-                    (region,),
-                ).fetchone()
+    if not _has_route(app,"/online/{region}/versions","GET"):
+        @app.get("/online/{region}/versions")
+        async def online_versions(region:str,request:Request):
+            region=str(region or "").strip().upper()
+            await _require_probe(request,f"/online/{region}/layers")
+            return _versions(region)
+
+    if not _has_route(app,"/online/{region}/symbols","GET"):
+        @app.get("/online/{region}/symbols")
+        async def online_symbols(region:str,request:Request):
+            region=str(region or "").strip().upper()
+            await _require_probe(request,f"/online/{region}/layers")
+            with _connect() as conn:
+                cur=conn.cursor()
+                cur.execute(
+                    "SELECT id,revision,COALESCE(package_sha256,''),symbol_count "
+                    "FROM symbol_revisions WHERE region_code=%s AND active=TRUE "
+                    "ORDER BY revision DESC LIMIT 1",(region,)
+                )
+                rev=cur.fetchone()
                 if not rev:
-                    return {
-                        "group_id": "SYMBOL",
-                        "region_code": region,
-                        "revision": None,
-                        "symbol_count": 0,
-                        "symbols": [],
-                    }
-                rows = conn.execute(
-                    "SELECT payload_json FROM symbol_defs "
-                    "WHERE revision_id=? ORDER BY symbol_key",
-                    (rev["id"],),
-                ).fetchall()
+                    return {"region_code":region,"revision":None,"symbols":[]}
+                cur.execute(
+                    "SELECT payload_json FROM symbol_defs WHERE revision_id=%s ORDER BY symbol_key",
+                    (rev[0],),
+                )
+                symbols=[]
+                for (payload,) in cur.fetchall():
+                    if isinstance(payload,str): payload=json.loads(payload)
+                    symbols.append(payload)
             return {
-                "group_id": "SYMBOL",
-                "region_code": region,
-                "revision": int(rev["revision"]),
-                "revision_id": rev["id"],
-                "symbol_count": int(rev["symbol_count"]),
-                "memo": rev["memo"],
-                "symbols": [
-                    json.loads(row["payload_json"])
-                    for row in rows
-                ],
+                "region_code":region,
+                "revision":int(rev[1]),
+                "version":f"{rev[1]}:{rev[2]}:{rev[3]}",
+                "symbols":symbols,
             }
 
-    if not _has_route(app, "/admin/drawings/{region}/symbols", "POST"):
+    if not _has_route(app,"/admin/drawings/{region}/symbols","POST"):
         @app.post("/admin/drawings/{region}/symbols")
-        async def cmb_upload_symbols(
-            region: str,
-            package: SymbolPackage,
-            request: Request,
-        ):
-            await _require_existing_auth(request, admin_probe)
-            region = str(region or "").strip().upper()
-            payload_region = str(package.region_code or "").strip().upper()
-            if region != payload_region:
-                raise HTTPException(400, "지역코드가 일치하지 않습니다.")
-            if package.symbol_count != len(package.symbols):
-                raise HTTPException(400, "symbol_count와 symbols 길이가 다릅니다.")
-
-            prepared = {}
+        async def upload_symbols(region:str,package:SymbolPackage,request:Request):
+            region=str(region or "").strip().upper()
+            await _require_probe(request,"/admin/settings/session-timeout")
+            if region!=str(package.region_code or "").strip().upper():
+                raise HTTPException(400,"지역코드가 일치하지 않습니다.")
+            if package.symbol_count!=len(package.symbols):
+                raise HTTPException(400,"symbol_count와 symbols 길이가 다릅니다.")
+            prepared={}
             for item in package.symbols:
-                key = str(item.get("key") or "").strip()
-                if not key:
-                    raise HTTPException(400, "key가 없는 심볼 정의가 있습니다.")
-                prepared[key] = item
-
-            with _db() as conn:
-                last = conn.execute(
-                    "SELECT COALESCE(MAX(revision),0) "
-                    "FROM symbol_revisions WHERE region_code=?",
+                key=str(item.get("key") or "").strip()
+                if not key: raise HTTPException(400,"key가 없는 심볼 정의가 있습니다.")
+                prepared[key]=item
+            _ensure_symbol_tables()
+            rid=str(uuid.uuid4())
+            with _connect() as conn:
+                cur=conn.cursor()
+                cur.execute(
+                    "SELECT COALESCE(MAX(revision),0)+1 FROM symbol_revisions WHERE region_code=%s",
                     (region,),
-                ).fetchone()[0]
-                revision = int(last) + 1
-                revision_id = str(uuid.uuid4())
-                conn.execute(
+                )
+                revision=int(cur.fetchone()[0])
+                cur.execute(
                     "INSERT INTO symbol_revisions("
-                    "id,region_code,revision,source_file,source_sha256,"
-                    "package_sha256,symbol_count,memo,active,created_at"
-                    ") VALUES(?,?,?,?,?,?,?,?,0,?)",
-                    (
-                        revision_id,
-                        region,
-                        revision,
-                        package.source_file,
-                        package.source_sha256,
-                        package.package_sha256,
-                        len(prepared),
-                        package.memo,
-                        int(time.time()),
-                    ),
+                    "id,region_code,revision,source_file,source_sha256,package_sha256,"
+                    "symbol_count,memo,active) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,FALSE)",
+                    (rid,region,revision,package.source_file,package.source_sha256,
+                     package.package_sha256,len(prepared),package.memo),
                 )
-                for key, item in prepared.items():
-                    conn.execute(
-                        "INSERT INTO symbol_defs("
-                        "revision_id,symbol_key,payload_json"
-                        ") VALUES(?,?,?)",
-                        (
-                            revision_id,
-                            key,
-                            json.dumps(item, ensure_ascii=False),
-                        ),
+                for key,item in prepared.items():
+                    cur.execute(
+                        "INSERT INTO symbol_defs(revision_id,symbol_key,payload_json) "
+                        "VALUES(%s,%s,%s::jsonb)",
+                        (rid,key,json.dumps(item,ensure_ascii=False)),
                     )
-                conn.execute(
-                    "UPDATE symbol_revisions SET active=0 "
-                    "WHERE region_code=?",
-                    (region,),
-                )
-                conn.execute(
-                    "UPDATE symbol_revisions SET active=1 WHERE id=?",
-                    (revision_id,),
-                )
-            return {
-                "ok": True,
-                "group_id": "SYMBOL",
-                "region_code": region,
-                "revision": revision,
-                "revision_id": revision_id,
-                "symbol_count": len(prepared),
-                "active": True,
-            }
+                cur.execute("UPDATE symbol_revisions SET active=FALSE WHERE region_code=%s",(region,))
+                cur.execute("UPDATE symbol_revisions SET active=TRUE WHERE id=%s",(rid,))
+                conn.commit()
+            return {"ok":True,"group_id":"SYMBOL","region_code":region,
+                    "revision":revision,"revision_id":rid,"symbol_count":len(prepared),"active":True}
 
-    if not _has_route(app, "/admin/drawings/{region}/symbol-revisions", "GET"):
+    if not _has_route(app,"/admin/drawings/{region}/symbol-revisions","GET"):
         @app.get("/admin/drawings/{region}/symbol-revisions")
-        async def cmb_symbol_revisions(region: str, request: Request):
-            await _require_existing_auth(request, admin_probe)
-            region = str(region or "").strip().upper()
-            with _db() as conn:
-                rows = conn.execute(
-                    "SELECT id,revision,source_file,source_sha256,"
-                    "package_sha256,symbol_count,memo,active,created_at "
-                    "FROM symbol_revisions WHERE region_code=? "
-                    "ORDER BY revision DESC",
-                    (region,),
-                ).fetchall()
+        async def symbol_revisions(region:str,request:Request):
+            region=str(region or "").strip().upper()
+            await _require_probe(request,"/admin/settings/session-timeout")
+            with _connect() as conn:
+                cur=conn.cursor()
+                cur.execute(
+                    "SELECT id,revision,source_file,source_sha256,package_sha256,"
+                    "symbol_count,memo,active,created_at FROM symbol_revisions "
+                    "WHERE region_code=%s ORDER BY revision DESC",(region,)
+                )
+                rows=cur.fetchall()
             return [
-                {
-                    "id": row["id"],
-                    "group_id": "SYMBOL",
-                    "revision": int(row["revision"]),
-                    "source_file": row["source_file"],
-                    "source_sha256": row["source_sha256"],
-                    "package_sha256": row["package_sha256"],
-                    "object_count": int(row["symbol_count"]),
-                    "symbol_count": int(row["symbol_count"]),
-                    "memo": row["memo"],
-                    "active": bool(row["active"]),
-                    "created_at": int(row["created_at"]),
-                }
-                for row in rows
+                {"id":r[0],"group_id":"SYMBOL","revision":int(r[1]),"source_file":r[2],
+                 "source_sha256":r[3],"package_sha256":r[4],"object_count":int(r[5]),
+                 "symbol_count":int(r[5]),"memo":r[6],"active":bool(r[7]),
+                 "created_at":r[8].isoformat() if hasattr(r[8],"isoformat") else str(r[8])}
+                for r in rows
             ]
 
-    if not _has_route(
-        app,
-        "/admin/drawings/{region}/symbol-revisions/{revision_id}/restore",
-        "POST",
-    ):
-        @app.post(
-            "/admin/drawings/{region}/symbol-revisions/{revision_id}/restore"
-        )
-        async def cmb_restore_symbol_revision(
-            region: str,
-            revision_id: str,
-            request: Request,
-        ):
-            await _require_existing_auth(request, admin_probe)
-            region = str(region or "").strip().upper()
-            with _db() as conn:
-                row = conn.execute(
-                    "SELECT id,revision FROM symbol_revisions "
-                    "WHERE id=? AND region_code=?",
-                    (revision_id, region),
-                ).fetchone()
-                if not row:
-                    raise HTTPException(404, "심볼 백업을 찾을 수 없습니다.")
-                conn.execute(
-                    "UPDATE symbol_revisions SET active=0 "
-                    "WHERE region_code=?",
-                    (region,),
+    if not _has_route(app,"/admin/drawings/{region}/symbol-revisions/{revision_id}/restore","POST"):
+        @app.post("/admin/drawings/{region}/symbol-revisions/{revision_id}/restore")
+        async def restore_symbol(region:str,revision_id:str,request:Request):
+            region=str(region or "").strip().upper()
+            await _require_probe(request,"/admin/settings/session-timeout")
+            with _connect() as conn:
+                cur=conn.cursor()
+                cur.execute(
+                    "SELECT revision FROM symbol_revisions WHERE id=%s AND region_code=%s",
+                    (revision_id,region),
                 )
-                conn.execute(
-                    "UPDATE symbol_revisions SET active=1 WHERE id=?",
-                    (revision_id,),
-                )
-            return {
-                "ok": True,
-                "group_id": "SYMBOL",
-                "region_code": region,
-                "revision": int(row["revision"]),
-                "revision_id": revision_id,
-                "active": True,
-            }
+                row=cur.fetchone()
+                if not row: raise HTTPException(404,"심볼 백업을 찾을 수 없습니다.")
+                cur.execute("UPDATE symbol_revisions SET active=FALSE WHERE region_code=%s",(region,))
+                cur.execute("UPDATE symbol_revisions SET active=TRUE WHERE id=%s",(revision_id,))
+                conn.commit()
+            return {"ok":True,"group_id":"SYMBOL","region_code":region,
+                    "revision":int(row[0]),"revision_id":revision_id,"active":True}
 
     return {
-        "db_path": str(DB_PATH),
-        "user_probe": user_probe,
-        "admin_probe": admin_probe,
-        "settings": _read_settings(),
+        "database":"PostgreSQL/PostGIS",
+        "settings_table":_settings_table(),
+        "revision_table":_revision_spec()[0],
+        "map_settings":_read_settings(),
     }
 PY
 
-echo "[4/8] 현재 ASGI 앱에 설정 라우트 병합"
-if ! grep -Fq "${MARK_BEGIN}" "${ENTRY_FILE}"; then
 cat >> "${ENTRY_FILE}" <<'PY'
 
-# === CMB_FINAL_SETTINGS_V1_BEGIN ===
-# Final shared Windows/Android settings on the same CMB main DB.
-from cmb_final_settings import install_final_settings as _cmb_install_final_settings
-_CMB_FINAL_SETTINGS_INFO = _cmb_install_final_settings(app)
-# === CMB_FINAL_SETTINGS_V1_END ===
+# === CMB_FINAL_RUNTIME_PATCH_V2_BEGIN ===
+from cmb_final_runtime_patch import install as _cmb_install_final_runtime_patch
+_CMB_FINAL_RUNTIME_INFO = _cmb_install_final_runtime_patch(app)
+# === CMB_FINAL_RUNTIME_PATCH_V2_END ===
 PY
-else
-  echo "기존 CMB_FINAL_SETTINGS_V1 병합 코드 유지"
-fi
 
-PYTHON_BIN="${APP_DIR}/venv/bin/python"
-[[ -x "${PYTHON_BIN}" ]] || PYTHON_BIN="$(command -v python3)"
+echo "[6/9] 오래된 SQLite 보조 DB 제거 준비"
+for old in   /var/lib/cmb-server/map_display.sqlite3   /var/lib/cmb-server/cmb.sqlite3
+do
+  if [[ -f "${old}" ]]; then
+    mv "${old}" "${BACKUP_DIR}/obsolete-$(basename "${old}")-${STAMP}"
+    echo "REMOVED_OBSOLETE_DB=${old}"
+  fi
+done
 
-echo "[5/8] 문법 검사"
-"${PYTHON_BIN}" -m py_compile   "${ENTRY_FILE}"   "${APP_DIR}/${PATCH_MODULE}"
-echo "PY_COMPILE_OK"
-
-echo "[6/8] 실제 ASGI 라우트 + 메인 DB 확인"
+echo "[7/9] 문법 + 실제 ASGI + PostgreSQL 라우트 검사"
+"${PYTHON_BIN}" -m py_compile "${ENTRY_FILE}" "${APP_DIR}/${PATCH_MODULE}"
 (
   cd "${APP_DIR}"
-  CMB_DB_PATH="${DB_PATH}" PYTHONPATH="${APP_DIR}" "${PYTHON_BIN}" - <<PY
+  PYTHONPATH="${APP_DIR}" "${PYTHON_BIN}" - <<PY
 import importlib
-import sqlite3
-
-m = importlib.import_module("${ENTRY_MODULE}")
-app = getattr(m, "app")
-
-required = {
-    ("/settings/map-display", "GET"),
-    ("/admin/settings/map-display", "GET"),
-    ("/admin/settings/map-display", "POST"),
-    ("/admin/drawings/{region}/symbols", "GET"),
-    ("/admin/drawings/{region}/symbols", "POST"),
-    ("/admin/drawings/{region}/symbol-revisions", "GET"),
-    ("/admin/drawings/{region}/symbol-revisions/{revision_id}/restore", "POST"),
+m=importlib.import_module("${ENTRY_MODULE}")
+app=m.app
+required={
+ ("/settings/map-display","GET"),
+ ("/admin/settings/map-display","GET"),
+ ("/admin/settings/map-display","POST"),
+ ("/online/{region}/versions","GET"),
+ ("/online/{region}/symbols","GET"),
+ ("/admin/drawings/{region}/symbols","POST"),
+ ("/admin/drawings/{region}/symbol-revisions","GET"),
+ ("/admin/drawings/{region}/symbol-revisions/{revision_id}/restore","POST"),
 }
-actual = set()
+actual=set()
 for route in app.routes:
-    path = getattr(route, "path", "")
-    for method in (getattr(route, "methods", None) or []):
-        actual.add((path, method))
-
-missing = sorted(required - actual)
-print("MAP_DISPLAY_ROUTES", sorted(x for x in actual if "map-display" in x[0]))
-if missing:
-    raise SystemExit("MISSING_ROUTES=" + repr(missing))
-
-info = getattr(m, "_CMB_FINAL_SETTINGS_INFO", {})
-print("FINAL_SETTINGS_INFO", info)
-if str(info.get("db_path")) != "${DB_PATH}":
-    raise SystemExit("WRONG_DB_PATH=" + repr(info))
-
-with sqlite3.connect("${DB_PATH}") as conn:
-    names = {
-        row[0]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )
-    }
-    if "settings" not in names:
-        raise SystemExit("SETTINGS_TABLE_MISSING")
-
-print("ONE_MAIN_DB_OK")
-print("ASGI_FINAL_SETTINGS_OK")
+    for method in (getattr(route,"methods",None) or []):
+        actual.add((getattr(route,"path",""),method))
+missing=sorted(required-actual)
+print("FINAL_RUNTIME_INFO",getattr(m,"_CMB_FINAL_RUNTIME_INFO",{}))
+print("CACHE_ROUTES",sorted(x for x in actual if "/versions" in x[0] or "/symbols" in x[0]))
+if missing: raise SystemExit("MISSING_ROUTES="+repr(missing))
+print("ASGI_POSTGRES_FINAL_OK")
 PY
 )
 
-echo "[7/8] 서버 재시작"
+echo "[8/9] 서비스 재시작"
 systemctl restart "${SERVICE_NAME}"
 for i in {1..15}; do
   if systemctl is-active --quiet "${SERVICE_NAME}"; then
@@ -578,42 +616,34 @@ for i in {1..15}; do
   sleep 1
 done
 if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
-  journalctl -u "${SERVICE_NAME}" -n 100 --no-pager || true
+  journalctl -u "${SERVICE_NAME}" -n 120 --no-pager || true
   false
 fi
 
-echo "[8/8] 최종 상태"
-CMB_DB_PATH="${DB_PATH}" "${PYTHON_BIN}" - <<'PY'
-import os
-import sqlite3
-
-db = os.environ["CMB_DB_PATH"]
-with sqlite3.connect(db) as conn:
-    rows = dict(
-        conn.execute(
-            "SELECT key,value FROM settings "
-            "WHERE key IN ('map_radius_m','map_refresh_distance_m')"
-        ).fetchall()
-    )
-print("MAIN_DB", db)
-print("map_radius_m", rows.get("map_radius_m", "500"))
-print("map_refresh_distance_m", rows.get("map_refresh_distance_m", "200"))
+echo "[9/9] 최종 서버 구성 확인"
+(
+  cd "${APP_DIR}"
+  PYTHONPATH="${APP_DIR}" "${PYTHON_BIN}" - <<PY
+import importlib
+m=importlib.import_module("${ENTRY_MODULE}")
+print(getattr(m,"_CMB_FINAL_RUNTIME_INFO",{}))
 PY
+)
 
 trap - ERR
 
 echo
 echo "============================================================"
-echo "CMB 최종 서버 설정 적용 완료"
-echo "- 서버 앱: 1개"
-echo "- 메인 DB: ${DB_PATH}"
-echo "- 별도 지도 설정 DB: 없음"
-echo "- 표시 반경 기본값: 500m"
-echo "- 재조회 거리 기본값: 200m"
-echo "- Windows / Android 공통 설정"
-echo "- 지역별 6개 관리: FIBER / COAX / POLE / CONDUIT / USER / SYMBOL"
-echo "- SYMBOL은 일반 도면 객체와 분리된 전용 Revision"
-echo "- 기존 로그인/권한/도면/백업 API 유지"
+echo "CMB FINAL SERVER V2 적용 완료"
+echo "- 현재 실행 서버 1개 유지"
+echo "- PostgreSQL/PostGIS 운영 DB 1개 사용"
+echo "- SQLite 보조/중복 DB 제거"
+echo "- FIBER/COAX/POLE/CONDUIT/USER Revision 기존 DB 사용"
+echo "- SYMBOL Revision 동일 PostgreSQL DB 사용"
+echo "- /online/{region}/versions 추가"
+echo "- /online/{region}/symbols 추가"
+echo "- Windows/Android Revision 캐시 지원"
+echo "- 지도 반경/재조회 거리 운영 DB 저장"
 echo "- 백업: ${BACKUP}"
 echo "============================================================"
-echo "CMB_FINAL_SERVER_SETTINGS_V1"
+echo "CMB_FINAL_SERVER_V2"
