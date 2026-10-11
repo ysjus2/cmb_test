@@ -583,25 +583,25 @@ async function loadObjects(){{
   if(r.error){{setStatus(r.error);return}}
   clearOverlays();
   const allFeatures=r.features||[];
-  const rawLod=detailLevel();
-  const lod=Math.max(MIN_NETWORK_LEVEL,rawLod);
+  const mapLevel=map.getLevel();
+  const isMaxDetail=mapLevel<=1;
   const features=allFeatures.filter(f=>{{
     const p=f.properties||{{}};
     const layerName=String(p.layer||'').trim().toUpperCase();
     if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG') return false;
-    const group=String(p.group_id||'').toUpperCase();
-    if(group && groupEnabled[group]===false)return false;
 
+    const group=String(p.group_id||'').toUpperCase();
     const geomType=String((f.geometry||{{}}).type||'');
 
-    // 온라인 Viewer는 자동 확대 조건을 사용하지 않는다.
-    // 체크된 그룹만 현재 화면 범위에서 표시한다.
-    if(group==='FIBER') return true;
-    if(group==='COAX') return true;
-    if(group==='POLE') return true;
-    if(group==='CONDUIT') return true;
+    // level 2 이상: 광이 활성화된 경우 광케이블만 표시.
+    if(!isMaxDetail){{
+      return groupEnabled.FIBER===true
+        && group==='FIBER'
+        && ['LineString','MultiLineString'].includes(geomType);
+    }}
 
-    return groupEnabled[group]===true && layerLevel(p.layer||'')<=lod;
+    // level 1: 체크된 그룹 전체 표시.
+    return groupEnabled[group]===true;
   }});
   const pointFeatures=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
@@ -638,7 +638,7 @@ async function loadObjects(){{
     rawGroups[g]=(rawGroups[g]||0)+1;
   }});
   const rawText=Object.keys(rawGroups).sort().map(k=>k+':'+rawGroups[k]).join('/');
-  setStatus('서버 '+allFeatures.length+'개 ['+rawText+'] · 표시 '+features.length+' · 심볼 '+devices.length+' · 선로 '+snapped);
+  setStatus('L'+map.getLevel()+' · 서버 '+allFeatures.length+'개 ['+rawText+'] · 표시 '+features.length+' · 심볼 '+devices.length+' · 선로 '+snapped);
 }}
 
 async function loadRegions(){{
@@ -705,14 +705,11 @@ function bindUi(){{
     }}
     const b=r.bounds||null;
     if(b&&b.west!=null&&b.south!=null&&b.east!=null&&b.north!=null){{
-      const bounds=new kakao.maps.LatLngBounds();
-      bounds.extend(new kakao.maps.LatLng(b.south,b.west));
-      bounds.extend(new kakao.maps.LatLng(b.north,b.east));
-      map.setBounds(bounds);
-      setTimeout(()=>{{
-        lodReferenceSpan=viewportSpan();
-        loadObjects();
-      }},80);
+      const centerLat=(Number(b.south)+Number(b.north))/2;
+      const centerLng=(Number(b.west)+Number(b.east))/2;
+      map.setCenter(new kakao.maps.LatLng(centerLat,centerLng));
+      map.setLevel(3);
+      setTimeout(()=>loadObjects(),80);
       return;
     }}
     lodReferenceSpan=viewportSpan();
@@ -730,7 +727,7 @@ function initMap(){{
     kakao.maps.load(()=>{{
       map=new kakao.maps.Map(document.getElementById('map'),{{
         center:new kakao.maps.LatLng(35.1595,126.8526),
-        level:8
+        level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
       const sel=document.getElementById('region');
