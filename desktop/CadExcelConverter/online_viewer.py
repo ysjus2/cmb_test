@@ -723,11 +723,13 @@ async function loadSessionPolicy(){{
   }}catch(e){{idleMinutes=10;}}
 }}
 
-function registerOverlay(overlay,group){{
+function registerOverlay(overlay,group,kind=''){{
   if(!overlay)return overlay;
   const g=String(group||'').toUpperCase();
+  const k=String(kind||'').toLowerCase();
   overlays.push(overlay);
   overlayGroups.set(overlay,g);
+  if(k)overlayKinds.set(overlay,k);
   return overlay;
 }}
 
@@ -796,6 +798,14 @@ function colorFor(group){{
 }}
 
 function originalCableColor(p,group){{
+  group=String(group||'').toUpperCase();
+
+  // 온라인 지도에서는 CAD 원본의 흰색/검정색이 지도 배경에 묻힐 수 있다.
+  // 핵심 네트워크 선로는 그룹별 고정색으로 표시한다.
+  if(['FIBER','COAX','CONDUIT','POLE'].includes(group)){{
+    return colorFor(group);
+  }}
+
   const a=(p&&p.attributes)||{{}};
   const f=a.fields||a;
   const style=f._cmb_style||{{}};
