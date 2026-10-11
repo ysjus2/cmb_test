@@ -620,20 +620,30 @@ async function loadRegions(){{
 }}
 
 async function bootstrapAuth(){{
+  let authResult=null;
   try{{
-    const r=await pywebview.api.bootstrap();
-    if(r&&r.authenticated){{
-      authenticated=true;
-      await loadSessionPolicy();
-      startIdleWatch();
-      await loadRegions();
-      return true;
+    setStatus('로그인 세션 확인');
+    authResult=await pywebview.api.bootstrap();
+    if(!(authResult&&authResult.authenticated)){{
+      throw new Error((authResult&&authResult.error)||'로그인 세션이 없습니다.');
     }}
-  }}catch(e){{}}
-  authenticated=false;
-  setStatus((r&&r.error) ? ('로그인 세션 오류 · '+r.error) : '로그인 세션 오류 · 최초 로그인 화면으로 이동');
-  try{{await pywebview.api.end_session();}}catch(e){{}}
-  return false;
+
+    authenticated=true;
+
+    // 가장 중요한 지역 권한을 먼저 조회한다.
+    setStatus('권한 지역 조회 중');
+    await loadRegions();
+
+    // 지역 목록 표시를 막지 않도록 유휴정책은 뒤에서 처리한다.
+    startIdleWatch();
+    loadSessionPolicy().catch(()=>{{}});
+    return true;
+  }}catch(e){{
+    authenticated=false;
+    const msg=(e&&e.message)?e.message:((authResult&&authResult.error)||'알 수 없는 오류');
+    setStatus('로그인/지역 조회 오류 · '+msg);
+    return false;
+  }}
 }}
 
 function bindUi(){{
@@ -687,7 +697,6 @@ function initMap(){{
         level:8
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
-      setStatus('세션 확인 중');
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
