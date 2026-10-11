@@ -168,3 +168,13 @@ assert "self.c.online_versions(self.region)" in select_block
 assert "self.c.online_layers(self.region)" not in select_block
 assert '"cache_ready": cache_ready' in select_block
 print("FAST_CACHE_VERSION_CHECK_OK")
+
+
+# 서버 버전이 달라지면 기존 지역 캐시 파일과 메모리 데이터를 즉시 폐기해야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "def _delete_cache_file(self):" in online_source
+assert "version_changed = bool(previous) and previous != versions" in online_source
+assert "self._delete_cache_file()" in online_source
+assert '"features": {}' in online_source
+assert '"coverage": []' in online_source
+print("STALE_CACHE_DELETE_ON_VERSION_CHANGE_OK")
