@@ -74,3 +74,10 @@ assert handled.get("session_ended") is True
 assert _api.session_ended is True
 assert SESSION_ENDED_EXIT_CODE == 41
 print("SESSION_EXPIRED_VIEWER_EXIT_OK")
+
+# Windows 온라인 Viewer는 현재 위치 기준 500m 조회 범위를 사용한다.
+page = html("test-kakao-key", "test-local-token")
+assert "const QUERY_RADIUS_METERS=500;" in page
+assert "현재 위치 기준 500m" in page
+assert "myLat=lat;" in page and "myLng=lng;" in page
+print("ONLINE_500M_QUERY_RULE_OK")
