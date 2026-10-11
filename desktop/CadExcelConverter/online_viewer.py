@@ -150,10 +150,43 @@ class Api:
         if not self.region:
             return {"features": []}
         try:
-            return self.c.online_objects(
-                self.region,
-                f"{west},{south},{east},{north}",
-            ) or {"features": []}
+            west = float(west)
+            south = float(south)
+            east = float(east)
+            north = float(north)
+            mx = (west + east) / 2.0
+            my = (south + north) / 2.0
+
+            cells = (
+                (west, south, mx, my),
+                (mx, south, east, my),
+                (west, my, mx, north),
+                (mx, my, east, north),
+            )
+
+            merged = {}
+            for cw, cs, ce, cn in cells:
+                raw = self.c.online_objects(
+                    self.region,
+                    f"{cw},{cs},{ce},{cn}",
+                    limit=2000,
+                ) or {}
+                for feature in raw.get("features") or []:
+                    props = feature.get("properties") or {}
+                    fid = (
+                        props.get("regional_object_id")
+                        or props.get("entity_id")
+                        or props.get("object_id")
+                        or props.get("source_handle")
+                        or json.dumps(
+                            feature.get("geometry") or {},
+                            sort_keys=True,
+                            ensure_ascii=False,
+                        )
+                    )
+                    merged[str(fid)] = feature
+
+            return {"features": list(merged.values())}
         except Exception as exc:
             return {"features": [], "error": str(exc)}
 
