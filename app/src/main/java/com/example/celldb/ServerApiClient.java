@@ -67,6 +67,28 @@ final class ServerApiClient {
     void logout(){try{request("/auth/logout",new JSONObject(),true,true);}catch(Exception ignored){}finally{clear();}}
     static String encoded(String text)throws Exception{return URLEncoder.encode(text,"UTF-8");}
     JSONArray regions()throws Exception{return (JSONArray)request("/regions",null,true,true);}
+    JSONObject onlineLayers(String region)throws Exception{return (JSONObject)request("/online/"+encoded(region)+"/layers",null,true,true);}
+    ArrayList<CadRecord> onlineObjects(String region,MapViewport viewport,String layerFilter)throws Exception {
+        String path="/online/"+encoded(region)+"/objects?bbox="+encoded(viewport.bbox())+"&limit=5000";
+        JSONObject page=(JSONObject)request(path,null,true,true);
+        JSONArray features=page.optJSONArray("features");
+        ArrayList<CadRecord> rows=new ArrayList<>();
+        if(features==null)return rows;
+        HashSet<String> allowed=new HashSet<>();
+        if(layerFilter!=null&&!layerFilter.trim().isEmpty())for(String item:layerFilter.split(","))allowed.add(item.trim());
+        for(int i=0;i<features.length();i++){
+            JSONObject feature=features.getJSONObject(i);
+            JSONObject props=feature.optJSONObject("properties");
+            if(props==null)continue;
+            String layer=props.optString("layer","");
+            if(!allowed.isEmpty()&&!allowed.contains(layer))continue;
+            ArrayList<CadRecord> parsed=ServerCadParser.feature(region,feature);
+            for(CadRecord r:parsed)r.fields.put("__onlineRegion",region);
+            rows.addAll(parsed);
+            if(rows.size()>30000)throw new IOException("표시할 객체가 많습니다. 지도를 확대하세요.");
+        }
+        return rows;
+    }
     JSONArray datasets(String region)throws Exception{return (JSONArray)request("/regions/"+encoded(region)+"/datasets",null,true,true);}
     JSONObject layers(String dataset)throws Exception{return (JSONObject)request("/datasets/"+encoded(dataset)+"/layers",null,true,true);}
     JSONObject detail(String dataset,String layer,String entity,String version)throws Exception {
