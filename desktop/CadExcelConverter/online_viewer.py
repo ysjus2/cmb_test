@@ -96,7 +96,7 @@ class Api:
 
     def regions(self):
         try:
-            raw = self.c.regions() or []
+            raw = self.c.online_regions() or []
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
@@ -124,9 +124,20 @@ class Api:
                 ).strip()
                 items.append({"id": region_id, "name": name or region_id})
 
-            return {"ok": True, "items": items}
+            return {
+                "ok": True,
+                "items": items,
+                "count": len(items),
+                "level": int((self.user or {}).get("level") or 0),
+            }
         except Exception as exc:
-            return {"ok": False, "error": str(exc), "items": []}
+            return {
+                "ok": False,
+                "error": str(exc),
+                "items": [],
+                "count": 0,
+                "level": int((self.user or {}).get("level") or 0),
+            }
 
     def select(self, region):
         self.region = str(region or "")
@@ -583,7 +594,7 @@ async function loadObjects(){{
 
 async function loadRegions(){{
   const r=await pywebview.api.regions();
-  if(!r.ok){{setStatus(r.error||'권한 도면 조회 실패');return}}
+  if(!r.ok){{setStatus('지역 조회 실패 · '+(r.error||'서버 오류'));return}}
   const sel=document.getElementById('region');
   const items=(r.items||[]).filter(x=>x&&x.id);
   sel.innerHTML='<option value="">권한 도면 선택</option>';
@@ -594,10 +605,10 @@ async function loadRegions(){{
     sel.appendChild(o);
   }});
   if(!items.length){{
-    setStatus('배정된 도면이 없습니다 · 관리자에서 지역 권한을 확인하세요');
+    setStatus('온라인 지역 0개 · 등급 '+String(r.level||'?')+' · 서버 /online/regions 확인 필요');
     return;
   }}
-  setStatus(items.length+'개 권한 도면');
+  setStatus('온라인 지역 '+items.length+'개 · 등급 '+String(r.level||'?'));
   if(items.length===1){{
     sel.value=String(items[0].id);
     sel.dispatchEvent(new Event('change'));
