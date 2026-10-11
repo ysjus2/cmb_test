@@ -65,8 +65,8 @@ assert "const detailMode=mapLevelNow<=1;" in page
 assert "if(!detailMode)" in page
 assert "도면 숨김" in page
 assert "return isMaxDetail && groupEnabled[group]===true;" in page
-assert "COAX 선:" in page
-assert "CONDUIT 선:" in page
+assert "['FIBER','COAX','CONDUIT'].map" in page
+assert "+' 선:'+" in page
 print("ONLINE_LAYER_VISIBILITY_RULES_OK")
 
 # 세션 401은 Viewer 오류 표시가 아니라 종료/로그인 복귀 흐름으로 처리되어야 한다.
