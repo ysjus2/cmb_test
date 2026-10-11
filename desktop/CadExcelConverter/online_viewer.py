@@ -56,6 +56,22 @@ class Api:
             result.update(fallback)
         return result
 
+    def map_display_settings(self):
+        try:
+            settings = self.c.map_display_settings() or {}
+            radius = int(settings.get("radius_m", 500))
+            refresh = int(settings.get("refresh_distance_m", 200))
+            return {
+                "ok": True,
+                "radius_m": max(100, min(3000, radius)),
+                "refresh_distance_m": max(25, min(radius, refresh)),
+            }
+        except Exception as exc:
+            return self._handle_error(
+                exc,
+                {"radius_m": 500, "refresh_distance_m": 200},
+            )
+
     def session_policy(self):
         try:
             policy = self.c.session_policy() or {}
@@ -292,8 +308,8 @@ let lodReferenceSpan=null;
 let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
-const QUERY_RADIUS_METERS=500;
-const QUERY_RECENTER_METERS=200;
+let QUERY_RADIUS_METERS=500;
+let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
 let authenticated=false;
@@ -645,7 +661,7 @@ async function loadObjects(force=false){{
   const south=queryLat-latDelta;
   const north=queryLat+latDelta;
 
-  setStatus('지도 중심 500m · 불러오는 중...');
+  setStatus('지도 중심 '+QUERY_RADIUS_METERS+'m · 불러오는 중...');
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(r.error){{setStatus(r.error);return}}
   lastQueryLat=queryLat;
@@ -730,6 +746,18 @@ async function loadRegions(){{
   setStatus('권한 지역 '+items.length+'개 · 등급 '+String(r.level||'?'));
 }}
 
+async function loadMapDisplaySettings(){{
+  try{{
+    const r=await apiCall('map_display_settings');
+    if(r&&r.ok!==false){{
+      const radius=Number(r.radius_m||500);
+      const refresh=Number(r.refresh_distance_m||200);
+      QUERY_RADIUS_METERS=Math.max(100,Math.min(3000,radius));
+      QUERY_RECENTER_METERS=Math.max(25,Math.min(QUERY_RADIUS_METERS,refresh));
+    }}
+  }}catch(e){{}}
+}}
+
 async function bootstrapAuth(){{
   try{{
     // 런처가 자식 실행 직전에 /me 검증을 완료한다.
@@ -800,7 +828,7 @@ function centerMyLocation(loadAfter){{
       myLng=lng;
       map.setCenter(new kakao.maps.LatLng(lat,lng));
       map.setLevel(3);
-      setStatus('현재 위치 · 반경 500m');
+      setStatus('현재 위치 · 반경 '+QUERY_RADIUS_METERS+'m');
       if(loadAfter)loadObjects(true);
     }},
     err=>{{
@@ -848,6 +876,7 @@ let authBootstrapped=false;
 async function runBootstrapOnce(){{
   if(authBootstrapped)return;
   authBootstrapped=true;
+  await loadMapDisplaySettings();
   await bootstrapAuth();
 }}
 runBootstrapOnce();
@@ -922,6 +951,8 @@ def run_online_viewer():
                         data.get("east"),
                         data.get("north"),
                     )
+                elif name == "map_display_settings":
+                    result = api.map_display_settings()
                 elif name == "session_policy":
                     result = api.session_policy()
                 elif name == "touch_session":
