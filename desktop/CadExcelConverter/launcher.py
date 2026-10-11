@@ -272,14 +272,28 @@ class Launcher(tk.Tk):
         self._restore_launcher()
 
     def _spawn(self, flag):
-        env = self._child_env()
+        # 자식 프로세스에 세션을 넘기기 전에 부모의 idle touch를 먼저 멈춘다.
+        # 이전 순서는 env 스냅샷 후 pause라서 백그라운드 refresh와 경합할 수 있었다.
+        if self.session_guard is not None:
+            self.session_guard.pause()
+
+        try:
+            # 현재 access token이 만료 직전이면 여기서 refresh까지 완료한 뒤
+            # 최신 access/refresh token 한 쌍을 자식에게 전달한다.
+            verified = self.client.me()
+            if isinstance(verified, dict):
+                self.user = verified
+            env = self._child_env()
+        except Exception:
+            if self.session_guard is not None:
+                self.session_guard.resume()
+            raise
+
         if getattr(sys, "frozen", False):
             cmd = [sys.executable, flag]
         else:
             cmd = [sys.executable, str(Path(__file__).resolve().with_name("main.py")), flag]
 
-        if self.session_guard is not None:
-            self.session_guard.pause()
         process = subprocess.Popen(cmd, env=env)
         self.withdraw()
         self.after(300, lambda: self._watch_child(process))
