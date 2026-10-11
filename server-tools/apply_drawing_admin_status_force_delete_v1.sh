@@ -193,76 +193,81 @@ def install(app):
                         })
             return {"ok":True,"region_id":rid,"region_name":name,"groups":groups}
 
-    if not _route_exists(app,"/admin/drawings/{region_id}/force","DELETE"):
-        @app.delete("/admin/drawings/{region_id}/force")
-        async def force_delete_drawing(region_id:str, request:Request):
+    if not _route_exists(app,"/admin/drawings/{region_id}/groups/{group_id}/force","DELETE"):
+        @app.delete("/admin/drawings/{region_id}/groups/{group_id}/force")
+        async def force_delete_drawing_group(region_id:str, group_id:str, request:Request):
             _admin_user(request)
             rid=_safe_region_id(region_id)
+            group=str(group_id or "").strip().upper()
+            allowed={"FIBER","COAX","POLE","CONDUIT","USER","SYMBOL"}
+            if group not in allowed:
+                raise HTTPException(400,"삭제 가능한 도면 항목이 아닙니다.")
+
             deleted={}
             with _connect() as conn:
                 cur=conn.cursor()
                 name=_ensure_region(cur,rid)
 
-                # 1) dataset/cad_objects path
-                if _table_exists(cur,"datasets"):
-                    cur.execute("SELECT id FROM datasets WHERE region_id=%s",(rid,))
-                    dataset_ids=[r[0] for r in cur.fetchall()]
-                    if dataset_ids:
-                        ph=",".join(["%s"]*len(dataset_ids))
-                        if _table_exists(cur,"cad_objects"):
-                            cur.execute(f"DELETE FROM cad_objects WHERE dataset_id IN ({ph})",tuple(dataset_ids))
-                            deleted["cad_objects"]=cur.rowcount
-                        cols=_columns(cur,"datasets")
-                        if "active_version" in cols:
-                            cur.execute(f"UPDATE datasets SET active_version=NULL WHERE id IN ({ph})",tuple(dataset_ids))
-                        if _table_exists(cur,"dataset_versions"):
-                            cur.execute(f"DELETE FROM dataset_versions WHERE dataset_id IN ({ph})",tuple(dataset_ids))
-                            deleted["dataset_versions"]=cur.rowcount
-                        cur.execute("DELETE FROM datasets WHERE region_id=%s",(rid,))
-                        deleted["datasets"]=cur.rowcount
+                if group=="SYMBOL":
+                    if _table_exists(cur,"symbol_revisions"):
+                        if _table_exists(cur,"symbol_defs"):
+                            cols=_columns(cur,"symbol_defs")
+                            if "revision_id" in cols:
+                                cur.execute("""
+                                    DELETE FROM symbol_defs
+                                    WHERE revision_id IN (
+                                        SELECT id FROM symbol_revisions WHERE region_code=%s
+                                    )
+                                """,(rid,))
+                                deleted["symbol_defs"]=cur.rowcount
+                            elif "region_code" in cols:
+                                cur.execute("DELETE FROM symbol_defs WHERE region_code=%s",(rid,))
+                                deleted["symbol_defs"]=cur.rowcount
+                        cur.execute("DELETE FROM symbol_revisions WHERE region_code=%s",(rid,))
+                        deleted["symbol_revisions"]=cur.rowcount
+                else:
+                    if not _table_exists(cur,"drawing_group_revisions"):
+                        raise HTTPException(
+                            409,
+                            "그룹별 도면 저장 구조가 없어 제한 삭제를 수행할 수 없습니다."
+                        )
+                    cols=_columns(cur,"drawing_group_revisions")
+                    if "group_id" not in cols:
+                        raise HTTPException(
+                            409,
+                            "서버 도면 Revision에 group_id가 없어 제한 삭제를 수행할 수 없습니다."
+                        )
 
-                # 2) drawing-group path
-                if _table_exists(cur,"drawing_group_revisions"):
                     if _table_exists(cur,"drawing_group_objects"):
                         cur.execute("""
                             DELETE FROM drawing_group_objects
                             WHERE revision_id IN (
-                                SELECT id FROM drawing_group_revisions WHERE region_code=%s
+                                SELECT id
+                                FROM drawing_group_revisions
+                                WHERE region_code=%s AND UPPER(group_id)=%s
                             )
-                        """,(rid,))
+                        """,(rid,group))
                         deleted["drawing_group_objects"]=cur.rowcount
-                    cur.execute("DELETE FROM drawing_group_revisions WHERE region_code=%s",(rid,))
+
+                    cur.execute(
+                        "DELETE FROM drawing_group_revisions WHERE region_code=%s AND UPPER(group_id)=%s",
+                        (rid,group),
+                    )
                     deleted["drawing_group_revisions"]=cur.rowcount
 
-                # 3) symbol path
-                if _table_exists(cur,"symbol_revisions"):
-                    if _table_exists(cur,"symbol_defs"):
-                        cols=_columns(cur,"symbol_defs")
-                        if "revision_id" in cols:
-                            cur.execute("""
-                                DELETE FROM symbol_defs
-                                WHERE revision_id IN (
-                                    SELECT id FROM symbol_revisions WHERE region_code=%s
-                                )
-                            """,(rid,))
-                            deleted["symbol_defs"]=cur.rowcount
-                        elif "region_code" in cols:
-                            cur.execute("DELETE FROM symbol_defs WHERE region_code=%s",(rid,))
-                            deleted["symbol_defs"]=cur.rowcount
-                    cur.execute("DELETE FROM symbol_revisions WHERE region_code=%s",(rid,))
-                    deleted["symbol_revisions"]=cur.rowcount
-
-                # IMPORTANT: regions/user_regions are intentionally preserved.
                 conn.commit()
 
             return {
                 "ok":True,
                 "region_id":rid,
                 "region_name":name,
+                "group_id":group,
                 "deleted":deleted,
                 "region_preserved":True,
                 "user_region_permissions_preserved":True,
+                "other_groups_preserved":True,
             }
+
 PY
 
 echo "[3/7] cmb_asgi.py 연결"
@@ -306,7 +311,7 @@ PYTHONPATH="${APP_DIR}" "${PYTHON_BIN}" <<'PY'
 import cmb_asgi
 wanted={
  ("GET","/admin/drawings/{region_id}/status"),
- ("DELETE","/admin/drawings/{region_id}/force"),
+ ("DELETE","/admin/drawings/{region_id}/groups/{group_id}/force"),
 }
 found=set()
 for r in cmb_asgi.app.routes:
@@ -323,9 +328,9 @@ echo "[7/7] 완료"
 echo "============================================================"
 echo "CMB_DRAWING_ADMIN_PATCH_V1_OK"
 echo "GET    /admin/drawings/{region_id}/status"
-echo "DELETE /admin/drawings/{region_id}/force"
+echo "DELETE /admin/drawings/{region_id}/groups/{group_id}/force"
 echo "- regions 유지"
 echo "- user_regions 유지"
-echo "- 도면/버전/심볼 데이터만 삭제"
+echo "- 선택한 지역의 선택 그룹 데이터만 삭제\n- 다른 그룹/regions/user_regions 유지"
 echo "BACKUP=${BACKUP_DIR}/cmb-before-drawing-admin-v1-${STAMP}.tgz"
 echo "============================================================"
