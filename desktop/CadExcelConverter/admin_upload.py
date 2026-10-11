@@ -17,24 +17,43 @@ GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
 
 
 def classify_entity(e):
-    u = (str(e.layer or "") + " " + str(e.block_name or "")).upper()
+    # 서버 업로드 분류는 실제 CAD 레이어명을 기준으로 단순하게 고정한다.
+    layer = str(e.layer or "").strip().upper()
+    block = str(e.block_name or "").strip().upper()
+    text = f"{layer} {block}"
 
-    if any(k in u for k in ("F_CABLE", "FIBER", "FOC", "OPTIC", "CLOSURE", "ONU", "광")):
+    # 광선로 / 광장비
+    if (
+        layer == "TL_SCCO_SIG"
+        or layer.startswith("CN_F_")
+        or "F_CABLE" in text
+        or "FIBER" in text
+        or "FOC" in text
+        or "OPTIC" in text
+        or "ONU" in text
+        or "광" in text
+    ):
         return "FIBER"
 
-    if any(k in u for k in (
-        "C_CABLE", "COAX", "RG06", "RG11", "PFC", "AMP", "TAP",
-        "PASSIVE", "POWER", "CONNECTOR", "동축", "증폭", "분기",
-    )):
-        return "COAX"
-
-    if any(k in u for k in ("POLE", "전주", "POLE_CATV", "POLE-CATV")):
+    # 전주/맨홀 계열은 CN_C_* 일반 장비보다 먼저 판정한다.
+    if layer.startswith("CN_L_POLE") or any(k in text for k in ("POLE", "전주", "POLE_CATV", "POLE-CATV")):
         return "POLE"
 
-    if any(k in u for k in ("CONDUIT", "MANHOLE", "HANDHOLE", "관로", "맨홀", "핸드홀")):
+    if any(k in text for k in ("CONDUIT", "MANHOLE", "HANDHOLE", "관로", "맨홀", "핸드홀")):
         return "CONDUIT"
 
-    if "USER" in u or "CN_M_USER" in u:
+    # 동축선로 / 동축장비
+    if (
+        layer.startswith("CN_C_")
+        or any(k in text for k in (
+            "C_CABLE", "COAX", "RG06", "RG11", "PFC", "AMP", "TAP",
+            "PASSIVE", "POWER", "CONNECTOR", "동축", "증폭", "분기",
+        ))
+    ):
+        return "COAX"
+
+    # 사용자/건물 계열
+    if layer.startswith("CN_M_USER_") or "USER" in text or "건물" in text:
         return "USER"
 
     return None
