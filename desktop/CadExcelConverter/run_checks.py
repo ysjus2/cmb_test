@@ -136,3 +136,17 @@ assert "ACCOUNT_DISABLED" in launcher_source
 assert "사용 정지된 계정입니다. 관리자에게 문의해주세요." in launcher_source
 assert "아이디 또는 비밀번호를 확인해주세요." in launcher_source
 print("DISABLED_ACCOUNT_LOGIN_MESSAGE_OK")
+
+
+# 런처/맵 Viewer/온라인 Viewer는 같은 refresh token 상태를 공유해야 한다.
+client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+launcher_source = (root / "launcher.py").read_text(encoding="utf-8")
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "CMB_AUTH_STATE_PATH" in client_source
+assert "_shared_state_lock" in client_source
+assert "_sync_from_shared_state" in client_source
+assert "_sync_to_shared_state" in client_source
+assert "CMB_AUTH_STATE_PATH" in launcher_source
+assert "self.c.on_session_expired = self.expire_session" in online_source
+assert "def expire_session(self):" in online_source
+print("CROSS_PROCESS_SESSION_STATE_OK")
