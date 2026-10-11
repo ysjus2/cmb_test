@@ -694,6 +694,19 @@ function colorFor(group){{
   return '#8e24aa';
 }}
 
+function originalCableColor(p,group){{
+  const a=(p&&p.attributes)||{{}};
+  const f=a.fields||a;
+  const style=f._cmb_style||{{}};
+  const display=String(style.display_color||'').trim();
+  if(/^#[0-9a-fA-F]{{6}}$/.test(display)) return display;
+  const tc=Number(style.true_color);
+  if(Number.isFinite(tc)&&tc>=0&&tc<=0xFFFFFF){{
+    return '#'+Math.trunc(tc).toString(16).padStart(6,'0');
+  }}
+  return colorFor(group);
+}}
+
 const SYMBOL_LIBRARY={{
   onu:{{shape:'rect',w:32,h:16,fill:'#00bcd4',stroke:'#006064',label:'ONU'}},
   amp:{{shape:'triangle',w:18,h:18,fill:'#ff9800',stroke:'#6d4c41'}},
@@ -976,7 +989,7 @@ async function loadObjects(force=false){{
     const g=f.geometry||{{}};
     const p=f.properties||{{}};
     const group=String(p.group_id||'').toUpperCase();
-    const c=colorFor(group);
+    const c=originalCableColor(p,group);
     const parts=g.type==='MultiLineString' ? (g.coordinates||[]) : [g.coordinates||[]];
 
     parts.forEach(before=>{{
