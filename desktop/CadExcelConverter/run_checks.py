@@ -226,7 +226,7 @@ print("CABLE_COLOR_PRESERVATION_OK")
 
 # 지역 삭제 경고는 도면/심볼/권한 연결까지 삭제됨을 명시해야 한다.
 admin_users_source = (root / "admin_users.py").read_text(encoding="utf-8")
-assert "서버 도면 Revision" in admin_users_source
+assert "도면 Revision과 객체" in admin_users_source
 assert "SYMBOL 데이터" in admin_users_source
 assert "사용자-지역 권한 연결" in admin_users_source
 print("REGION_CASCADE_DELETE_WARNING_OK")
