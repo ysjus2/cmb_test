@@ -95,63 +95,90 @@ class Api:
         return self.end_session()
 
     def regions(self):
-        try:
-            # 사용자에게 관리자에서 배정한 지역(/regions)을 정본으로 사용한다.
-            # /online/regions는 과거 서버 호환용 보조 목록으로만 병합한다.
-            raw = self.c.regions() or []
+        # 지역 목록은 한 API에만 의존하지 않는다.
+        # /regions, /online/regions, 1등급의 /admin/regions를 병합해
+        # 서버에 존재하는 허용 온라인 지역이 UI에서 누락되지 않게 한다.
+        rows = []
+        errors = []
+
+        def add_rows(raw, source):
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
-
-            try:
-                online_raw = self.c.online_regions() or []
-                if isinstance(online_raw, dict):
-                    online_raw = online_raw.get("items") or online_raw.get("regions") or []
-            except Exception:
-                online_raw = []
-
-            rows = list(raw or [])
-            assigned_ids = {
-                str(
-                    row.get("id")
-                    or row.get("region_id")
-                    or row.get("region_code")
-                    or ""
-                ).strip()
-                for row in rows
-                if isinstance(row, dict)
-            }
-            # /regions가 비어 있는 구형 서버에서만 online 목록을 fallback으로 사용한다.
-            if not assigned_ids:
-                rows.extend(list(online_raw or []))
-
-            items = []
-            seen = set()
-            for row in rows:
+            if not isinstance(raw, list):
+                return
+            for row in raw:
                 if not isinstance(row, dict):
                     continue
-                # 서버 경계에서만 과거 키를 흡수하고, 뷰어 내부에서는 id 하나만 사용한다.
-                region_id = str(
-                    row.get("id")
-                    or row.get("region_id")
-                    or row.get("region_code")
-                    or ""
-                ).strip()
-                if not region_id or region_id in seen:
-                    continue
-                seen.add(region_id)
-                items.append({
-                    "id": region_id,
-                    "name": str(
-                        row.get("name")
-                        or row.get("region_name")
-                        or row.get("display_name")
-                        or region_id
-                    ).strip(),
-                })
+                item = dict(row)
+                item["_cmb_source"] = source
+                rows.append(item)
 
-            return {"ok": True, "items": items}
+        try:
+            add_rows(self.c.regions() or [], "regions")
         except Exception as exc:
-            return {"ok": False, "error": str(exc), "items": []}
+            errors.append("/regions: " + str(exc))
+
+        try:
+            add_rows(self.c.online_regions() or [], "online")
+        except Exception as exc:
+            errors.append("/online/regions: " + str(exc))
+
+        level = 0
+        try:
+            level = int((self.user or {}).get("level") or 0)
+        except Exception:
+            level = 0
+
+        if level == 1:
+            try:
+                admin_rows = self.c.admin_regions() or []
+                if isinstance(admin_rows, dict):
+                    admin_rows = admin_rows.get("items") or admin_rows.get("regions") or []
+                if isinstance(admin_rows, list):
+                    # 관리자 목록에서는 실제 active drawing이 있는 지역만 온라인 후보로 사용한다.
+                    add_rows(
+                        [
+                            row for row in admin_rows
+                            if isinstance(row, dict)
+                            and row.get("has_drawing", True) is not False
+                        ],
+                        "admin",
+                    )
+            except Exception as exc:
+                errors.append("/admin/regions: " + str(exc))
+
+        items = []
+        seen = set()
+        for row in rows:
+            region_id = str(
+                row.get("id")
+                or row.get("region_id")
+                or row.get("region_code")
+                or ""
+            ).strip()
+            if not region_id:
+                continue
+            key = region_id.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({
+                "id": region_id,
+                "name": str(
+                    row.get("name")
+                    or row.get("region_name")
+                    or row.get("display_name")
+                    or region_id
+                ).strip(),
+                "source": row.get("_cmb_source", ""),
+            })
+
+        return {
+            "ok": True,
+            "items": items,
+            "count": len(items),
+            "errors": errors,
+        }
 
     def select(self, region):
         self.region = str(region or "")
