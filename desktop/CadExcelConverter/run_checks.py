@@ -63,3 +63,14 @@ assert "const isMaxDetail=mapLevel<=1;" in page
 assert "groupEnabled.FIBER===true" in page
 assert "return groupEnabled[group]===true;" in page
 print("ONLINE_LAYER_VISIBILITY_RULES_OK")
+
+# 세션 401은 Viewer 오류 표시가 아니라 종료/로그인 복귀 흐름으로 처리되어야 한다.
+from online_viewer import Api, SESSION_ENDED_EXIT_CODE
+from server_client_windows import ServerError
+_api = Api()
+_api.window = None
+handled = _api._handle_error(ServerError("expired", status=401))
+assert handled.get("session_ended") is True
+assert _api.session_ended is True
+assert SESSION_ENDED_EXIT_CODE == 41
+print("SESSION_EXPIRED_VIEWER_EXIT_OK")
