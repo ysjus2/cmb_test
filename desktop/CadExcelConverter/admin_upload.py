@@ -87,14 +87,16 @@ def _points(e):
     return []
 
 
-def build_payload(scene, source_path, group, epsg, memo=""):
+def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     transformer = Transformer.from_crs(
         f"EPSG:{int(epsg)}",
         "EPSG:4326",
         always_xy=True,
     )
 
-    region_code = drawing_code(source_path).strip()
+    region_code = str(region_code or "").strip()
+    if not region_code:
+        raise RuntimeError("서버 지역코드를 선택해주세요.")
 
     objects = []
 
@@ -218,11 +220,26 @@ class AdminUploadWindow(tk.Toplevel):
 
         ttk.Label(
             root,
-            text=(
-                f"지역코드 {drawing_code(source_path)} · "
-                f"{Path(source_path).name} · EPSG:{source_epsg}"
-            ),
-        ).pack(anchor="w", pady=(3, 10))
+            text=f"{Path(source_path).name} · EPSG:{source_epsg}",
+        ).pack(anchor="w", pady=(3, 6))
+
+        region_box = ttk.LabelFrame(root, text="서버 지역", padding=8)
+        region_box.pack(fill="x", pady=(0, 10))
+        self.region_var = tk.StringVar(value="")
+        self.region_combo = ttk.Combobox(
+            region_box,
+            textvariable=self.region_var,
+            state="readonly",
+            width=52,
+        )
+        self.region_combo.pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            region_box,
+            text="지역 새로고침",
+            command=self._load_server_regions,
+        ).pack(side="left", padx=(6, 0))
+        self.region_rows = []
+        self.region_display_to_id = {}
 
         self.login_status = tk.StringVar(value="")
         ttk.Label(root, textvariable=self.login_status).pack(anchor="w", pady=(0, 10))
@@ -350,10 +367,66 @@ class AdminUploadWindow(tk.Toplevel):
             self.upload_one_btn.configure(state="normal")
             self.upload_all_btn.configure(state="normal")
             self.status.set("관리자 세션 연결 완료")
+            self._load_server_regions()
         else:
             self.upload_one_btn.configure(state="disabled")
             self.upload_all_btn.configure(state="disabled")
             self.status.set("1등급 관리자만 업로드할 수 있습니다.")
+
+    def _load_server_regions(self):
+        try:
+            rows = self.client.admin_regions() or []
+            if isinstance(rows, dict):
+                rows = rows.get("items") or rows.get("regions") or []
+
+            self.region_rows = [r for r in rows if isinstance(r, dict)]
+            self.region_display_to_id = {}
+            values = []
+
+            for row in self.region_rows:
+                rid = str(
+                    row.get("id")
+                    or row.get("region_id")
+                    or row.get("region_code")
+                    or ""
+                ).strip()
+                if not rid:
+                    continue
+                name = str(
+                    row.get("name")
+                    or row.get("region_name")
+                    or rid
+                ).strip()
+                display = f"{name} ({rid})" if name and name != rid else rid
+                self.region_display_to_id[display] = rid
+                values.append(display)
+
+            self.region_combo["values"] = values
+
+            current = self.region_var.get().strip()
+            if current not in self.region_display_to_id:
+                if len(values) == 1:
+                    self.region_var.set(values[0])
+                else:
+                    self.region_var.set("")
+
+            self.status.set(
+                f"서버 등록 지역 {len(values)}개 · 업로드할 지역을 선택하세요."
+            )
+        except Exception as exc:
+            self.region_combo["values"] = []
+            self.region_var.set("")
+            self.status.set("서버 지역 조회 실패: " + str(exc))
+
+    def _selected_region_code(self):
+        display = self.region_var.get().strip()
+        rid = self.region_display_to_id.get(display, "")
+        if not rid:
+            raise RuntimeError(
+                "업로드할 서버 지역을 선택해주세요. "
+                "지역코드는 관리자 > 지역 등록에서 자유롭게 생성할 수 있습니다."
+            )
+        return rid
 
     def health(self):
         try:
@@ -383,27 +456,7 @@ class AdminUploadWindow(tk.Toplevel):
     def _upload(self, group):
         self._require_admin()
 
-        region_code = drawing_code(self.source_path).strip()
-        rows = self.client.admin_regions() or []
-        if isinstance(rows, dict):
-            rows = rows.get("items") or rows.get("regions") or []
-
-        registered = {
-            str(
-                row.get("id")
-                or row.get("region_id")
-                or row.get("region_code")
-                or ""
-            ).strip().casefold()
-            for row in rows
-        }
-
-        if region_code.casefold() not in registered:
-            raise RuntimeError(
-                f"등록되지 않은 도면명/지역코드입니다: {region_code}\n"
-                "관리자 > 지역 등록에서 이 DXF 도면명을 먼저 지역코드로 등록해주세요."
-            )
-
+        region_code = self._selected_region_code()
         self.session_busy = True
 
         payload = build_payload(
@@ -411,6 +464,7 @@ class AdminUploadWindow(tk.Toplevel):
             self.source_path,
             group,
             self.epsg,
+            region_code,
             self.memo_var.get(),
         )
 
@@ -516,7 +570,11 @@ class AdminUploadWindow(tk.Toplevel):
             )
             return
 
-        region = drawing_code(self.source_path)
+        try:
+            region = self._selected_region_code()
+        except Exception as exc:
+            messagebox.showerror("백업 조회", str(exc), parent=self)
+            return
 
         win = tk.Toplevel(self)
         win.title(f"서버 도면 백업 · {region}")
