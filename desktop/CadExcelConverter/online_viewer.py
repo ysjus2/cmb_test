@@ -705,7 +705,15 @@ function bindUi(){{
       setStatus('카카오맵 초기화 대기');
       return;
     }}
-    map.setLevel(3);
+    const b=r.bounds||null;
+    if(b&&b.west!=null&&b.south!=null&&b.east!=null&&b.north!=null){{
+      const bounds=new kakao.maps.LatLngBounds();
+      bounds.extend(new kakao.maps.LatLng(Number(b.south),Number(b.west)));
+      bounds.extend(new kakao.maps.LatLng(Number(b.north),Number(b.east)));
+      map.setBounds(bounds);
+      setTimeout(()=>loadObjects(),80);
+      return;
+    }}
     await loadObjects();
   }};
 
@@ -746,7 +754,6 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
-      centerMyLocation(false);
       const sel=document.getElementById('region');
       if(sel&&sel.value){{
         sel.dispatchEvent(new Event('change'));
