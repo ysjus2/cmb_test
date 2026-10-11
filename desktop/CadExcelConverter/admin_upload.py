@@ -27,6 +27,11 @@ def classify_entity(e):
     if layer.startswith("TS_") or layer == "TL_SCCO_SIG":
         return None
 
+    # ONU는 현장 운용 기준상 동축 기기로 관리한다.
+    # 레이어명이 CN_F_* 계열이더라도 ONU 표기가 있으면 COAX가 우선이다.
+    if "ONU" in text:
+        return "COAX"
+
     # 광선로 / 광장비
     if (
         layer.startswith("CN_F_")
@@ -34,7 +39,6 @@ def classify_entity(e):
         or "FIBER" in text
         or "FOC" in text
         or "OPTIC" in text
-        or "ONU" in text
         or "광" in text
     ):
         return "FIBER"
@@ -361,7 +365,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         desc = {
             "FIBER": "광케이블 + 광 관련 기기",
-            "COAX": "동축케이블 + AMP/TAP/PASSIVE/POWER/CONNECTOR 등 동축기기",
+            "COAX": "동축케이블 + ONU/AMP/TAP/PASSIVE/POWER/CONNECTOR 등 동축기기",
             "POLE": "전주 + CATV/자가주",
             "CONDUIT": "관로 + 맨홀 + 핸드홀",
             "USER": "사용자 작성 건물/지형/관리구역",
