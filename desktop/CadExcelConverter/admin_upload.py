@@ -14,6 +14,8 @@ from server_client_windows import CMBServerClient
 from backup_v2 import enrich_payload_v2
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
+FINAL_REGION_ID = "CMB_GN_HP"
+FINAL_REGION_NAME = "함평"
 
 
 def classify_entity(e):
@@ -225,7 +227,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         region_box = ttk.LabelFrame(root, text="서버 지역", padding=8)
         region_box.pack(fill="x", pady=(0, 10))
-        self.region_var = tk.StringVar(value="")
+        self.region_var = tk.StringVar(value=FINAL_REGION_NAME)
         self.region_combo = ttk.Combobox(
             region_box,
             textvariable=self.region_var,
@@ -233,11 +235,6 @@ class AdminUploadWindow(tk.Toplevel):
             width=52,
         )
         self.region_combo.pack(side="left", fill="x", expand=True)
-        ttk.Button(
-            region_box,
-            text="지역 새로고침",
-            command=self._load_server_regions,
-        ).pack(side="left", padx=(6, 0))
         self.region_rows = []
         self.region_display_to_id = {}
 
@@ -374,59 +371,17 @@ class AdminUploadWindow(tk.Toplevel):
             self.status.set("1등급 관리자만 업로드할 수 있습니다.")
 
     def _load_server_regions(self):
-        try:
-            rows = self.client.admin_regions() or []
-            if isinstance(rows, dict):
-                rows = rows.get("items") or rows.get("regions") or []
-
-            self.region_rows = [r for r in rows if isinstance(r, dict)]
-            self.region_display_to_id = {}
-            values = []
-
-            for row in self.region_rows:
-                rid = str(
-                    row.get("id")
-                    or row.get("region_id")
-                    or row.get("region_code")
-                    or ""
-                ).strip()
-                if not rid:
-                    continue
-                name = str(
-                    row.get("name")
-                    or row.get("region_name")
-                    or rid
-                ).strip()
-                display = f"{name} ({rid})" if name and name != rid else rid
-                self.region_display_to_id[display] = rid
-                values.append(display)
-
-            self.region_combo["values"] = values
-
-            current = self.region_var.get().strip()
-            if current not in self.region_display_to_id:
-                if len(values) == 1:
-                    self.region_var.set(values[0])
-                else:
-                    self.region_var.set("")
-
-            self.status.set(
-                f"서버 등록 지역 {len(values)}개 · 업로드할 지역을 선택하세요."
-            )
-        except Exception as exc:
-            self.region_combo["values"] = []
-            self.region_var.set("")
-            self.status.set("서버 지역 조회 실패: " + str(exc))
+        # 최종 배포판은 함평(CMB_GN_HP)만 업로드한다.
+        self.region_rows = [{"id": FINAL_REGION_ID, "name": FINAL_REGION_NAME}]
+        self.region_display_to_id = {FINAL_REGION_NAME: FINAL_REGION_ID}
+        self.region_combo["values"] = [FINAL_REGION_NAME]
+        self.region_var.set(FINAL_REGION_NAME)
+        self.status.set(
+            f"업로드 대상 고정 · {FINAL_REGION_NAME} ({FINAL_REGION_ID})"
+        )
 
     def _selected_region_code(self):
-        display = self.region_var.get().strip()
-        rid = self.region_display_to_id.get(display, "")
-        if not rid:
-            raise RuntimeError(
-                "업로드할 서버 지역을 선택해주세요. "
-                "지역코드는 관리자 > 지역 등록에서 자유롭게 생성할 수 있습니다."
-            )
-        return rid
+        return FINAL_REGION_ID
 
     def health(self):
         try:
