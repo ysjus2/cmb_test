@@ -119,14 +119,16 @@ subprocess.run([sys.executable, str(root / "online_render_selftest.py")], cwd=ro
 print("ALL CURRENT CHECKS PASSED")
 
 
-# 지역 관리에는 지역명 수정/보호 삭제 기능이 있어야 한다.
+# 지역 관리에는 지역명 수정/완전 삭제 기능이 있어야 한다.
 from server_client_windows import CMBServerClient
 assert hasattr(CMBServerClient, "update_region")
 assert hasattr(CMBServerClient, "delete_region")
 admin_users_source = (root / "admin_users.py").read_text(encoding="utf-8")
 assert "지역명 수정" in admin_users_source
 assert "지역 삭제" in admin_users_source
-assert "도면 Revision이 존재하면 서버에서 삭제가 차단됩니다." in admin_users_source
+assert "서버 도면 Revision" in admin_users_source
+assert "SYMBOL 데이터" in admin_users_source
+assert "사용자-지역 권한 연결" in admin_users_source
 print("REGION_EDIT_DELETE_UI_OK")
 
 
