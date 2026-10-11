@@ -77,6 +77,10 @@ def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_objects_bbox
               ON objects(min_lon, min_lat, max_lon, max_lat);
+            CREATE TABLE IF NOT EXISTS settings(
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            );
             """
         )
 
@@ -126,6 +130,66 @@ class UploadPackage(BaseModel):
     package_sha256: str = ""
     object_count: int = 0
     objects: list[dict[str, Any]] = Field(default_factory=list)
+
+
+
+
+class MapDisplaySettings(BaseModel):
+    radius_m: int = Field(500, ge=100, le=3000)
+    refresh_distance_m: int = Field(200, ge=25, le=1500)
+
+
+def get_map_display_settings():
+    values = {"radius_m": 500, "refresh_distance_m": 200}
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT key,value FROM settings WHERE key IN ('map_radius_m','map_refresh_distance_m')"
+        ).fetchall()
+    for row in rows:
+        try:
+            if row["key"] == "map_radius_m":
+                values["radius_m"] = int(row["value"])
+            elif row["key"] == "map_refresh_distance_m":
+                values["refresh_distance_m"] = int(row["value"])
+        except Exception:
+            pass
+    values["radius_m"] = max(100, min(3000, values["radius_m"]))
+    values["refresh_distance_m"] = max(25, min(values["radius_m"], values["refresh_distance_m"]))
+    return values
+
+
+@app.get("/settings/map-display")
+def map_display_settings(authorization: str | None = Header(default=None)):
+    require_test_admin(authorization)
+    return get_map_display_settings()
+
+
+@app.get("/admin/settings/map-display")
+def admin_map_display_settings(authorization: str | None = Header(default=None)):
+    require_test_admin(authorization)
+    return get_map_display_settings()
+
+
+@app.post("/admin/settings/map-display")
+def set_admin_map_display_settings(
+    settings: MapDisplaySettings,
+    authorization: str | None = Header(default=None),
+):
+    require_test_admin(authorization)
+    radius = int(settings.radius_m)
+    refresh = min(radius, int(settings.refresh_distance_m))
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO settings(key,value) VALUES('map_radius_m',?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(radius),),
+        )
+        conn.execute(
+            "INSERT INTO settings(key,value) VALUES('map_refresh_distance_m',?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(refresh),),
+        )
+    return {"radius_m": radius, "refresh_distance_m": refresh}
 
 
 @app.get("/health")
