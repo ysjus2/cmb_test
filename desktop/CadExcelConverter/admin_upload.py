@@ -96,6 +96,20 @@ def _rotation_deg(e):
 
 
 def _points(e):
+    entity_type = str(e.entity_type or "").upper()
+
+    # INSERT/POINT 장비는 블록 내부 선분보다 삽입점을 우선한다.
+    # 그렇지 않으면 장비 블록이 LineString으로 서버에 저장되어
+    # 온라인 Viewer에서 기기 심볼로 표시되지 않는다.
+    if entity_type in {"INSERT", "POINT"}:
+        for kind, data in e.primitives:
+            if kind in {"insert", "point"}:
+                return [(float(data[0]), float(data[1]))]
+
+        if e.bbox:
+            x1, y1, x2, y2 = e.bbox
+            return [((x1 + x2) / 2, (y1 + y2) / 2)]
+
     for kind, data in e.primitives:
         if kind in {"line", "polyline", "polygon"} and len(data) >= 2:
             return [(float(x), float(y)) for x, y in data]
