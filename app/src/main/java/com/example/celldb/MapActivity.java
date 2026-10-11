@@ -673,7 +673,7 @@ public class MapActivity extends Activity {
                 for(int i=0;i<regions.length();i++){
                     org.json.JSONObject region=regions.getJSONObject(i);
                     String id=region.optString("id","").trim();
-                    if(!id.startsWith("CMB_GN_"))continue;
+                    if(id.isEmpty())continue;
                     String name=region.optString("name",id).trim();
                     titles.add(name.equals(id)?id:(name+" ("+id+")"));
                     ids.add(id);
