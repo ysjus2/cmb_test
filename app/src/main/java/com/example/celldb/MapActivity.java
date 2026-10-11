@@ -665,25 +665,35 @@ public class MapActivity extends Activity {
     private void chooseServerDataset(){
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
-        status.setText("함평 도면 권한을 확인하는 중…");
+        status.setText("권한 지역을 조회하는 중…");
         serverTask=serverWorker.submit(()->{
             try{
                 org.json.JSONArray regions=client.regions();
-                boolean allowed=false;
+                ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
                 for(int i=0;i<regions.length();i++){
                     org.json.JSONObject region=regions.getJSONObject(i);
                     String id=region.optString("id","").trim();
-                    if("CMB_GN_HP".equals(id)){allowed=true;break;}
+                    if(!id.startsWith("CMB_GN_"))continue;
+                    String name=region.optString("name",id).trim();
+                    titles.add(name.equals(id)?id:(name+" ("+id+")"));
+                    ids.add(id);
                 }
-                final boolean hasHampyeong=allowed;
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
-                    if(!hasHampyeong){
-                        status.setText("함평(CMB_GN_HP) 접근 권한이 없습니다.");
-                        regionStatus.setText("함평 도면 없음");
+                    if(ids.isEmpty()){
+                        status.setText("배정된 canonical 지역 권한이 없습니다.");
+                        regionStatus.setText("시설 도면 없음");
                         return;
                     }
-                    selectServerDataset(client,"CMB_GN_HP","함평");
+                    if(ids.size()==1){
+                        selectServerDataset(client,ids.get(0),titles.get(0));
+                    }else{
+                        new AlertDialog.Builder(this)
+                            .setTitle("권한 지역 선택")
+                            .setItems(titles.toArray(new String[0]),(d,i)->selectServerDataset(client,ids.get(i),titles.get(i)))
+                            .setNegativeButton("닫기",null)
+                            .show();
+                    }
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
         });
