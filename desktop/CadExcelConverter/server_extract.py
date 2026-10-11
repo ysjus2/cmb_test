@@ -263,7 +263,7 @@ class ServerExtractWindow(tk.Toplevel):
 
     def load_regions(self):
         try:
-            rows = self.client.online_regions() or []
+            rows = self.client.regions() or []
             if isinstance(rows, dict):
                 rows = rows.get("items") or rows.get("regions") or []
 
