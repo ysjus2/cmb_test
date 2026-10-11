@@ -211,7 +211,20 @@ class Launcher(tk.Tk):
             self.online_btn.configure(state="disabled")
             self.map_btn.configure(state="disabled")
             self.admin_btn.configure(state="disabled")
-            messagebox.showerror("로그인 오류", str(exc), parent=self)
+
+            msg = str(exc)
+            status = getattr(exc, "status", None)
+            upper = msg.upper()
+            if "ACCOUNT_DISABLED" in upper or "사용 정지" in msg or "비활성" in msg:
+                display_msg = "사용 정지된 계정입니다. 관리자에게 문의해주세요."
+                self.login_status.set("사용 정지 계정 · 관리자 문의")
+            elif status == 401:
+                display_msg = "아이디 또는 비밀번호를 확인해주세요."
+                self.login_status.set("로그인 실패 · 아이디/비밀번호 확인")
+            else:
+                display_msg = msg
+                self.login_status.set("로그인 오류")
+            messagebox.showerror("로그인 오류", display_msg, parent=self)
 
     def logout(self):
         try:
