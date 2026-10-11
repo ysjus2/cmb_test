@@ -674,6 +674,12 @@ function initMap(){{
         level:8
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      const sel=document.getElementById('region');
+      if(sel&&sel.value){{
+        sel.dispatchEvent(new Event('change'));
+      }} else {{
+        setStatus('카카오맵 준비 완료 · 지역을 선택하세요');
+      }}
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
@@ -787,13 +793,13 @@ def run_online_viewer():
         def log_message(self, format, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:
         window = webview.create_window(
             "CMB 온라인 Viewer",
-            url=f"http://127.0.0.1:{server.server_address[1]}/",
+            url="http://127.0.0.1:8765/",
             width=1450,
             height=900,
             min_size=(900, 600),
