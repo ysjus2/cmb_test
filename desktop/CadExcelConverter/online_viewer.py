@@ -42,30 +42,6 @@ class Api:
             except Exception:
                 self.user = None
 
-    def bootstrap(self):
-        if not self.c.access_token:
-            return {
-                "ok": False,
-                "authenticated": False,
-                "error": "로그인 세션 전달 정보가 없습니다.",
-            }
-
-        # 런처가 _spawn 직전에 /me 검증을 완료하고 user+token을 함께 넘긴다.
-        # 여기서 /me를 다시 호출하면 별도 프로세스 시작 순간의 refresh/token 경합으로
-        # 정상 로그인도 '세션 만료'로 오판할 수 있으므로 중복 검증하지 않는다.
-        if isinstance(self.user, dict) and self.user:
-            return {
-                "ok": True,
-                "authenticated": True,
-                "user": self.user,
-            }
-
-        return {
-            "ok": True,
-            "authenticated": True,
-            "user": {},
-        }
-
     def session_policy(self):
         try:
             policy = self.c.session_policy() or {}
@@ -620,28 +596,21 @@ async function loadRegions(){{
 }}
 
 async function bootstrapAuth(){{
-  let authResult=null;
   try{{
-    setStatus('로그인 세션 확인');
-    authResult=await pywebview.api.bootstrap();
-    if(!(authResult&&authResult.authenticated)){{
-      throw new Error((authResult&&authResult.error)||'로그인 세션이 없습니다.');
-    }}
-
+    // 런처가 자식 실행 직전에 /me 검증을 완료한다.
+    // pywebview 예약/미노출 함수명 문제를 피하기 위해 별도 bootstrap RPC를 사용하지 않는다.
     authenticated=true;
-
-    // 가장 중요한 지역 권한을 먼저 조회한다.
     setStatus('권한 지역 조회 중');
     await loadRegions();
 
-    // 지역 목록 표시를 막지 않도록 유휴정책은 뒤에서 처리한다.
+    // 지역 조회 성공 여부와 무관하게 UI를 막지 않는 부가 기능만 뒤에서 실행한다.
     startIdleWatch();
     loadSessionPolicy().catch(()=>{{}});
     return true;
   }}catch(e){{
     authenticated=false;
-    const msg=(e&&e.message)?e.message:((authResult&&authResult.error)||'알 수 없는 오류');
-    setStatus('로그인/지역 조회 오류 · '+msg);
+    const msg=(e&&e.message)?e.message:'알 수 없는 오류';
+    setStatus('지역 조회 오류 · '+msg);
     return false;
   }}
 }}
