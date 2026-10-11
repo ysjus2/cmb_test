@@ -33,7 +33,7 @@ def _e(layer, block=""):
 assert classify_entity(_e("TS_BASEMAP")) is None
 assert classify_entity(_e("TL_SCCO_SIG")) is None
 assert classify_entity(_e("CN_F_CLOSURE")) == "FIBER"
-assert classify_entity(_e("CN_C_ONU")) == "FIBER"
+assert classify_entity(_e("CN_C_ONU")) == "COAX"
 assert classify_entity(_e("CN_C_CABLE")) == "COAX"
 assert classify_entity(_e("CN_C_AMP")) == "COAX"
 assert classify_entity(_e("CN_F_CABLE")) == "FIBER"
