@@ -178,3 +178,14 @@ assert "self._delete_cache_file()" in online_source
 assert '"features": {}' in online_source
 assert '"coverage": []' in online_source
 print("STALE_CACHE_DELETE_ON_VERSION_CHANGE_OK")
+
+
+# 일반 Windows EXE는 두 번째 Launcher/Tk 인스턴스를 만들면 안 된다.
+main_source = (root / "main.py").read_text(encoding="utf-8")
+assert "CMB_DXF_VIEWER_SINGLE_INSTANCE_V1" in main_source
+assert "CreateMutexW" in main_source
+assert "ERROR_ALREADY_EXISTS" in main_source
+assert "SO_EXCLUSIVEADDRUSE" in main_source
+assert "SO_REUSEADDR" not in main_source
+assert "activate_existing_instance()" in main_source
+print("SINGLE_INSTANCE_MUTEX_OK")
