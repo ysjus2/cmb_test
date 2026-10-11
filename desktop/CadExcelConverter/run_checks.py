@@ -75,9 +75,10 @@ assert _api.session_ended is True
 assert SESSION_ENDED_EXIT_CODE == 41
 print("SESSION_EXPIRED_VIEWER_EXIT_OK")
 
-# Windows 온라인 Viewer는 현재 위치 기준 500m 조회 범위를 사용한다.
+# Windows 온라인 Viewer는 서버 공통 지도 설정을 사용하고 기본값은 500m/200m이다.
 page = html("test-kakao-key", "test-local-token")
-assert "const QUERY_RADIUS_METERS=500;" in page
-assert "현재 위치 기준 500m" in page
+assert "let QUERY_RADIUS_METERS=500;" in page
+assert "let QUERY_RECENTER_METERS=200;" in page
+assert "apiCall('map_display_settings')" in page
 assert "myLat=lat;" in page and "myLng=lng;" in page
-print("ONLINE_500M_QUERY_RULE_OK")
+print("ONLINE_SHARED_MAP_DISPLAY_SETTINGS_OK")
