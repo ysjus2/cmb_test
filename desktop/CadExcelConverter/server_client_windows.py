@@ -41,6 +41,7 @@ class CMBServerClient:
                 self.ssl_context = ssl.create_default_context()
         self.access_token = ""
         self.refresh_token = ""
+        self.on_session_expired = None
 
     @property
     def authenticated(self):
@@ -83,13 +84,35 @@ class CMBServerClient:
         except Exception as exc:
             raise ServerError(str(exc)) from exc
 
+    def _notify_session_expired(self):
+        callback = self.on_session_expired
+        if callable(callback):
+            try:
+                callback()
+            except Exception:
+                pass
+
     def _request(self, method, path, payload=None, auth=True, retry_refresh=True, timeout=60):
         try:
             return self._raw_request(method, path, payload, auth=auth, timeout=timeout)
         except ServerError as exc:
             if auth and exc.status == 401 and retry_refresh and self.refresh_token:
-                self.refresh()
-                return self._request(method, path, payload, auth=True, retry_refresh=False, timeout=timeout)
+                try:
+                    self.refresh()
+                    return self._request(
+                        method,
+                        path,
+                        payload,
+                        auth=True,
+                        retry_refresh=False,
+                        timeout=timeout,
+                    )
+                except ServerError as refresh_exc:
+                    if refresh_exc.status == 401:
+                        self._notify_session_expired()
+                    raise
+            if auth and exc.status == 401:
+                self._notify_session_expired()
             raise
 
     def health(self):
