@@ -665,23 +665,25 @@ public class MapActivity extends Activity {
     private void chooseServerDataset(){
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
-        status.setText("허용 지역을 조회하는 중…");
+        status.setText("함평 도면 권한을 확인하는 중…");
         serverTask=serverWorker.submit(()->{
             try{
-                org.json.JSONArray regions=client.regions();ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
+                org.json.JSONArray regions=client.regions();
+                boolean allowed=false;
                 for(int i=0;i<regions.length();i++){
                     org.json.JSONObject region=regions.getJSONObject(i);
-                    String id=region.optString("id",region.optString("region_id",region.optString("region_code",""))).trim();
-                    if(id.isEmpty())continue;
-                    String name=region.optString("name",region.optString("region_name",id)).trim();
-                    titles.add(name.equals(id)?id:(name+" ("+id+")"));
-                    ids.add(id);
+                    String id=region.optString("id","").trim();
+                    if("CMB_GN_HP".equals(id)){allowed=true;break;}
                 }
+                final boolean hasHampyeong=allowed;
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
-                    if(ids.isEmpty()){status.setText("관리자에서 배정된 허용 지역이 없습니다.");return;}
-                    if(ids.size()==1)selectServerDataset(client,ids.get(0),titles.get(0));
-                    else new AlertDialog.Builder(this).setTitle("허용 지역 선택").setItems(titles.toArray(new String[0]),(d,i)->selectServerDataset(client,ids.get(i),titles.get(i))).setNegativeButton("닫기",null).show();
+                    if(!hasHampyeong){
+                        status.setText("함평(CMB_GN_HP) 접근 권한이 없습니다.");
+                        regionStatus.setText("함평 도면 없음");
+                        return;
+                    }
+                    selectServerDataset(client,"CMB_GN_HP","함평");
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
         });
