@@ -95,8 +95,16 @@ final class ServerApiClient {
     static String encoded(String text)throws Exception{return URLEncoder.encode(text,"UTF-8");}
     JSONArray regions()throws Exception{return (JSONArray)request("/regions",null,true,true);}
     JSONObject onlineLayers(String region)throws Exception{return (JSONObject)request("/online/"+encoded(region)+"/layers",null,true,true);}
+    JSONObject mapDisplaySettings()throws Exception{
+        try{return (JSONObject)request("/settings/map-display",null,true,true);}
+        catch(ApiError e){
+            if(e.status==404)return new JSONObject().put("radius_m",500).put("refresh_distance_m",200);
+            throw e;
+        }
+    }
     ArrayList<CadRecord> onlineObjects(String region,MapViewport viewport,String layerFilter)throws Exception {
         String path="/online/"+encoded(region)+"/objects?bbox="+encoded(viewport.bbox())+"&limit=5000";
+        if(layerFilter!=null&&!layerFilter.trim().isEmpty())path+="&layers="+encoded(layerFilter);
         JSONObject page=(JSONObject)request(path,null,true,true);
         JSONArray features=page.optJSONArray("features");
         ArrayList<CadRecord> rows=new ArrayList<>();
