@@ -722,7 +722,10 @@ const SYMBOL_LIBRARY={{
 function symbolKind(p){{
   const a=p.attributes||{{}};
   const f=a.fields||a;
-  if(f._cmb_symbol_kind)return String(f._cmb_symbol_kind);
+  if(f._cmb_symbol_kind){{
+    const stored=String(f._cmb_symbol_kind);
+    return stored==='power'?'power_ps':stored;
+  }}
   const s=((p.layer||'')+' '+(p.block_name||'')+' '+(p.entity_type||'')).toUpperCase();
   if(s.includes('ONU'))return 'onu';
   if(s.includes('AMP')||s.includes('증폭'))return 'amp';
@@ -730,7 +733,7 @@ function symbolKind(p){{
   if(s.includes('POLE')||s.includes('전주'))return 'pole';
   if(s.includes('2WAY')||s.includes('3WAY')||s.includes('2분기')||s.includes('3분기'))return 'splitter';
   if(s.includes('TAP'))return 'tap';
-  if(s.includes('POWER'))return 'power';
+  if(s.includes('POWER')||/(^|[^A-Z0-9])PS([^A-Z0-9]|$)/.test(s))return 'power_ps';
   if(s.includes('CLOSURE')||s.includes('TERMINAL')||s.includes('CENTER'))return 'closure';
   return 'generic';
 }}
