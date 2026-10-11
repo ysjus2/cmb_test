@@ -36,6 +36,7 @@ class Api:
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        self.c.on_session_expired = self.end_session
         raw_user = os.getenv("CMB_AUTH_USER", "").strip()
         if raw_user:
             try:
