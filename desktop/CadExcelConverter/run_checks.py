@@ -128,3 +128,11 @@ assert "지역명 수정" in admin_users_source
 assert "지역 삭제" in admin_users_source
 assert "도면 Revision이 존재하면 서버에서 삭제가 차단됩니다." in admin_users_source
 print("REGION_EDIT_DELETE_UI_OK")
+
+
+# 정지 계정과 일반 401 로그인 오류는 사용자 메시지를 구분해야 한다.
+launcher_source = (root / "launcher.py").read_text(encoding="utf-8")
+assert "ACCOUNT_DISABLED" in launcher_source
+assert "사용 정지된 계정입니다. 관리자에게 문의해주세요." in launcher_source
+assert "아이디 또는 비밀번호를 확인해주세요." in launcher_source
+print("DISABLED_ACCOUNT_LOGIN_MESSAGE_OK")
