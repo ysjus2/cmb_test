@@ -329,31 +329,38 @@ class Api:
             self.cache_state = {"versions": {}, "features": {}, "coverage": []}
             return {"ok": True, "bounds": None, "layers": []}
         try:
+            # 지역 선택 직후에는 캐시를 먼저 읽고 서버에는 버전만 확인한다.
+            # 버전이 동일하면 /layers 응답을 기다리지 않고 바로 캐시 렌더 단계로 넘긴다.
             self._load_cache()
-            self._refresh_versions_if_due(force=True)
-            info = self.c.online_layers(self.region) or {}
-            layers = info.get("layers") or []
-            group_summary = []
-            for row in layers:
-                if not isinstance(row, dict):
-                    continue
-                group = str(row.get("group_id") or "").strip().upper()
-                count = (
-                    row.get("object_count")
-                    if row.get("object_count") is not None
-                    else row.get("count")
-                )
+            previous_versions = dict(self.cache_state.get("versions") or {})
+            cached_count = len(self.cache_state.get("features") or {})
+
+            current_versions = self.c.online_versions(self.region) or {}
+            self.last_version_check = time.monotonic()
+            changed = self._apply_versions(current_versions)
+
+            cache_versions_match = bool(previous_versions) and not changed
+            cache_ready = cache_versions_match and cached_count > 0
+
+            group_counts = {}
+            for feature in (self.cache_state.get("features") or {}).values():
+                group = str(((feature.get("properties") or {}).get("group_id") or "")).upper()
                 if group:
-                    try:
-                        count = int(count or 0)
-                    except Exception:
-                        count = 0
-                    group_summary.append({"group_id": group, "count": count})
+                    group_counts[group] = group_counts.get(group, 0) + 1
+
+            group_summary = [
+                {"group_id": group, "count": count}
+                for group, count in sorted(group_counts.items())
+            ]
+
             return {
                 "ok": True,
-                "bounds": info.get("bounds"),
-                "layers": layers,
+                "bounds": None,
+                "layers": [],
                 "group_summary": group_summary,
+                "cache_ready": cache_ready,
+                "cache_count": len(self.cache_state.get("features") or {}),
+                "versions_changed": sorted(changed),
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -1113,7 +1120,11 @@ function bindUi(){{
     const r=await apiCall('select',{{region:e.target.value}});
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
     const summary=(r.group_summary||[]).map(x=>String(x.group_id)+':'+String(x.count||0)).join(' / ');
-    if(summary) setStatus('서버 도면 · '+summary);
+    if(r.cache_ready){{
+      setStatus('캐시 즉시 표시 준비 · '+String(r.cache_count||0)+'개'+(summary?' · '+summary:''));
+    }}else if(summary){{
+      setStatus('캐시 갱신 필요 · '+summary);
+    }}
     if(!map){{
       setStatus('카카오맵 초기화 대기');
       return;
