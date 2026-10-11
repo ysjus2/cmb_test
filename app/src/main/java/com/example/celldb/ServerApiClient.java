@@ -9,6 +9,9 @@ import org.json.*;
 import javax.net.ssl.*;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.security.MessageDigest;
+import java.util.TreeMap;
+import java.util.Map;
 
 /** Session tokens and server CAD rows are kept in memory only. */
 final class ServerApiClient {
@@ -95,6 +98,47 @@ final class ServerApiClient {
     static String encoded(String text)throws Exception{return URLEncoder.encode(text,"UTF-8");}
     JSONArray regions()throws Exception{return (JSONArray)request("/regions",null,true,true);}
     JSONObject onlineLayers(String region)throws Exception{return (JSONObject)request("/online/"+encoded(region)+"/layers",null,true,true);}
+    JSONObject onlineVersions(String region)throws Exception{
+        try{return (JSONObject)request("/online/"+encoded(region)+"/versions",null,true,true);}
+        catch(ApiError e){
+            if(e.status!=404)throw e;
+            JSONObject metadata=onlineLayers(region);
+            JSONArray layers=metadata.optJSONArray("layers");
+            TreeMap<String,ArrayList<String>> byGroup=new TreeMap<>();
+            if(layers!=null)for(int i=0;i<layers.length();i++){
+                JSONObject row=layers.optJSONObject(i);if(row==null)continue;
+                String group=row.optString("group_id","").trim().toUpperCase();
+                if(group.isEmpty())continue;
+                byGroup.computeIfAbsent(group,k->new ArrayList<>()).add(stableMeta(row));
+            }
+            JSONObject out=new JSONObject();
+            for(Map.Entry<String,ArrayList<String>> entry:byGroup.entrySet()){
+                ArrayList<String> values=entry.getValue();java.util.Collections.sort(values);
+                out.put(entry.getKey(),"meta:"+sha256(android.text.TextUtils.join("|",values)));
+            }
+            return out;
+        }
+    }
+
+    private static String stableMeta(JSONObject row){
+        String[] keys={"group_id","layer","revision","revision_id","version","package_sha256","object_count","count","updated_at"};
+        StringBuilder b=new StringBuilder();
+        for(String key:keys)b.append(key).append('=').append(row.optString(key,"")).append(';');
+        return b.toString();
+    }
+
+    private static String sha256(String text)throws Exception{
+        MessageDigest digest=MessageDigest.getInstance("SHA-256");
+        byte[] bytes=digest.digest(text.getBytes(StandardCharsets.UTF_8));
+        StringBuilder out=new StringBuilder();
+        for(byte value:bytes)out.append(String.format("%02x",value&0xff));
+        return out.toString();
+    }
+
+    JSONObject onlineSymbols(String region)throws Exception{
+        return (JSONObject)request("/online/"+encoded(region)+"/symbols",null,true,true);
+    }
+
     JSONObject mapDisplaySettings()throws Exception{
         try{return (JSONObject)request("/settings/map-display",null,true,true);}
         catch(ApiError e){
