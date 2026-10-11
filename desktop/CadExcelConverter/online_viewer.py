@@ -667,7 +667,9 @@ async function loadObjects(force=false){{
   lastQueryLat=queryLat;
   lastQueryLng=queryLng;
   lastDetailMode=detailMode;
-  clearOverlays();
+  const previousOverlays=overlays;
+  overlays=[];
+  selectedOverlay=null;
   const allFeatures=r.features||[];
   const mapLevel=map.getLevel();
   const isMaxDetail=mapLevel<=1;
@@ -717,6 +719,7 @@ async function loadObjects(force=false){{
     }});
   }});
 
+  previousOverlays.forEach(x=>x.setMap(null));
   const visibleGroups=Object.keys(groupEnabled).filter(k=>groupEnabled[k]&&k!=='USER').join('/');
   const rawGroups={{}};
   allFeatures.forEach(f=>{{
