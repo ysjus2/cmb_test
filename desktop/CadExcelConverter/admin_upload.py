@@ -168,6 +168,32 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
 
         attrs = dict(e.attributes or {})
         dxf = dict(getattr(e, "dxf_data", {}) or {})
+
+        # CAD 원본 색상/선 스타일을 서버까지 보존한다.
+        # 특히 COAX 케이블의 빨강/초록/파랑은 전원 상태 의미를 가지므로
+        # 그룹 고정색으로 치환하지 않는다.
+        style = {}
+        display_color = str(getattr(e, "color", "") or "").strip()
+        if display_color.startswith("#") and len(display_color) == 7:
+            try:
+                style["display_color"] = display_color.lower()
+                style["true_color"] = int(display_color[1:], 16)
+            except Exception:
+                pass
+        for key in ("color", "true_color", "lineweight", "ltscale"):
+            value = dxf.get(key)
+            if value not in (None, ""):
+                try:
+                    if key in ("color", "true_color", "lineweight"):
+                        style[key] = int(float(value))
+                    else:
+                        style[key] = float(value)
+                except Exception:
+                    pass
+        if style:
+            attrs["_cmb_style"] = style
+        attrs["_cmb_dxf_data"] = dxf
+
         symbol_kind = _symbol_kind(e)
         attrs["_cmb_symbol_kind"] = symbol_kind
         attrs["_cmb_rotation_deg"] = _rotation_deg(e)
