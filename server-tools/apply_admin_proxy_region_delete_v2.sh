@@ -117,35 +117,25 @@ if marker in text:
     raise SystemExit(0)
 
 # listen 8443이 들어있는 server 블록을 brace matching으로 찾는다.
-m=re.search(r"\bserver\s*\{", text)
 blocks=[]
-while m:
-    start=m.start()
-    brace=text.find("{",m.start())
+for sm in re.finditer(r"\bserver\s*\{", text):
+    start=sm.start()
+    brace=text.find("{", start)
     depth=0
     end=None
-    for i in range(brace,len(text)):
-        if text[i]=="{": depth+=1
+    for i in range(brace, len(text)):
+        if text[i]=="{":
+            depth+=1
         elif text[i]=="}":
             depth-=1
             if depth==0:
                 end=i
                 break
-    if end is None: break
+    if end is None:
+        continue
     block=text[start:end+1]
     if re.search(r"listen\s+[^;]*8443", block):
         blocks.append((start,end,block))
-    m=re.search(r"\bserver\s*\{", text[end+1:] if end else "")
-    if m and end:
-        m=re.Match if False else None
-        # manual next search
-        nm=re.search(r"\bserver\s*\{", text[end+1:])
-        if nm:
-            class X:
-                def start(self): return end+1+nm.start()
-            m=X()
-        else:
-            m=None
 
 if len(blocks)!=1:
     raise SystemExit(f"ERROR: listen 8443 server block count={len(blocks)}")
@@ -277,30 +267,37 @@ def install(app):
                 region_name=row[0]
 
                 # drawing_group_objects -> drawing_group_revisions
-                cur.execute("SELECT id FROM drawing_group_revisions WHERE region_code=%s",(rid,))
-                revision_ids=[r[0] for r in cur.fetchall()]
-                if revision_ids:
-                    cur.execute(
-                        "DELETE FROM drawing_group_objects WHERE revision_id = ANY(%s)",
-                        (revision_ids,)
+                cur.execute(
+                    """
+                    DELETE FROM drawing_group_objects
+                    WHERE revision_id IN (
+                        SELECT id
+                        FROM drawing_group_revisions
+                        WHERE region_code=%s
                     )
-                    deleted["drawing_group_objects"]=cur.rowcount
-                else:
-                    deleted["drawing_group_objects"]=0
+                    """,
+                    (rid,),
+                )
+                deleted["drawing_group_objects"]=cur.rowcount
 
                 cur.execute("DELETE FROM drawing_group_revisions WHERE region_code=%s",(rid,))
                 deleted["drawing_group_revisions"]=cur.rowcount
 
                 # SYMBOL defs -> revisions
                 if _table_exists(cur,"symbol_revisions"):
-                    cur.execute("SELECT id FROM symbol_revisions WHERE region_code=%s",(rid,))
-                    symbol_rev_ids=[r[0] for r in cur.fetchall()]
-                    if _table_exists(cur,"symbol_defs") and symbol_rev_ids:
+                    if _table_exists(cur,"symbol_defs"):
                         cols=_columns(cur,"symbol_defs")
                         if "revision_id" in cols:
                             cur.execute(
-                                "DELETE FROM symbol_defs WHERE revision_id = ANY(%s)",
-                                (symbol_rev_ids,)
+                                """
+                                DELETE FROM symbol_defs
+                                WHERE revision_id IN (
+                                    SELECT id
+                                    FROM symbol_revisions
+                                    WHERE region_code=%s
+                                )
+                                """,
+                                (rid,),
                             )
                             deleted["symbol_defs"]=cur.rowcount
                         elif "region_code" in cols:
