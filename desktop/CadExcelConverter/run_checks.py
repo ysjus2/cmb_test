@@ -150,3 +150,21 @@ assert "CMB_AUTH_STATE_PATH" in launcher_source
 assert "self.c.on_session_expired = self.expire_session" in online_source
 assert "def expire_session(self):" in online_source
 print("CROSS_PROCESS_SESSION_STATE_OK")
+
+
+# 관로/맨홀/핸드홀은 CN_L_POLE 계열이어도 POLE보다 CONDUIT가 우선이어야 한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert 'layer.startswith("CN_L_POLE_MANHOLE")' in admin_upload_source
+assert 'layer.startswith("CN_L_POLE_HANDHOLE")' in admin_upload_source
+assert 'layer.startswith("CN_L_POLE_LINE_")' in admin_upload_source
+assert admin_upload_source.index('return "CONDUIT"') < admin_upload_source.index('return "POLE"')
+print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
+
+# 지역 선택 시 캐시를 읽고 서버 버전만 확인한 뒤, 동일 버전이면 /layers 없이 즉시 캐시 렌더 단계로 넘어가야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+select_block = online_source.split("    def select(self, region):", 1)[1].split("    def objects(", 1)[0]
+assert "self._load_cache()" in select_block
+assert "self.c.online_versions(self.region)" in select_block
+assert "self.c.online_layers(self.region)" not in select_block
+assert '"cache_ready": cache_ready' in select_block
+print("FAST_CACHE_VERSION_CHECK_OK")
