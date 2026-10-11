@@ -150,31 +150,53 @@ class Api:
         except Exception:
             pass
 
+    def _delete_cache_file(self):
+        if not self.region:
+            return
+        path = self._cache_path()
+        candidates = [
+            path,
+            path.with_suffix(path.suffix + ".tmp"),
+        ]
+        for candidate in candidates:
+            try:
+                candidate.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+
     def _apply_versions(self, versions):
         versions = {
             str(k).upper(): str(v)
             for k, v in (versions or {}).items()
             if str(k).strip() and str(v).strip()
         }
-        previous = self.cache_state.get("versions") or {}
+        previous = {
+            str(k).upper(): str(v)
+            for k, v in (self.cache_state.get("versions") or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
+
         changed = {
             group
-            for group, version in versions.items()
-            if group in previous and previous.get(group) != version
+            for group in (set(previous) | set(versions))
+            if previous.get(group) != versions.get(group)
         }
-        if changed:
-            kept = {}
-            for key, feature in (self.cache_state.get("features") or {}).items():
-                group = str(
-                    ((feature.get("properties") or {}).get("group_id") or "")
-                ).upper()
-                if group not in changed:
-                    kept[key] = feature
-            self.cache_state["features"] = kept
-            self.cache_state["coverage"] = []
+        version_changed = bool(previous) and previous != versions
+
+        if version_changed:
+            # 버전이 하나라도 달라지면 지역 캐시 파일을 즉시 폐기한다.
+            # 다운로드 실패 시에도 구버전 데이터를 다시 보여주지 않는다.
+            self._delete_cache_file()
+            self.cache_state = {
+                "versions": versions,
+                "features": {},
+                "coverage": [],
+            }
+            return changed
+
         self.cache_state["versions"] = versions
-        if changed:
-            self._save_cache()
         return changed
 
     def _version_signature(self):
