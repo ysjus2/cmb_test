@@ -21,7 +21,7 @@ from admin_users import UserAdminWindow
 from server_client_windows import CMBServerClient
 from session_guard import TkIdleSessionGuard
 
-APP_NAME = "CMB DXF Viewer + Excel v3.83_FINAL"
+APP_NAME = "CMB DXF Viewer + Excel v3.84_FINAL"
 SESSION_ENDED_EXIT_CODE = 41
 
 
@@ -837,7 +837,7 @@ if __name__ == "__main__":
         lng, lat = transformer.transform(200000, 300000)
         assert 120 < lng < 135 and 30 < lat < 45
         smoke_root.destroy()
-        output.write_text(json.dumps({"ok": True, "version": "3.83_FINAL",
+        output.write_text(json.dumps({"ok": True, "version": "3.84_FINAL",
             "frozen": bool(getattr(sys, "frozen", False)),
             "tcl_tk": True, "coordinate_conversion": True,
             "viewer_page_sha256": hashlib.sha256(page.encode()).hexdigest()}), encoding="utf-8")
