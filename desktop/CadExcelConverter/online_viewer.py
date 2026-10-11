@@ -154,37 +154,58 @@ class Api:
             south = float(south)
             east = float(east)
             north = float(north)
+            limit = 2000
+            max_depth = 5
+
+            def feature_key(feature):
+                props = feature.get("properties") or {}
+                return str(
+                    props.get("regional_object_id")
+                    or props.get("entity_id")
+                    or props.get("object_id")
+                    or props.get("source_handle")
+                    or json.dumps(
+                        feature.get("geometry") or {},
+                        sort_keys=True,
+                        ensure_ascii=False,
+                    )
+                )
+
+            def fetch_cell(cw, cs, ce, cn, depth=0):
+                raw = self.c.online_objects(
+                    self.region,
+                    f"{cw},{cs},{ce},{cn}",
+                    limit=limit,
+                ) or {}
+                features = list(raw.get("features") or [])
+
+                if len(features) < limit or depth >= max_depth:
+                    return features
+
+                mx = (cw + ce) / 2.0
+                my = (cs + cn) / 2.0
+                merged = {}
+                for cell in (
+                    (cw, cs, mx, my),
+                    (mx, cs, ce, my),
+                    (cw, my, mx, cn),
+                    (mx, my, ce, cn),
+                ):
+                    for feature in fetch_cell(*cell, depth + 1):
+                        merged[feature_key(feature)] = feature
+                return list(merged.values())
+
+            merged = {}
             mx = (west + east) / 2.0
             my = (south + north) / 2.0
-
-            cells = (
+            for cell in (
                 (west, south, mx, my),
                 (mx, south, east, my),
                 (west, my, mx, north),
                 (mx, my, east, north),
-            )
-
-            merged = {}
-            for cw, cs, ce, cn in cells:
-                raw = self.c.online_objects(
-                    self.region,
-                    f"{cw},{cs},{ce},{cn}",
-                    limit=2000,
-                ) or {}
-                for feature in raw.get("features") or []:
-                    props = feature.get("properties") or {}
-                    fid = (
-                        props.get("regional_object_id")
-                        or props.get("entity_id")
-                        or props.get("object_id")
-                        or props.get("source_handle")
-                        or json.dumps(
-                            feature.get("geometry") or {},
-                            sort_keys=True,
-                            ensure_ascii=False,
-                        )
-                    )
-                    merged[str(fid)] = feature
+            ):
+                for feature in fetch_cell(*cell):
+                    merged[feature_key(feature)] = feature
 
             return {"features": list(merged.values())}
         except Exception as exc:
