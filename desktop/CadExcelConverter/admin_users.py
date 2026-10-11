@@ -93,6 +93,11 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.backup_btn.pack(side="left", padx=(6, 0))
 
+        self.map_display_btn = ttk.Button(
+            tools, text="지도 표시 설정", command=self.edit_map_display_settings, state="disabled"
+        )
+        self.map_display_btn.pack(side="left", padx=(6, 0))
+
         frame = ttk.Frame(root)
         frame.pack(fill="both", expand=True)
 
@@ -149,6 +154,7 @@ class UserAdminWindow(tk.Toplevel):
         self.region_register_btn.configure(state="normal")
         self.session_btn.configure(state="normal")
         self.backup_btn.configure(state="normal")
+        self.map_display_btn.configure(state="normal")
         self._refresh_session_timeout_display()
         self._refresh_backup_retention_display()
         self.status.set("사용자 조회 버튼을 눌러 목록을 불러오세요.")
@@ -1046,6 +1052,61 @@ class UserAdminWindow(tk.Toplevel):
             )
         except Exception as exc:
             messagebox.showerror('로그인 유지시간', str(exc), parent=self)
+
+    def edit_map_display_settings(self):
+        if not self.current_user:
+            return
+        try:
+            current = self.client.admin_map_display_settings() or {}
+            radius = int(current.get("radius_m", 500))
+            refresh = int(current.get("refresh_distance_m", 200))
+        except Exception as exc:
+            messagebox.showerror("지도 표시 설정", str(exc), parent=self)
+            return
+
+        radius_value = simpledialog.askinteger(
+            "지도 표시 반경",
+            "현재 지도 중심에서 서버 자료를 가져올 반경(m)\n권장값: 500m\n허용 범위: 100~3000m",
+            initialvalue=radius,
+            minvalue=100,
+            maxvalue=3000,
+            parent=self,
+        )
+        if radius_value is None:
+            return
+
+        refresh_value = simpledialog.askinteger(
+            "지도 재조회 거리",
+            "마지막 조회 중심에서 이 거리만큼 이동했을 때 새 영역을 가져옵니다.\n권장값: 200m\n표시 반경보다 작아야 합니다.",
+            initialvalue=min(refresh, radius_value),
+            minvalue=25,
+            maxvalue=radius_value,
+            parent=self,
+        )
+        if refresh_value is None:
+            return
+
+        try:
+            result = self.client.set_admin_map_display_settings(
+                radius_value,
+                refresh_value,
+            ) or {}
+            radius_value = int(result.get("radius_m", radius_value))
+            refresh_value = int(result.get("refresh_distance_m", refresh_value))
+            self.status.set(
+                f"지도 표시 설정 · 반경 {radius_value}m / 재조회 {refresh_value}m"
+            )
+            messagebox.showinfo(
+                "지도 표시 설정",
+                (
+                    f"표시 반경: {radius_value}m\n"
+                    f"재조회 이동거리: {refresh_value}m\n\n"
+                    "Windows와 모바일이 다음 조회부터 같은 설정을 사용합니다."
+                ),
+                parent=self,
+            )
+        except Exception as exc:
+            messagebox.showerror("지도 표시 설정", str(exc), parent=self)
 
     def edit_backup_retention(self):
         if not self.current_user:
