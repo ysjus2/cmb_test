@@ -704,16 +704,35 @@ bindUi();
 initMap();
 
 let authBootstrapped=false;
+let apiWaitStarted=Date.now();
+
 async function runBootstrapOnce(){{
   if(authBootstrapped)return;
+  if(!(window.pywebview&&window.pywebview.api)){{
+    setStatus('세션 연결 준비 중');
+    return;
+  }}
   authBootstrapped=true;
   await bootstrapAuth();
 }}
 
-window.addEventListener('pywebviewready',runBootstrapOnce);
-setTimeout(()=>{{
-  if(window.pywebview&&pywebview.api)runBootstrapOnce();
-}},1200);
+function waitForPywebviewApi(){{
+  if(authBootstrapped)return;
+  if(window.pywebview&&window.pywebview.api){{
+    runBootstrapOnce();
+    return;
+  }}
+  if(Date.now()-apiWaitStarted>15000){{
+    setStatus('Viewer 연결 실패 · 프로그램을 다시 실행해주세요');
+    return;
+  }}
+  setTimeout(waitForPywebviewApi,200);
+}}
+
+window.addEventListener('pywebviewready',()=>{{
+  runBootstrapOnce();
+}});
+waitForPywebviewApi();
 </script>
 </body>
 </html>"""
