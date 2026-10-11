@@ -190,7 +190,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 <div id='detail'></div>
 
 <script>
-const LOCAL_API_TOKEN={JSON.stringify("__TOKEN__")};
+const LOCAL_API_TOKEN={json.dumps(local_token)};
 async function apiCall(name,payload={{}}){{
   const response=await fetch('/api/'+name,{{
     method:'POST',
@@ -537,7 +537,7 @@ async function loadObjects(){{
   if(!region||!map)return;
   const b=map.getBounds(),sw=b.getSouthWest(),ne=b.getNorthEast();
   setStatus('불러오는 중...');
-  const r=await apiCall('objects',{west:sw.getLng(),south:sw.getLat(),east:ne.getLng(),north:ne.getLat()});
+  const r=await apiCall('objects',{{west:sw.getLng(),south:sw.getLat(),east:ne.getLng(),north:ne.getLat()}});
   if(r.error){{setStatus(r.error);return}}
   clearOverlays();
   const allFeatures=r.features||[];
@@ -648,7 +648,7 @@ function bindUi(){{
   document.getElementById('region').onchange=async e=>{{
     clearOverlays();
     document.getElementById('detail').style.display='none';
-    const r=await apiCall('select',{region:e.target.value});
+    const r=await apiCall('select',{{region:e.target.value}});
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
     if(!map){{
       setStatus('카카오맵 초기화 대기');
@@ -797,13 +797,13 @@ def run_online_viewer():
         def log_message(self, format, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     try:
         window = webview.create_window(
             "CMB 온라인 Viewer",
-            url="http://127.0.0.1:8765/",
+            url=f"http://127.0.0.1:{server.server_address[1]}/",
             width=1450,
             height=900,
             min_size=(900, 600),
