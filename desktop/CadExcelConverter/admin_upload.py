@@ -485,7 +485,7 @@ class AdminUploadWindow(tk.Toplevel):
                 "도면 업로드는 1등급 관리자만 가능합니다."
             )
 
-    def _upload(self, group):
+    def _upload(self, group, allow_empty=False):
         self._require_admin()
 
         region_code = self._selected_region_code()
@@ -500,9 +500,9 @@ class AdminUploadWindow(tk.Toplevel):
             self.memo_var.get(),
         )
 
-        if payload["object_count"] <= 0:
+        if payload["object_count"] <= 0 and not allow_empty:
             raise RuntimeError(
-                f"{group} 그룹에 업로드 가능한 객체가 없습니다. 빈 Revision 생성은 차단됩니다."
+                f"{group} 그룹에 업로드 가능한 객체가 없습니다."
             )
 
         self.status.set(
@@ -543,23 +543,20 @@ class AdminUploadWindow(tk.Toplevel):
             self._require_admin()
 
             uploaded = []
-            skipped = []
+            cleared = []
 
+            # 전체 업로드는 현재 도면을 서버의 기준본으로 사용한다.
+            # 0개 그룹도 빈 Revision으로 교체하여 이전 분류/이동 객체가 남지 않게 한다.
             for group in GROUPS:
-                if int(self.group_counts.get(group, 0)) <= 0:
-                    skipped.append(group)
-                    continue
-                self._upload(group)
+                count = int(self.group_counts.get(group, 0))
+                self._upload(group, allow_empty=True)
                 uploaded.append(group)
-
-            if not uploaded:
-                raise RuntimeError(
-                    "업로드 가능한 객체가 있는 그룹이 없습니다. 빈 Revision 생성은 차단됩니다."
-                )
+                if count <= 0:
+                    cleared.append(group)
 
             skipped_text = (
-                "\n\n객체 없음으로 건너뜀: " + ", ".join(skipped)
-                if skipped else ""
+                "\n\n기존 데이터 제거(현재 도면 0개): " + ", ".join(cleared)
+                if cleared else ""
             )
 
             messagebox.showinfo(
