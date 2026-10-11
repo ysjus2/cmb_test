@@ -223,6 +223,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
     <button class='layerBtn' data-group='COAX'>동축</button>
     <button class='layerBtn' data-group='POLE'>전주</button>
     <button class='layerBtn' data-group='CONDUIT'>관로</button>
+    <button id='myLocation'>내 위치</button>
     <button id='reload'>새로고침</button>
     <span id='status'>세션 확인 중</span>
   </div>
@@ -682,6 +683,7 @@ async function bootstrapAuth(){{
 
 function bindUi(){{
   document.getElementById('reload').onclick=()=>loadObjects();
+  document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
 
   document.querySelectorAll('.layerBtn').forEach(btn=>{{
     btn.onclick=()=>{{
@@ -703,19 +705,33 @@ function bindUi(){{
       setStatus('카카오맵 초기화 대기');
       return;
     }}
-    const b=r.bounds||null;
-    if(b&&b.west!=null&&b.south!=null&&b.east!=null&&b.north!=null){{
-      const centerLat=(Number(b.south)+Number(b.north))/2;
-      const centerLng=(Number(b.west)+Number(b.east))/2;
-      map.setCenter(new kakao.maps.LatLng(centerLat,centerLng));
-      map.setLevel(3);
-      setTimeout(()=>loadObjects(),80);
-      return;
-    }}
-    lodReferenceSpan=viewportSpan();
+    map.setLevel(3);
     await loadObjects();
   }};
 
+}}
+
+function centerMyLocation(loadAfter){{
+  if(!navigator.geolocation){{
+    setStatus('현재 위치 기능을 사용할 수 없습니다');
+    return;
+  }}
+  setStatus('현재 위치 확인 중');
+  navigator.geolocation.getCurrentPosition(
+    pos=>{{
+      if(!map)return;
+      const lat=Number(pos.coords.latitude);
+      const lng=Number(pos.coords.longitude);
+      map.setCenter(new kakao.maps.LatLng(lat,lng));
+      map.setLevel(3);
+      setStatus('현재 위치');
+      if(loadAfter)loadObjects();
+    }},
+    err=>{{
+      setStatus('현재 위치 확인 실패');
+    }},
+    {{enableHighAccuracy:true,timeout:8000,maximumAge:30000}}
+  );
 }}
 
 function initMap(){{
@@ -730,6 +746,7 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      centerMyLocation(false);
       const sel=document.getElementById('region');
       if(sel&&sel.value){{
         sel.dispatchEvent(new Event('change'));
