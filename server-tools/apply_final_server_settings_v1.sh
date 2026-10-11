@@ -631,16 +631,37 @@ print("ASGI_POSTGRES_FINAL_OK")
 PY
 )
 
-echo "[8/9] 서비스 재시작"
+echo "[8/9] 서비스 재시작 + 실제 포트 준비 대기"
 systemctl restart "${SERVICE_NAME}"
-for i in {1..15}; do
-  if systemctl is-active --quiet "${SERVICE_NAME}"; then
-    echo "SERVER_READY ${i}s"
+
+READY=0
+for i in {1..30}; do
+  if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+    echo "SERVICE_NOT_ACTIVE"
+    journalctl -u "${SERVICE_NAME}" -n 120 --no-pager || true
+    false
+  fi
+
+  if "${PYTHON_BIN}" - <<'PY' >/dev/null 2>&1
+import socket
+s=socket.socket()
+s.settimeout(1)
+try:
+    s.connect(("127.0.0.1",8000))
+finally:
+    s.close()
+PY
+  then
+    READY=1
+    echo "SERVER_PORT_READY ${i}s"
     break
   fi
+
   sleep 1
 done
-if ! systemctl is-active --quiet "${SERVICE_NAME}"; then
+
+if [[ "${READY}" != "1" ]]; then
+  echo "ERROR: 127.0.0.1:8000 포트가 30초 안에 열리지 않았습니다."
   journalctl -u "${SERVICE_NAME}" -n 120 --no-pager || true
   false
 fi
