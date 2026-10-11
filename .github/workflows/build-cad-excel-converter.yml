@@ -47,15 +47,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Publish direct-download GitHub Release
+      - name: Package direct download ZIP
         shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           Compress-Archive -Path dist/CMB_DXF_Viewer_v3.55_FINAL.exe -DestinationPath dist/CMB_DXF_Viewer_v3.55_FINAL.zip -Force
-          gh release view v3.55_FINAL *> $null
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload v3.55_FINAL dist/CMB_DXF_Viewer_v3.55_FINAL.zip --clobber
-          } else {
-            gh release create v3.55_FINAL dist/CMB_DXF_Viewer_v3.55_FINAL.zip --title "CMB DXF Viewer v3.55 FINAL" --notes "Windows online viewer final build. Includes fiber/coax/conduit/pole display and device Point upload fixes."
-          }
+
+      - name: Publish direct-download GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v3.55_FINAL
+          name: CMB DXF Viewer v3.55 FINAL
+          body: Windows online viewer final build. Includes fiber/coax/conduit/pole display and device Point upload fixes.
+          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.55_FINAL.zip
+          make_latest: true
