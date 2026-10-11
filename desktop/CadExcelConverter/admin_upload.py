@@ -621,6 +621,39 @@ class AdminUploadWindow(tk.Toplevel):
                 "도면 업로드는 1등급 관리자만 가능합니다."
             )
 
+    def _close_requested(self):
+        if self.session_busy:
+            messagebox.showinfo(
+                "업로드 진행 중",
+                "업로드 또는 서버 처리 중에는 창을 닫을 수 없습니다.\n완료 후 닫아주세요.",
+                parent=self,
+            )
+            return
+        self.destroy()
+
+    def _begin_busy(self):
+        self.session_busy = True
+        self._busy_generation += 1
+        generation = self._busy_generation
+
+        def heartbeat():
+            # 대용량 업로드로 Tk 이벤트 루프가 막혀도 서버 세션을 유지한다.
+            while self.session_busy and generation == self._busy_generation:
+                try:
+                    self.client.touch_session()
+                except Exception:
+                    pass
+                for _ in range(20):
+                    if not self.session_busy or generation != self._busy_generation:
+                        return
+                    time.sleep(1)
+
+        threading.Thread(target=heartbeat, daemon=True).start()
+
+    def _end_busy(self):
+        self.session_busy = False
+        self._busy_generation += 1
+
     def _upload(self, group, allow_empty=False):
         self._require_admin()
 
