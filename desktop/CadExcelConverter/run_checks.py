@@ -57,11 +57,16 @@ device = SimpleNamespace(
 assert _points(device) == [(15.0, 15.0)]
 print("DEVICE_POINT_GEOMETRY_OK")
 
-# 온라인 Viewer는 초기 광-only 상태와 최대 상세단계 체크 표시 규칙을 유지한다.
+# 온라인 Viewer는 초기 광-only 상태를 유지하되,
+# L2 이상에서는 네트워크 오버레이를 전부 숨기고 L1에서만 체크 그룹을 표시한다.
 assert "FIBER:true,COAX:false,POLE:false,CONDUIT:false" in page
-assert "const isMaxDetail=mapLevel<=1;" in page
-assert "groupEnabled.FIBER===true" in page
-assert "return groupEnabled[group]===true;" in page
+assert "const mapLevelNow=map.getLevel();" in page
+assert "const detailMode=mapLevelNow<=1;" in page
+assert "if(!detailMode)" in page
+assert "도면 숨김" in page
+assert "return isMaxDetail && groupEnabled[group]===true;" in page
+assert "COAX 선:" in page
+assert "CONDUIT 선:" in page
 print("ONLINE_LAYER_VISIBILITY_RULES_OK")
 
 # 세션 401은 Viewer 오류 표시가 아니라 종료/로그인 복귀 흐름으로 처리되어야 한다.
