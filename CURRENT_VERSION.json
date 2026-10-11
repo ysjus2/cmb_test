@@ -1,18 +1,23 @@
 {
-  "version": "3.37_HP_FINAL",
+  "version": "3.37_FINAL",
   "release_date": "2026-10-11",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v3.37_HP_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v3.37_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "server_base_url": "https://192.168.246.54:8443",
-  "final_region_id": "CMB_GN_HP",
-  "final_region_name": "함평",
+  "region_source": "GET /regions (authenticated permission list)",
+  "canonical_region_prefix": "CMB_GN_",
   "region_flow": [
     "/regions",
-    "/online/CMB_GN_HP/layers",
-    "/online/CMB_GN_HP/objects"
+    "/online/{regions.id}/layers",
+    "/online/{regions.id}/objects"
   ],
-  "legacy_region_aliases_enabled": false
+  "example_regions": {
+    "CMB_GN_HP": "함평",
+    "CMB_GN_NJ": "나주"
+  },
+  "legacy_region_aliases_enabled": false,
+  "dxf_filename_region_detection": false
 }
