@@ -22,3 +22,19 @@ assert "/api/" in page
 print('ONLINE_VIEWER_LOCAL_API_OK')
 
 print('ALL CURRENT CHECKS PASSED')
+
+
+from types import SimpleNamespace
+from admin_upload import classify_entity
+
+def _e(layer, block=""):
+    return SimpleNamespace(layer=layer, block_name=block)
+
+assert classify_entity(_e("TL_SCCO_SIG")) == "FIBER"
+assert classify_entity(_e("CN_F_CLOSURE")) == "FIBER"
+assert classify_entity(_e("CN_C_ONU")) == "FIBER"
+assert classify_entity(_e("CN_C_CABLE")) == "COAX"
+assert classify_entity(_e("CN_C_AMP")) == "COAX"
+assert classify_entity(_e("CN_L_POLE")) == "POLE"
+assert classify_entity(_e("CN_M_USER_TEST")) == "USER"
+print("UPLOAD_CLASSIFICATION_OK")
