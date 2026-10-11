@@ -807,14 +807,15 @@ function originalCableColor(p,group){{
 }}
 
 const SYMBOL_LIBRARY={{
-  onu:{{shape:'rect',w:32,h:16,fill:'#00bcd4',stroke:'#006064',label:'ONU'}},
-  amp:{{shape:'triangle',w:18,h:18,fill:'#ff9800',stroke:'#6d4c41'}},
-  pole:{{shape:'circle_x',r:1.8,fill:'#ffffff',stroke:'#5d4037'}},
-  tap:{{shape:'hexagon',w:18,h:16,fill:'#ffd54f',stroke:'#795548'}},
-  splitter:{{shape:'circle',r:8,fill:'#fff59d',stroke:'#795548'}},
-  manhole:{{shape:'double_circle',r:9,fill:'#ffffff',stroke:'#37474f'}},
-  power:{{shape:'diamond',w:16,h:16,fill:'#ef5350',stroke:'#7f0000'}},
-  closure:{{shape:'rect',w:22,h:12,fill:'#42a5f5',stroke:'#0d47a1'}},
+  onu:{{shape:'rect',w:32,h:16,fill:'#12c978',stroke:'#075c3c',label:'ONU',labelColor:'#053b2b'}},
+  amp:{{shape:'triangle',w:18,h:18,fill:'#ff8f00',stroke:'#6d3b00'}},
+  pole:{{shape:'circle_x',r:2.2,fill:'#ffffff',stroke:'#6d4c41'}},
+  tap:{{shape:'hexagon',w:18,h:16,fill:'#ffc928',stroke:'#6d4c00'}},
+  splitter:{{shape:'circle',r:8,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
+  manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
+  power:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
+  power_ps:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
+  closure:{{shape:'flat_capsule',w:26,h:14,fill:'#2196f3',stroke:'#0d47a1'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
 
@@ -870,9 +871,18 @@ function latLngToPx(latlng){{
 function polygonPoints(kind,cx,cy,deg=0){{
   const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
   let pts=[];
-  if(d.shape==='rect'){{
+  if(d.shape==='rect'||d.shape==='square_circle'){{
     const w=d.w/2,h=d.h/2;
     pts=[[cx-w,cy-h],[cx+w,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
+  }} else if(d.shape==='flat_capsule'){{
+    const w=d.w/2,h=d.h/2;
+    pts=[
+      [cx-w*.38,cy-h],[cx+w*.38,cy-h],
+      [cx+w*.78,cy-h*.72],[cx+w,cy],
+      [cx+w*.78,cy+h*.72],[cx+w*.38,cy+h],
+      [cx-w*.38,cy+h],[cx-w*.78,cy+h*.72],
+      [cx-w,cy],[cx-w*.78,cy-h*.72]
+    ];
   }} else if(d.shape==='diamond'){{
     const w=d.w/2,h=d.h/2;
     pts=[[cx,cy-h],[cx+w,cy],[cx,cy+h],[cx-w,cy]];
@@ -952,6 +962,16 @@ function drawDevice(center,props){{
     const pts=polygonPoints(kind,cx,cy,deg).map(p=>pxToLatLng(p[0],p[1]));
     const poly=new kakao.maps.Polygon({{path:pts,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
     poly.setMap(map);registerOverlay(poly,props.group_id);parts.push(poly);bindClick(poly,props);
+      if(d.shape==='square_circle'){{
+      const rr=Math.min(d.w,d.h)*.42;
+      const path2=[];
+      for(let i=0;i<24;i++){{
+        const a=Math.PI*2*i/24;
+        path2.push(pxToLatLng(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr));
+      }}
+      const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.innerFill||'#ffffff',fillOpacity:1}});
+      inner.setMap(map);registerOverlay(inner,props.group_id);parts.push(inner);bindClick(inner,props);
+    }}
   }}
 
   const a=deg*Math.PI/180;
@@ -964,7 +984,7 @@ function drawDevice(center,props){{
   if(labelText){{
     const label=new kakao.maps.CustomOverlay({{
       position:center,
-      content:'<div style="font:700 10px Malgun Gothic;color:#00363a;transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
+      content:'<div style="font:700 10px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
       yAnchor:.5,xAnchor:.5
     }});
     label.setMap(map);registerOverlay(label,props.group_id);parts.push(label);
@@ -1007,6 +1027,20 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
   const dl=(lng2-lng1)*Math.PI/180;
   const a=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
   return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}}
+
+function deviceVisibleAtLevel(feature,mapLevel){{
+  const p=feature.properties||{{}};
+  const group=String(p.group_id||'').toUpperCase();
+  if(group!=='COAX')return true;
+  const kind=symbolKind(p);
+  if(mapLevel===3){{
+    return ['onu','amp','splitter','power','power_ps','closure'].includes(kind);
+  }}
+  if(mapLevel===2){{
+    return ['onu','amp','splitter','power','power_ps','closure','tap'].includes(kind);
+  }}
+  return mapLevel<=1;
 }}
 
 async function loadObjects(force=false){{
@@ -1070,7 +1104,8 @@ async function loadObjects(force=false){{
   const pointFeatures=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
-    return fields._cmb_is_device!==false;
+    if(fields._cmb_is_device===false)return false;
+    return deviceVisibleAtLevel(f,mapLevel);
   }});
   const lineFeatures=features.filter(f=>['LineString','MultiLineString'].includes((f.geometry||{{}}).type));
   const devices=[];
@@ -1316,7 +1351,15 @@ function initMap(){{
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
       kakao.maps.event.addListener(map,'zoom_changed',()=>{{
-        if(map.getLevel()>3)clearOverlays();
+        const level=map.getLevel();
+        if(level>3){{
+          clearOverlays();
+          setStatus('L'+level+' · 도면 숨김 · L3 이하에서 표시');
+          return;
+        }}
+        lastQueryLat=NaN;
+        lastQueryLng=NaN;
+        loadObjects(true);
       }});
       centerMyLocation(false);
       const sel=document.getElementById('region');
