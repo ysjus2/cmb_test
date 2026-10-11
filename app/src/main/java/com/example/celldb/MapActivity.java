@@ -88,6 +88,11 @@ public class MapActivity extends Activity {
     private long viewportChangedAt;
     private boolean foreground;
     private long lastServerFetch;
+    private int displayRadiusMeters=500;
+    private int refreshDistanceMeters=200;
+    private MapPoint lastQueryCenter=null;
+    private String lastQueryFilter="";
+    private String lastQueryLevel="";
     private final ArrayList<MapPoint> serverBounds=new ArrayList<>();
     private final Runnable serverPoll=new Runnable(){public void run(){
         if(!foreground||destroyed)return;
@@ -653,6 +658,7 @@ public class MapActivity extends Activity {
     private void disconnectServer(){
         ServerApiClient previous=server;cancelServerRequest();server=null;serverDataset="";serverLayers=new org.json.JSONArray();
         serverBounds.clear();lastVerified=0;lastConnectionCheck=0;
+        lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
         logoutButton.setEnabled(false);connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");
         allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
         regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
@@ -664,6 +670,7 @@ public class MapActivity extends Activity {
 
     private void chooseServerDataset(){
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
+        lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
         status.setText("권한 지역을 조회하는 중…");
         serverTask=serverWorker.submit(()->{
@@ -704,9 +711,13 @@ public class MapActivity extends Activity {
         serverTask=serverWorker.submit(()->{
             try{
                 org.json.JSONObject metadata=client.onlineLayers(dataset);
+                org.json.JSONObject displaySettings=client.mapDisplaySettings();
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration||client!=server)return;
                     markServerOnline();serverDataset=dataset;serverRegion=title;serverLayers=metadata.optJSONArray("layers");
+                    displayRadiusMeters=Math.max(100,Math.min(3000,displaySettings.optInt("radius_m",500)));
+                    refreshDistanceMeters=Math.max(25,Math.min(displayRadiusMeters,displaySettings.optInt("refresh_distance_m",200)));
+                    lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
                     if(serverLayers==null)serverLayers=new org.json.JSONArray();
                     regionStatus.setText(title+" · 서버 조회");viewportKey="";pendingViewportKey="";
                     org.json.JSONObject box=metadata.optJSONObject("bounds");
@@ -762,31 +773,83 @@ public class MapActivity extends Activity {
         });
     }
 
+    private MapViewport viewportAround(MapPoint center,int radiusMeters){
+        double lat=center.getLatitude(),lng=center.getLongitude();
+        double latDelta=radiusMeters/111320.0;
+        double scale=Math.max(0.2,Math.cos(Math.toRadians(lat)));
+        double lngDelta=radiusMeters/(111320.0*scale);
+        return new MapViewport(lng-lngDelta,lat-latDelta,lng+lngDelta,lat+latDelta);
+    }
+
+    private void mergeServerRows(ArrayList<CadRecord> rows,MapPoint queryCenter){
+        LinkedHashMap<String,CadRecord> merged=new LinkedHashMap<>();
+        for(CadRecord r:allRecords)merged.put(r.stableKey(),r);
+        for(CadRecord r:rows)merged.put(r.stableKey(),r);
+
+        double keepRadius=Math.max(displayRadiusMeters*1.5,displayRadiusMeters+refreshDistanceMeters);
+        ArrayList<CadRecord> kept=new ArrayList<>();
+        for(CadRecord r:merged.values()){
+            if(!r.hasCoordinates())continue;
+            MapPoint p=new MapPoint(r.latitude,r.longitude);
+            if(p.distanceToAsDouble(queryCenter)<=keepRadius)kept.add(r);
+        }
+        allRecords=kept;
+    }
+
     private void pollServerViewport(){
         if(server==null||serverDataset.isEmpty()||!mapReady)return;
-        MapViewport viewport=map.viewport();if(viewport==null)return;
-        String level=DrawingLevel.forViewport(viewport);
+        MapViewport visible=map.viewport();if(visible==null)return;
+
+        String level=DrawingLevel.forViewport(visible);
         if(!level.equals(drawingLevel)){drawingLevel=level;renderMarkers();}
-        regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));
-        String filter=serverLayerFilter(),key=serverDataset+":"+viewport.key()+":"+filter;
+        regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel)
+                +" · 반경 "+displayRadiusMeters+"m");
+
+        String filter=serverLayerFilter();
+        if(filter.isEmpty())return;
+
+        MapPoint center=new MapPoint(
+                (visible.south+visible.north)/2.0,
+                (visible.west+visible.east)/2.0
+        );
+
+        boolean moved=lastQueryCenter==null
+                || lastQueryCenter.distanceToAsDouble(center)>=refreshDistanceMeters;
+        boolean modeChanged=!filter.equals(lastQueryFilter)||!drawingLevel.equals(lastQueryLevel);
         long now=android.os.SystemClock.uptimeMillis();
-        if(!key.equals(pendingViewportKey)){pendingViewportKey=key;viewportChangedAt=now;cancelServerRequest();return;}
-        if(key.equals(viewportKey)&&now-lastServerFetch>60000)viewportKey="";
-        if(key.equals(viewportKey)||now-viewportChangedAt<400)return;
-        viewportKey=key;
-        lastServerFetch=now;
-        if(!viewport.queryable("overview".equals(drawingLevel)?2:.2)){allRecords.clear();renderMarkers();status.setText("자료를 보려면 지도를 확대하세요.");return;}
-        if(filter.isEmpty()){allRecords.clear();renderMarkers();return;}
-        cancelServerRequest();final int generation=serverGeneration;final ServerApiClient client=server;final String dataset=serverDataset;
-        status.setText("지도 영역의 서버 자료를 조회하는 중…");
+        boolean stale=lastServerFetch>0&&now-lastServerFetch>60000;
+
+        if(!moved&&!modeChanged&&!stale)return;
+        if(serverTask!=null&&!serverTask.isDone())return;
+
+        final MapViewport queryViewport=viewportAround(center,displayRadiusMeters);
+        final MapPoint queryCenter=center;
+        final String queryFilter=filter;
+        final String queryLevel=drawingLevel;
+        final int generation=serverGeneration;
+        final ServerApiClient client=server;
+        final String dataset=serverDataset;
+
+        status.setText("주변 "+displayRadiusMeters+"m 서버 자료를 갱신하는 중…");
         serverTask=serverWorker.submit(()->{
             try{
-                ArrayList<CadRecord> rows=client.onlineObjects(dataset,viewport,filter);
-                runOnUiThread(()->{if(destroyed||generation!=serverGeneration)return;markServerOnline();lastServerFetch=android.os.SystemClock.uptimeMillis();allRecords=rows;renderMarkers();regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));});
+                ArrayList<CadRecord> rows=client.onlineObjects(dataset,queryViewport,queryFilter);
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration)return;
+                    markServerOnline();
+                    lastServerFetch=android.os.SystemClock.uptimeMillis();
+                    lastQueryCenter=queryCenter;
+                    lastQueryFilter=queryFilter;
+                    lastQueryLevel=queryLevel;
+                    mergeServerRows(rows,queryCenter);
+                    renderMarkers();
+                    regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel)
+                            +" · 반경 "+displayRadiusMeters+"m");
+                });
             }catch(Exception error){runOnUiThread(()->{
                 if(destroyed||generation!=serverGeneration)return;
-                markServerOffline();status.setText("서버 조회 실패: "+serverMessage(error));
-                serverHandler.postDelayed(()->{if(!destroyed&&generation==serverGeneration)viewportKey="";},5000);
+                markServerOffline();
+                status.setText("서버 조회 실패: "+serverMessage(error));
             });}
         });
     }
