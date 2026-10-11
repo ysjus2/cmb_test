@@ -570,8 +570,8 @@ class AdminUploadWindow(tk.Toplevel):
                 "업로드 완료 · "
                 + ", ".join(uploaded)
                 + (
-                    " · 객체 없음 건너뜀: " + ", ".join(skipped)
-                    if skipped else ""
+                    " · 기존 데이터 제거: " + ", ".join(cleared)
+                    if cleared else ""
                 )
             )
 
