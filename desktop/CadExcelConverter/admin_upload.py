@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import threading
+import time
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -15,6 +17,9 @@ from backup_v2 import enrich_payload_v2
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
 MANAGED_ITEMS = GROUPS + ("SYMBOL",)
+# 전체 업로드는 자주 변경되는 도면 데이터만 교체한다.
+# POLE과 SYMBOL은 선택 업로드에서만 처리한다.
+FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT", "USER")
 
 
 def classify_entity(e):
@@ -91,8 +96,8 @@ def _symbol_kind(e):
         return "tap"
     if any(k in text for k in ("2WAY", "3WAY", "2-WAY", "3-WAY")):
         return "splitter"
-    if "POWER" in text:
-        return "power"
+    if "POWER" in text or " PS " in f" {text} ":
+        return "power_ps"
     if any(k in text for k in ("CLOSURE", "TERMINAL", "CENTER")):
         return "closure"
     return "generic"
@@ -332,10 +337,12 @@ class AdminUploadWindow(tk.Toplevel):
         self.client = client or CMBServerClient()
         self.current_user = current_user
         self.session_busy = False
+        self._busy_generation = 0
 
         self.title("관리자 · 서버 도면 업로드")
         self.geometry("820x690")
         self.minsize(720, 590)
+        self.protocol("WM_DELETE_WINDOW", self._close_requested)
 
         root = ttk.Frame(self, padding=12)
         root.pack(fill="both", expand=True)
@@ -658,7 +665,7 @@ class AdminUploadWindow(tk.Toplevel):
         self._require_admin()
 
         region_code = self._selected_region_code()
-        self.session_busy = True
+        self._begin_busy()
 
         payload = build_payload(
             self.scene,
@@ -682,7 +689,7 @@ class AdminUploadWindow(tk.Toplevel):
         try:
             result = self.client.upload_group(payload)
         finally:
-            self.session_busy = False
+            self._end_busy()
 
         self.status.set(
             f"{group} 업로드 완료 · "
@@ -704,7 +711,7 @@ class AdminUploadWindow(tk.Toplevel):
         if payload["symbol_count"] <= 0 and not allow_empty:
             raise RuntimeError("업로드 가능한 심볼 정의가 없습니다.")
 
-        self.session_busy = True
+        self._begin_busy()
         self.status.set(
             f"SYMBOL · {payload['symbol_count']:,}개 업로드 중..."
         )
@@ -712,7 +719,7 @@ class AdminUploadWindow(tk.Toplevel):
         try:
             result = self.client.upload_symbols(region_code, payload)
         finally:
-            self.session_busy = False
+            self._end_busy()
 
         self.status.set(
             "SYMBOL 업로드 완료 · "
@@ -745,9 +752,10 @@ class AdminUploadWindow(tk.Toplevel):
             uploaded = []
             failed = []
 
-            # 전체 업로드는 6개 관리 항목을 순차적으로 각각 교체한다.
+            # 전체 업로드는 FIBER/COAX/CONDUIT/USER만 순차 교체한다.
+            # POLE과 SYMBOL은 선택 업로드에서만 처리한다.
             # 한 항목 실패가 다른 항목의 성공본을 되돌리지 않는다.
-            for item in MANAGED_ITEMS:
+            for item in FULL_UPLOAD_ITEMS:
                 try:
                     if item == "SYMBOL":
                         self._upload_symbol(allow_empty=True)
