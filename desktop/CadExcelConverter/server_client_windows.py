@@ -297,6 +297,32 @@ class CMBServerClient:
             {"count": int(count)},
         )
 
+    def map_display_settings(self):
+        try:
+            return self._request("GET", "/settings/map-display")
+        except ServerError as exc:
+            if exc.status == 404:
+                return {"radius_m": 500, "refresh_distance_m": 200}
+            raise
+
+    def admin_map_display_settings(self):
+        try:
+            return self._request("GET", "/admin/settings/map-display")
+        except ServerError as exc:
+            if exc.status == 404:
+                return {"radius_m": 500, "refresh_distance_m": 200}
+            raise
+
+    def set_admin_map_display_settings(self, radius_m, refresh_distance_m):
+        return self._request(
+            "POST",
+            "/admin/settings/map-display",
+            {
+                "radius_m": int(radius_m),
+                "refresh_distance_m": int(refresh_distance_m),
+            },
+        )
+
     def session_policy(self):
         return self._request("GET", "/session/policy")
 
