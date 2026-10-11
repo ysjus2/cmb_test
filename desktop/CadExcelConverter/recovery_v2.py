@@ -58,6 +58,13 @@ def _style_dxfattrs(style, layer):
     if color is not None and 0 <= color <= 256:
         out["color"] = color
     true_color = _int(style.get("true_color"))
+    if true_color is None:
+        display_color = str(style.get("display_color") or "").strip()
+        if len(display_color) == 7 and display_color.startswith("#"):
+            try:
+                true_color = int(display_color[1:], 16)
+            except Exception:
+                true_color = None
     if true_color is not None and 0 <= true_color <= 0xFFFFFF:
         out["true_color"] = true_color
     lineweight = _int(style.get("lineweight"))
