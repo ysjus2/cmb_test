@@ -103,3 +103,13 @@ assert hasattr(_api2, "_save_cache")
 assert hasattr(_api2, "_apply_versions")
 assert hasattr(_api2, "_cache_covers")
 print("WINDOWS_REVISION_CACHE_OK")
+
+
+# map-viewer 내부 관리자 기능은 refresh token 회전을 피하기 위해
+# 하나의 CMBServerClient를 공유해야 한다.
+main_source = (root / "main.py").read_text(encoding="utf-8")
+assert "def __init__(self, session_user=None, session_client=None):" in main_source
+assert "self.session_client = session_client" in main_source
+assert "session_client=session_client" in main_source
+assert main_source.count("client = self.session_client") >= 3
+print("SHARED_SESSION_CLIENT_OK")
