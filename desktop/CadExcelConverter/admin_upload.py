@@ -339,19 +339,11 @@ class AdminUploadWindow(tk.Toplevel):
         ).pack(fill="x")
         ttk.Label(
             memo_box,
-            text="선택 그룹 또는 전체 업로드 시 같은 메모가 해당 변경 그룹에 저장됩니다.",
+            text="현재 도면 전체 업로드 메모입니다.",
         ).pack(anchor="w", pady=(4, 0))
 
         row = ttk.Frame(root)
         row.pack(fill="x", pady=12)
-
-        self.upload_one_btn = ttk.Button(
-            row,
-            text="선택 그룹/정보 업로드",
-            command=self.upload_selected,
-            state="disabled",
-        )
-        self.upload_one_btn.pack(side="left")
 
         self.upload_all_btn = ttk.Button(
             row,
@@ -359,7 +351,7 @@ class AdminUploadWindow(tk.Toplevel):
             command=self.upload_all,
             state="disabled",
         )
-        self.upload_all_btn.pack(side="left", padx=6)
+        self.upload_all_btn.pack(side="left")
 
         ttk.Button(
             row,
@@ -400,12 +392,10 @@ class AdminUploadWindow(tk.Toplevel):
         )
         self.login_status.set(label)
         if level == 1:
-            self.upload_one_btn.configure(state="normal")
             self.upload_all_btn.configure(state="normal")
             self.status.set("관리자 세션 연결 완료")
             self._load_server_regions()
         else:
-            self.upload_one_btn.configure(state="disabled")
             self.upload_all_btn.configure(state="disabled")
             self.status.set("1등급 관리자만 업로드할 수 있습니다.")
 
@@ -523,21 +513,6 @@ class AdminUploadWindow(tk.Toplevel):
 
         return result
 
-    def upload_selected(self):
-        selected = self.tree.selection()
-
-        if not selected:
-            return
-
-        try:
-            self._upload(selected[0])
-        except Exception as exc:
-            messagebox.showerror(
-                "업로드 오류",
-                str(exc),
-                parent=self,
-            )
-
     def upload_all(self):
         try:
             self._require_admin()
@@ -561,7 +536,7 @@ class AdminUploadWindow(tk.Toplevel):
 
             messagebox.showinfo(
                 "업로드",
-                f"{len(uploaded)}개 그룹 업로드가 완료되었습니다."
+                "현재 도면 전체 업로드가 완료되었습니다."
                 + skipped_text,
                 parent=self,
             )
