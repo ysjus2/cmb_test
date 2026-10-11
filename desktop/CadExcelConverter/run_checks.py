@@ -61,9 +61,11 @@ print("DEVICE_POINT_GEOMETRY_OK")
 # L2 이상에서는 네트워크 오버레이를 전부 숨기고 L1에서만 체크 그룹을 표시한다.
 assert "FIBER:true,COAX:false,POLE:false,CONDUIT:false" in page
 assert "const mapLevelNow=map.getLevel();" in page
-assert "const detailMode=mapLevelNow<=1;" in page
+assert "const detailMode=mapLevelNow<=3;" in page
 assert "if(!detailMode)" in page
-assert "도면 숨김" in page
+assert "L3 이하에서 광/동축/전주/관로 표시" in page
+assert "if(myGeneration!==loadGeneration)return;" in page
+assert "if(map.getLevel()>3)" in page
 assert "return isMaxDetail && groupEnabled[group]===true;" in page
 assert "['FIBER','COAX','CONDUIT'].map" in page
 assert "+' 선:'+" in page
