@@ -189,3 +189,22 @@ assert "SO_EXCLUSIVEADDRUSE" in main_source
 assert "SO_REUSEADDR" not in main_source
 assert "activate_existing_instance()" in main_source
 print("SINGLE_INSTANCE_MUTEX_OK")
+
+
+# ONU는 동축기기로 분류되고 COAX 선택은 케이블(LineString)과 기기(Point)를 함께 표시해야 한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert 'if "ONU" in text:' in admin_upload_source
+onu_pos = admin_upload_source.index('if "ONU" in text:')
+fiber_pos = admin_upload_source.index('# 광선로 / 광장비')
+assert onu_pos < fiber_pos
+assert 'return "COAX"' in admin_upload_source[onu_pos:fiber_pos]
+
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "const pointFeatures=features.filter" in online_source
+assert "const lineFeatures=features.filter" in online_source
+assert "groupEnabled[group]===true" in online_source
+
+extract_source = (root / "server_extract.py").read_text(encoding="utf-8")
+assert '"COAX": "동축(케이블+기기)"' in extract_source
+assert ").upper() in groups" in extract_source
+print("ONU_COAX_AND_COAX_DEVICE_RENDER_OK")
