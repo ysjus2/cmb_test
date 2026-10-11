@@ -214,6 +214,18 @@ def enrich_payload_v2(scene, source_path, group, payload, classify_entity):
         obj["attributes"] = attrs
 
     symbols = build_symbol_library(source_path, scene, group, classify_entity)
+    symbol_ids = {
+        str(row.get("name") or ""): str(row.get("symbol_id") or "")
+        for row in symbols
+        if row.get("name") and row.get("symbol_id")
+    }
+    for obj in payload.get("objects") or []:
+        attrs = dict(obj.get("attributes") or {})
+        name = str(attrs.get("_cmb_symbol_name") or "")
+        if name in symbol_ids:
+            attrs["_cmb_symbol_id"] = symbol_ids[name]
+            obj["attributes"] = attrs
+
     payload["package_schema"] = "cmb-network-package-v2"
     payload["symbol_library"] = symbols
     payload["symbol_count"] = len(symbols)
