@@ -44,20 +44,27 @@ class Api:
 
     def bootstrap(self):
         if not self.c.access_token:
-            return {"ok": False, "authenticated": False}
-        try:
-            self.user = self.c.me()
+            return {
+                "ok": False,
+                "authenticated": False,
+                "error": "로그인 세션 전달 정보가 없습니다.",
+            }
+
+        # 런처가 _spawn 직전에 /me 검증을 완료하고 user+token을 함께 넘긴다.
+        # 여기서 /me를 다시 호출하면 별도 프로세스 시작 순간의 refresh/token 경합으로
+        # 정상 로그인도 '세션 만료'로 오판할 수 있으므로 중복 검증하지 않는다.
+        if isinstance(self.user, dict) and self.user:
             return {
                 "ok": True,
                 "authenticated": True,
                 "user": self.user,
             }
-        except Exception as exc:
-            return {
-                "ok": False,
-                "authenticated": False,
-                "error": str(exc),
-            }
+
+        return {
+            "ok": True,
+            "authenticated": True,
+            "user": {},
+        }
 
     def session_policy(self):
         try:
@@ -624,7 +631,7 @@ async function bootstrapAuth(){{
     }}
   }}catch(e){{}}
   authenticated=false;
-  setStatus('세션 만료 · 최초 로그인 화면으로 이동');
+  setStatus((r&&r.error) ? ('로그인 세션 오류 · '+r.error) : '로그인 세션 오류 · 최초 로그인 화면으로 이동');
   try{{await pywebview.api.end_session();}}catch(e){{}}
   return false;
 }}
@@ -743,14 +750,9 @@ def run_online_viewer():
     try:
         api = Api()
 
-        # 온라인 Viewer는 인증된 자식 프로세스로만 연다.
-        # 인증 토큰 전달 누락/만료 상태에서 빈 지역 선택 화면을 보여주지 않는다.
+        # 로그인 토큰 자체가 전달되지 않은 경우에만 즉시 로그인 화면으로 복귀한다.
+        # 토큰 유효성은 런처가 자식 실행 직전에 검증한다.
         if not api.c.access_token:
-            api.session_ended = True
-            return SESSION_ENDED_EXIT_CODE
-        try:
-            api.user = api.c.me()
-        except Exception:
             api.session_ended = True
             return SESSION_ENDED_EXIT_CODE
 
