@@ -53,13 +53,13 @@ jobs:
           keytool -printcert -jarfile app/build/outputs/apk/release/app-release.apk -rfc \
             | openssl x509 -outform DER \
             | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
-          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.20_HP_FINAL.apk
+          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.20_FINAL.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Android-v2.20-HP-FINAL
+          name: CMB-Android-v2.20-FINAL
           path: |
-            CMB_Android_v2.20_HP_FINAL.apk
+            CMB_Android_v2.20_FINAL.apk
             kakao-key-hash.txt
           if-no-files-found: error
