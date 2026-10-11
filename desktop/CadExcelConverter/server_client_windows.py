@@ -180,6 +180,10 @@ class CMBServerClient:
                 retry_refresh=False,
             )
 
+    def drawing_symbols(self, region):
+        q = urllib.parse.quote(region, safe="")
+        return self._request("GET", f"/admin/drawings/{q}/symbols")
+
     def revisions(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/admin/drawings/{q}/revisions")
