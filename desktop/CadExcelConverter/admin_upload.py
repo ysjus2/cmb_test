@@ -317,7 +317,7 @@ class AdminUploadWindow(tk.Toplevel):
         self.region_combo = ttk.Combobox(
             region_box,
             textvariable=self.region_var,
-            state="readonly",
+            state="disabled",
             width=52,
         )
         self.region_combo.pack(side="left", fill="x", expand=True)
@@ -500,9 +500,9 @@ class AdminUploadWindow(tk.Toplevel):
                 values.append(display)
 
             self.region_combo["values"] = values
-            current = self.region_var.get().strip()
 
-            # 현재 DXF 파일명이 canonical 지역코드와 정확히 일치하면 자동 선택한다.
+            # 업로드 지역은 사용자가 선택하지 않는다.
+            # 현재 DXF 파일명(stem)과 canonical 지역코드가 정확히 일치할 때만 자동 연결한다.
             # 예: CMB_GN_HP.dxf -> CMB_GN_HP
             source_region = Path(self.source_path).stem.strip().upper()
             auto_display = next(
@@ -514,23 +514,29 @@ class AdminUploadWindow(tk.Toplevel):
                 "",
             )
 
-            if current not in self.region_display_to_id:
-                if auto_display:
-                    self.region_var.set(auto_display)
-                elif len(values) == 1:
-                    self.region_var.set(values[0])
-                else:
-                    self.region_var.set("")
-
-            selected = self.region_var.get().strip()
-            selected_id = self.region_display_to_id.get(selected, "")
-            if selected_id:
+            if auto_display:
+                self.region_var.set(auto_display)
+                self.upload_one_btn.configure(state="normal")
+                self.upload_all_btn.configure(state="normal")
                 self.status.set(
-                    f"서버 canonical 지역 {len(values)}개 · 자동 선택: {selected_id}"
+                    f"서버 canonical 지역 {len(values)}개 · 자동 연결: {source_region}"
                 )
             else:
+                self.region_var.set("")
+                self.upload_one_btn.configure(state="disabled")
+                self.upload_all_btn.configure(state="disabled")
                 self.status.set(
-                    f"서버 canonical 지역 {len(values)}개 · 업로드할 지역을 선택하세요."
+                    f"서버에 현재 도면 지역이 없습니다: {source_region}"
+                )
+                messagebox.showerror(
+                    "서버 지역 없음",
+                    (
+                        f"현재 도면 파일명과 일치하는 서버 지역이 없습니다.\n\n"
+                        f"도면: {Path(self.source_path).name}\n"
+                        f"필요 지역코드: {source_region}\n\n"
+                        "지역을 임의로 선택해서 업로드할 수 없습니다."
+                    ),
+                    parent=self,
                 )
         except Exception as exc:
             self.region_combo["values"] = []
@@ -541,7 +547,10 @@ class AdminUploadWindow(tk.Toplevel):
         display = self.region_var.get().strip()
         rid = self.region_display_to_id.get(display, "")
         if not rid:
-            raise RuntimeError("업로드할 서버 지역을 선택해주세요.")
+            source_region = Path(self.source_path).stem.strip().upper()
+            raise RuntimeError(
+                f"현재 도면과 일치하는 서버 지역이 없습니다: {source_region}"
+            )
         return rid
 
     def health(self):
