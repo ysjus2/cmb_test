@@ -94,7 +94,6 @@ final class ServerApiClient {
     void logout(){try{request("/auth/logout",new JSONObject(),true,true);}catch(Exception ignored){}finally{clear();}}
     static String encoded(String text)throws Exception{return URLEncoder.encode(text,"UTF-8");}
     JSONArray regions()throws Exception{return (JSONArray)request("/regions",null,true,true);}
-    JSONArray onlineRegions()throws Exception{return (JSONArray)request("/online/regions",null,true,true);}
     JSONObject onlineLayers(String region)throws Exception{return (JSONObject)request("/online/"+encoded(region)+"/layers",null,true,true);}
     ArrayList<CadRecord> onlineObjects(String region,MapViewport viewport,String layerFilter)throws Exception {
         String path="/online/"+encoded(region)+"/objects?bbox="+encoded(viewport.bbox())+"&limit=5000";
