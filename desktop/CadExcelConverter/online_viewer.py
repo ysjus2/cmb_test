@@ -10,8 +10,6 @@ from server_client_windows import CMBServerClient
 
 CFG = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer" / "online.json"
 SESSION_ENDED_EXIT_CODE = 41
-FINAL_REGION_ID = "CMB_GN_HP"
-FINAL_REGION_NAME = "함평"
 
 
 def key():
@@ -102,24 +100,31 @@ class Api:
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
-            allowed = False
+            items = []
+            seen = set()
             for row in raw:
                 if not isinstance(row, dict):
                     continue
-                rid = str(
+                region_id = str(
                     row.get("id")
                     or row.get("region_id")
                     or row.get("region_code")
                     or ""
                 ).strip()
-                if rid == FINAL_REGION_ID:
-                    allowed = True
-                    break
+                # 최종 뷰는 서버의 canonical 지역코드만 사용한다.
+                if not region_id.startswith("CMB_GN_"):
+                    continue
+                key = region_id.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                name = str(
+                    row.get("name")
+                    or row.get("region_name")
+                    or region_id
+                ).strip()
+                items.append({"id": region_id, "name": name or region_id})
 
-            items = (
-                [{"id": FINAL_REGION_ID, "name": FINAL_REGION_NAME}]
-                if allowed else []
-            )
             return {
                 "ok": True,
                 "items": items,
@@ -593,18 +598,18 @@ async function loadRegions(){{
   if(!r.ok){{setStatus('지역 조회 실패 · '+(r.error||'서버 오류'));return}}
   const sel=document.getElementById('region');
   const items=(r.items||[]).filter(x=>x&&x.id);
-  sel.innerHTML='<option value="">함평 선택</option>';
+  sel.innerHTML='<option value="">권한 지역 선택</option>';
   items.forEach(x=>{{
     const o=document.createElement('option');
     o.value=String(x.id);
-    o.text='함평';
+    o.text=(x.name&&x.name!==x.id) ? (x.name+' ('+x.id+')') : String(x.id);
     sel.appendChild(o);
   }});
   if(!items.length){{
-    setStatus('함평(CMB_GN_HP) 권한 또는 서버 등록을 확인하세요 · 등급 '+String(r.level||'?'));
+    setStatus('권한 지역 0개 · 관리자 지역 권한 설정을 확인하세요 · 등급 '+String(r.level||'?'));
     return;
   }}
-  setStatus('함평 도면 사용 가능 · 등급 '+String(r.level||'?'));
+  setStatus('권한 지역 '+items.length+'개 · 등급 '+String(r.level||'?'));
 }}
 
 async function bootstrapAuth(){{
