@@ -81,6 +81,8 @@ import sqlite3
 import ssl
 import urllib.error
 import urllib.request
+import time
+import uuid
 from pathlib import Path
 
 from fastapi import HTTPException, Request
@@ -96,17 +98,52 @@ class MapDisplaySettings(BaseModel):
     refresh_distance_m: int = Field(DEFAULT_REFRESH_M, ge=25, le=1500)
 
 
+class SymbolPackage(BaseModel):
+    region_code: str
+    source_file: str = ""
+    source_sha256: str = ""
+    package_sha256: str = ""
+    memo: str = ""
+    symbol_count: int = 0
+    symbols: list[dict] = Field(default_factory=list)
+
+
 def _db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute(
+    conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS settings(
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL
-        )
+        );
+
+        CREATE TABLE IF NOT EXISTS symbol_revisions(
+          id TEXT PRIMARY KEY,
+          region_code TEXT NOT NULL,
+          revision INTEGER NOT NULL,
+          source_file TEXT,
+          source_sha256 TEXT,
+          package_sha256 TEXT,
+          symbol_count INTEGER NOT NULL DEFAULT 0,
+          memo TEXT NOT NULL DEFAULT '',
+          active INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          UNIQUE(region_code, revision)
+        );
+        CREATE INDEX IF NOT EXISTS idx_symbol_revisions_active
+          ON symbol_revisions(region_code, active);
+
+        CREATE TABLE IF NOT EXISTS symbol_defs(
+          revision_id TEXT NOT NULL,
+          symbol_key TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          PRIMARY KEY(revision_id, symbol_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_symbol_defs_revision
+          ON symbol_defs(revision_id);
         """
     )
     return conn
@@ -266,6 +303,192 @@ def install_final_settings(app):
                 settings.refresh_distance_m,
             )
 
+    if not _has_route(app, "/admin/drawings/{region}/symbols", "GET"):
+        @app.get("/admin/drawings/{region}/symbols")
+        async def cmb_get_symbols(region: str, request: Request):
+            await _require_existing_auth(request, admin_probe)
+            region = str(region or "").strip().upper()
+            with _db() as conn:
+                rev = conn.execute(
+                    "SELECT * FROM symbol_revisions "
+                    "WHERE region_code=? AND active=1 "
+                    "ORDER BY revision DESC LIMIT 1",
+                    (region,),
+                ).fetchone()
+                if not rev:
+                    return {
+                        "group_id": "SYMBOL",
+                        "region_code": region,
+                        "revision": None,
+                        "symbol_count": 0,
+                        "symbols": [],
+                    }
+                rows = conn.execute(
+                    "SELECT payload_json FROM symbol_defs "
+                    "WHERE revision_id=? ORDER BY symbol_key",
+                    (rev["id"],),
+                ).fetchall()
+            return {
+                "group_id": "SYMBOL",
+                "region_code": region,
+                "revision": int(rev["revision"]),
+                "revision_id": rev["id"],
+                "symbol_count": int(rev["symbol_count"]),
+                "memo": rev["memo"],
+                "symbols": [
+                    json.loads(row["payload_json"])
+                    for row in rows
+                ],
+            }
+
+    if not _has_route(app, "/admin/drawings/{region}/symbols", "POST"):
+        @app.post("/admin/drawings/{region}/symbols")
+        async def cmb_upload_symbols(
+            region: str,
+            package: SymbolPackage,
+            request: Request,
+        ):
+            await _require_existing_auth(request, admin_probe)
+            region = str(region or "").strip().upper()
+            payload_region = str(package.region_code or "").strip().upper()
+            if region != payload_region:
+                raise HTTPException(400, "지역코드가 일치하지 않습니다.")
+            if package.symbol_count != len(package.symbols):
+                raise HTTPException(400, "symbol_count와 symbols 길이가 다릅니다.")
+
+            prepared = {}
+            for item in package.symbols:
+                key = str(item.get("key") or "").strip()
+                if not key:
+                    raise HTTPException(400, "key가 없는 심볼 정의가 있습니다.")
+                prepared[key] = item
+
+            with _db() as conn:
+                last = conn.execute(
+                    "SELECT COALESCE(MAX(revision),0) "
+                    "FROM symbol_revisions WHERE region_code=?",
+                    (region,),
+                ).fetchone()[0]
+                revision = int(last) + 1
+                revision_id = str(uuid.uuid4())
+                conn.execute(
+                    "INSERT INTO symbol_revisions("
+                    "id,region_code,revision,source_file,source_sha256,"
+                    "package_sha256,symbol_count,memo,active,created_at"
+                    ") VALUES(?,?,?,?,?,?,?,?,0,?)",
+                    (
+                        revision_id,
+                        region,
+                        revision,
+                        package.source_file,
+                        package.source_sha256,
+                        package.package_sha256,
+                        len(prepared),
+                        package.memo,
+                        int(time.time()),
+                    ),
+                )
+                for key, item in prepared.items():
+                    conn.execute(
+                        "INSERT INTO symbol_defs("
+                        "revision_id,symbol_key,payload_json"
+                        ") VALUES(?,?,?)",
+                        (
+                            revision_id,
+                            key,
+                            json.dumps(item, ensure_ascii=False),
+                        ),
+                    )
+                conn.execute(
+                    "UPDATE symbol_revisions SET active=0 "
+                    "WHERE region_code=?",
+                    (region,),
+                )
+                conn.execute(
+                    "UPDATE symbol_revisions SET active=1 WHERE id=?",
+                    (revision_id,),
+                )
+            return {
+                "ok": True,
+                "group_id": "SYMBOL",
+                "region_code": region,
+                "revision": revision,
+                "revision_id": revision_id,
+                "symbol_count": len(prepared),
+                "active": True,
+            }
+
+    if not _has_route(app, "/admin/drawings/{region}/symbol-revisions", "GET"):
+        @app.get("/admin/drawings/{region}/symbol-revisions")
+        async def cmb_symbol_revisions(region: str, request: Request):
+            await _require_existing_auth(request, admin_probe)
+            region = str(region or "").strip().upper()
+            with _db() as conn:
+                rows = conn.execute(
+                    "SELECT id,revision,source_file,source_sha256,"
+                    "package_sha256,symbol_count,memo,active,created_at "
+                    "FROM symbol_revisions WHERE region_code=? "
+                    "ORDER BY revision DESC",
+                    (region,),
+                ).fetchall()
+            return [
+                {
+                    "id": row["id"],
+                    "group_id": "SYMBOL",
+                    "revision": int(row["revision"]),
+                    "source_file": row["source_file"],
+                    "source_sha256": row["source_sha256"],
+                    "package_sha256": row["package_sha256"],
+                    "object_count": int(row["symbol_count"]),
+                    "symbol_count": int(row["symbol_count"]),
+                    "memo": row["memo"],
+                    "active": bool(row["active"]),
+                    "created_at": int(row["created_at"]),
+                }
+                for row in rows
+            ]
+
+    if not _has_route(
+        app,
+        "/admin/drawings/{region}/symbol-revisions/{revision_id}/restore",
+        "POST",
+    ):
+        @app.post(
+            "/admin/drawings/{region}/symbol-revisions/{revision_id}/restore"
+        )
+        async def cmb_restore_symbol_revision(
+            region: str,
+            revision_id: str,
+            request: Request,
+        ):
+            await _require_existing_auth(request, admin_probe)
+            region = str(region or "").strip().upper()
+            with _db() as conn:
+                row = conn.execute(
+                    "SELECT id,revision FROM symbol_revisions "
+                    "WHERE id=? AND region_code=?",
+                    (revision_id, region),
+                ).fetchone()
+                if not row:
+                    raise HTTPException(404, "심볼 백업을 찾을 수 없습니다.")
+                conn.execute(
+                    "UPDATE symbol_revisions SET active=0 "
+                    "WHERE region_code=?",
+                    (region,),
+                )
+                conn.execute(
+                    "UPDATE symbol_revisions SET active=1 WHERE id=?",
+                    (revision_id,),
+                )
+            return {
+                "ok": True,
+                "group_id": "SYMBOL",
+                "region_code": region,
+                "revision": int(row["revision"]),
+                "revision_id": revision_id,
+                "active": True,
+            }
+
     return {
         "db_path": str(DB_PATH),
         "user_probe": user_probe,
@@ -309,6 +532,10 @@ required = {
     ("/settings/map-display", "GET"),
     ("/admin/settings/map-display", "GET"),
     ("/admin/settings/map-display", "POST"),
+    ("/admin/drawings/{region}/symbols", "GET"),
+    ("/admin/drawings/{region}/symbols", "POST"),
+    ("/admin/drawings/{region}/symbol-revisions", "GET"),
+    ("/admin/drawings/{region}/symbol-revisions/{revision_id}/restore", "POST"),
 }
 actual = set()
 for route in app.routes:
@@ -384,6 +611,8 @@ echo "- 별도 지도 설정 DB: 없음"
 echo "- 표시 반경 기본값: 500m"
 echo "- 재조회 거리 기본값: 200m"
 echo "- Windows / Android 공통 설정"
+echo "- 지역별 6개 관리: FIBER / COAX / POLE / CONDUIT / USER / SYMBOL"
+echo "- SYMBOL은 일반 도면 객체와 분리된 전용 Revision"
 echo "- 기존 로그인/권한/도면/백업 API 유지"
 echo "- 백업: ${BACKUP}"
 echo "============================================================"
