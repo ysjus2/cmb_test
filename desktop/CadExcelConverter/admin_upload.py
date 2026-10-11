@@ -501,12 +501,37 @@ class AdminUploadWindow(tk.Toplevel):
 
             self.region_combo["values"] = values
             current = self.region_var.get().strip()
-            if current not in self.region_display_to_id:
-                self.region_var.set(values[0] if len(values) == 1 else "")
 
-            self.status.set(
-                f"서버 canonical 지역 {len(values)}개 · 업로드할 지역을 선택하세요."
+            # 현재 DXF 파일명이 canonical 지역코드와 정확히 일치하면 자동 선택한다.
+            # 예: CMB_GN_HP.dxf -> CMB_GN_HP
+            source_region = Path(self.source_path).stem.strip().upper()
+            auto_display = next(
+                (
+                    display
+                    for display, rid in self.region_display_to_id.items()
+                    if str(rid).strip().upper() == source_region
+                ),
+                "",
             )
+
+            if current not in self.region_display_to_id:
+                if auto_display:
+                    self.region_var.set(auto_display)
+                elif len(values) == 1:
+                    self.region_var.set(values[0])
+                else:
+                    self.region_var.set("")
+
+            selected = self.region_var.get().strip()
+            selected_id = self.region_display_to_id.get(selected, "")
+            if selected_id:
+                self.status.set(
+                    f"서버 canonical 지역 {len(values)}개 · 자동 선택: {selected_id}"
+                )
+            else:
+                self.status.set(
+                    f"서버 canonical 지역 {len(values)}개 · 업로드할 지역을 선택하세요."
+                )
         except Exception as exc:
             self.region_combo["values"] = []
             self.region_var.set("")
