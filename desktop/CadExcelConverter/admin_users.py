@@ -1051,109 +1051,186 @@ class UserAdminWindow(tk.Toplevel):
         load_regions()
 
     def open_force_delete_drawing(self):
-        """위험 작업 전용 창: 조회 창과 완전히 분리한다."""
+        """위험 작업 전용 창: 지역별 그룹을 개별 조회/삭제한다."""
         win = tk.Toplevel(self)
-        win.title("도면 강제 삭제")
-        win.geometry("700x460")
-        win.minsize(620, 420)
+        win.title("도면 항목 강제 삭제")
+        win.geometry("820x600")
+        win.minsize(720, 520)
         win.transient(self)
 
         root = ttk.Frame(win, padding=14)
         root.pack(fill="both", expand=True)
-        ttk.Label(root, text="도면 강제 삭제", font=("Malgun Gothic", 15, "bold")).pack(anchor="w")
+        ttk.Label(root, text="도면 항목 강제 삭제", font=("Malgun Gothic", 15, "bold")).pack(anchor="w")
         ttk.Label(
             root,
-            text="주의: 지역 등록과 사용자 지역 권한은 유지하고, 선택 지역의 도면 데이터와 revision만 삭제합니다.",
-            wraplength=640,
+            text=(
+                "위험 작업 전용 화면입니다. 지역 자체와 사용자 지역 권한은 유지하며, "
+                "선택한 도면 항목만 삭제합니다."
+            ),
+            wraplength=760,
         ).pack(anchor="w", pady=(4, 12))
 
-        region_var=tk.StringVar()
-        region_map={}
-        row=ttk.Frame(root)
-        row.pack(fill="x")
-        ttk.Label(row,text="삭제할 지역").pack(side="left")
-        combo=ttk.Combobox(row,textvariable=region_var,state="readonly",width=48)
-        combo.pack(side="left",padx=(8,0),fill="x",expand=True)
+        region_var = tk.StringVar()
+        region_map = {}
+        top = ttk.Frame(root)
+        top.pack(fill="x")
+        ttk.Label(top, text="지역").pack(side="left")
+        combo = ttk.Combobox(top, textvariable=region_var, state="readonly", width=46)
+        combo.pack(side="left", padx=(8, 6))
+        ttk.Button(top, text="조회", command=lambda: load_status()).pack(side="left")
+        ttk.Button(top, text="지역 새로고침", command=lambda: load_regions()).pack(side="left", padx=(6, 0))
 
-        summary=tk.Text(root,height=11,wrap="word")
-        summary.pack(fill="both",expand=True,pady=(12,10))
-        summary.configure(state="disabled")
+        tree = ttk.Treeview(
+            root,
+            columns=("group", "revision", "count", "date", "memo"),
+            show="headings",
+            selectmode="browse",
+            height=12,
+        )
+        for key, title, width in (
+            ("group", "항목", 100),
+            ("revision", "현재 Revision", 110),
+            ("count", "객체수", 100),
+            ("date", "저장일시", 170),
+            ("memo", "메모", 300),
+        ):
+            tree.heading(key, text=title)
+            tree.column(key, width=width, anchor="w")
+        tree.pack(fill="both", expand=True, pady=(12, 8))
 
-        confirm_var=tk.StringVar()
-        confirm=ttk.Entry(root,textvariable=confirm_var)
-        ttk.Label(root,text='실행하려면 아래 칸에 지역코드를 정확히 입력한 뒤 "도면 강제 삭제"를 누르세요.').pack(anchor="w")
-        confirm.pack(fill="x",pady=(5,10))
+        note = tk.StringVar(value="삭제할 항목을 선택해주세요.")
+        ttk.Label(root, textvariable=note).pack(anchor="w")
+
+        confirm_var = tk.StringVar()
+        ttk.Label(
+            root,
+            text='실행하려면 아래 칸에 "지역코드/항목"을 정확히 입력해주세요. 예: CMB_GN_HP/COAX',
+        ).pack(anchor="w", pady=(10, 0))
+        ttk.Entry(root, textvariable=confirm_var).pack(fill="x", pady=(5, 10))
+
+        current_rows = {}
 
         def load_regions():
-            choices=self._region_choices()
-            values=[]
-            region_map.clear()
-            for rid,name in choices:
-                display=f"{name} ({rid})" if name and name != rid else rid
-                values.append(display)
-                region_map[display]=rid
-            combo["values"]=values
-            if values and not region_var.get():
-                region_var.set(values[0])
-                preview()
+            try:
+                choices = self._region_choices()
+                values = []
+                region_map.clear()
+                for rid, name in choices:
+                    display = f"{name} ({rid})" if name and name != rid else rid
+                    values.append(display)
+                    region_map[display] = rid
+                combo["values"] = values
+                if values:
+                    if region_var.get() not in values:
+                        region_var.set(values[0])
+                    load_status()
+            except Exception as exc:
+                messagebox.showerror("도면 항목 강제 삭제", str(exc), parent=win)
 
-        def preview(event=None):
-            rid=region_map.get(region_var.get().strip(),"")
+        def load_status():
+            rid = region_map.get(region_var.get().strip(), "")
             if not rid:
                 return
             try:
-                data=self.client.drawing_status(rid) or {}
-                rows=data.get("groups") or data.get("items") or data.get("revisions") or []
-                lines=[f"지역코드: {rid}", "", "현재 서버 도면 현황:"]
-                if not rows:
-                    lines.append("- 저장된 도면 데이터 없음")
-                else:
-                    for row in rows:
-                        group=str(row.get("group_id") or row.get("group") or "")
-                        if not row.get("active", True):
-                            continue
-                        count=int(row.get("object_count") or row.get("count") or 0)
-                        rev=row.get("revision")
-                        lines.append(f"- {group}: revision {rev if rev is not None else '-'} / {count:,}개")
-                lines += [
-                    "",
-                    "삭제 후에도 지역 등록/사용자 권한은 유지됩니다.",
-                    "Viewer에서 다시 업로드하면 기존 도면이 없는 상태에서 새 current revision이 생성됩니다.",
-                ]
-                summary.configure(state="normal")
-                summary.delete("1.0","end")
-                summary.insert("1.0","\n".join(lines))
-                summary.configure(state="disabled")
-                confirm_var.set("")
-            except Exception as exc:
-                messagebox.showerror("도면 강제 삭제",str(exc),parent=win)
+                for item in tree.get_children():
+                    tree.delete(item)
+                current_rows.clear()
+                data = self.client.drawing_status(rid) or {}
+                rows = data.get("groups") or data.get("items") or data.get("revisions") or []
 
-        combo.bind("<<ComboboxSelected>>",preview)
+                # 현재본만 그룹별 1줄로 표시한다.
+                latest = {}
+                for row in rows:
+                    group = str(row.get("group_id") or row.get("group") or "").upper()
+                    if not group:
+                        continue
+                    if not row.get("active", True):
+                        continue
+                    latest[group] = row
+
+                order = ("FIBER", "COAX", "POLE", "CONDUIT", "USER", "SYMBOL")
+                for group in order:
+                    row = latest.get(group)
+                    if row:
+                        rev = row.get("revision")
+                        count = int(row.get("object_count") or row.get("count") or 0)
+                        created = str(row.get("created_at") or "").replace("T", " ")[:19]
+                        memo = str(row.get("memo") or "").strip() or "-"
+                    else:
+                        rev = "-"
+                        count = 0
+                        created = "-"
+                        memo = "현재 도면 없음"
+                    iid = "g_" + group
+                    tree.insert(
+                        "",
+                        "end",
+                        iid=iid,
+                        values=(group, rev if rev is not None else "-", f"{count:,}", created, memo),
+                    )
+                    current_rows[iid] = {"group": group, "exists": row is not None, "count": count}
+
+                confirm_var.set("")
+                note.set(f"{rid} · 항목별 현재 도면 상태")
+            except Exception as exc:
+                messagebox.showerror("도면 항목 조회", str(exc), parent=win)
+
+        def selected_group():
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo("도면 항목 삭제", "삭제할 항목을 선택해주세요.", parent=win)
+                return None, None
+            info = current_rows.get(sel[0]) or {}
+            rid = region_map.get(region_var.get().strip(), "")
+            return rid, info
 
         def execute_delete():
-            rid=region_map.get(region_var.get().strip(),"")
-            if not rid:
+            rid, info = selected_group()
+            if not rid or not info:
                 return
-            if confirm_var.get().strip()!=rid:
-                messagebox.showerror("도면 강제 삭제",f"확인을 위해 지역코드 {rid} 를 정확히 입력해주세요.",parent=win)
+            group = str(info.get("group") or "").upper()
+            if not info.get("exists"):
+                messagebox.showinfo("도면 항목 삭제", f"{group} 항목에는 현재 도면이 없습니다.", parent=win)
                 return
-            ok=messagebox.askyesno(
+
+            expected = f"{rid}/{group}"
+            if confirm_var.get().strip().upper() != expected.upper():
+                messagebox.showerror(
+                    "도면 항목 삭제",
+                    f"확인을 위해 {expected} 를 정확히 입력해주세요.",
+                    parent=win,
+                )
+                return
+
+            ok = messagebox.askyesno(
                 "최종 확인",
-                f"{rid} 지역의 도면 데이터와 모든 도면 revision을 강제로 삭제합니다.\n\n지역 등록과 사용자 권한은 유지됩니다.\n복구할 수 없습니다.\n\n정말 삭제하시겠습니까?",
+                (
+                    f"지역: {rid}\n"
+                    f"삭제 항목: {group}\n"
+                    f"현재 객체수: {int(info.get('count') or 0):,}\n\n"
+                    "이 항목의 현재본과 백업 revision을 모두 삭제합니다.\n"
+                    "다른 도면 항목, 지역 등록, 사용자 지역 권한은 유지됩니다.\n\n"
+                    "정말 삭제하시겠습니까?"
+                ),
                 parent=win,
             )
             if not ok:
                 return
-            try:
-                result=self.client.force_delete_drawing(rid) or {}
-                deleted=result.get("deleted") or {}
-                total=sum(int(v or 0) for v in deleted.values() if isinstance(v,(int,float)))
-                messagebox.showinfo("도면 강제 삭제 완료",f"{rid} 도면 데이터를 삭제했습니다.\n삭제 처리 항목: {total:,}건",parent=win)
-                preview()
-            except Exception as exc:
-                messagebox.showerror("도면 강제 삭제 오류",str(exc),parent=win)
 
-        ttk.Button(root,text="도면 강제 삭제",command=execute_delete).pack(anchor="e")
+            try:
+                result = self.client.force_delete_drawing_group(rid, group) or {}
+                deleted = result.get("deleted") or {}
+                total = sum(int(v or 0) for v in deleted.values() if isinstance(v, (int, float)))
+                messagebox.showinfo(
+                    "도면 항목 삭제 완료",
+                    f"{rid} / {group} 삭제 완료\n삭제 처리 항목: {total:,}건",
+                    parent=win,
+                )
+                load_status()
+            except Exception as exc:
+                messagebox.showerror("도면 항목 강제 삭제 오류", str(exc), parent=win)
+
+        ttk.Button(root, text="선택 항목 강제 삭제", command=execute_delete).pack(anchor="e")
         load_regions()
 
     def edit_regions(self):
