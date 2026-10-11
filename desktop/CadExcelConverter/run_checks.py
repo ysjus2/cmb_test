@@ -208,3 +208,23 @@ extract_source = (root / "server_extract.py").read_text(encoding="utf-8")
 assert '"COAX": "동축(케이블+기기)"' in extract_source
 assert ").upper() in groups" in extract_source
 print("ONU_COAX_AND_COAX_DEVICE_RENDER_OK")
+
+
+# 케이블 원본 CAD 색상은 업로드 -> 온라인 표시 -> 복구 DXF까지 보존되어야 한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+recovery_source = (root / "recovery_v2.py").read_text(encoding="utf-8")
+assert 'attrs["_cmb_style"] = style' in admin_upload_source
+assert 'style["display_color"] = display_color.lower()' in admin_upload_source
+assert 'style["true_color"] = int(display_color[1:], 16)' in admin_upload_source
+assert "function originalCableColor" in online_source
+assert "const c=originalCableColor(p,group);" in online_source
+assert 'display_color = str(style.get("display_color") or "")' in recovery_source
+print("CABLE_COLOR_PRESERVATION_OK")
+
+# 지역 삭제 경고는 도면/심볼/권한 연결까지 삭제됨을 명시해야 한다.
+admin_users_source = (root / "admin_users.py").read_text(encoding="utf-8")
+assert "서버 도면 Revision" in admin_users_source
+assert "SYMBOL 데이터" in admin_users_source
+assert "사용자-지역 권한 연결" in admin_users_source
+print("REGION_CASCADE_DELETE_WARNING_OK")
