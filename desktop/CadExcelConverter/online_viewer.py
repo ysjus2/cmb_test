@@ -95,90 +95,38 @@ class Api:
         return self.end_session()
 
     def regions(self):
-        # 지역 목록은 한 API에만 의존하지 않는다.
-        # /regions, /online/regions, 1등급의 /admin/regions를 병합해
-        # 서버에 존재하는 허용 온라인 지역이 UI에서 누락되지 않게 한다.
-        rows = []
-        errors = []
-
-        def add_rows(raw, source):
+        try:
+            raw = self.c.regions() or []
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
-            if not isinstance(raw, list):
-                return
+
+            items = []
+            seen = set()
             for row in raw:
                 if not isinstance(row, dict):
                     continue
-                item = dict(row)
-                item["_cmb_source"] = source
-                rows.append(item)
-
-        try:
-            add_rows(self.c.regions() or [], "regions")
-        except Exception as exc:
-            errors.append("/regions: " + str(exc))
-
-        try:
-            add_rows(self.c.online_regions() or [], "online")
-        except Exception as exc:
-            errors.append("/online/regions: " + str(exc))
-
-        level = 0
-        try:
-            level = int((self.user or {}).get("level") or 0)
-        except Exception:
-            level = 0
-
-        if level == 1:
-            try:
-                admin_rows = self.c.admin_regions() or []
-                if isinstance(admin_rows, dict):
-                    admin_rows = admin_rows.get("items") or admin_rows.get("regions") or []
-                if isinstance(admin_rows, list):
-                    # 관리자 목록에서는 실제 active drawing이 있는 지역만 온라인 후보로 사용한다.
-                    add_rows(
-                        [
-                            row for row in admin_rows
-                            if isinstance(row, dict)
-                            and row.get("has_drawing", True) is not False
-                        ],
-                        "admin",
-                    )
-            except Exception as exc:
-                errors.append("/admin/regions: " + str(exc))
-
-        items = []
-        seen = set()
-        for row in rows:
-            region_id = str(
-                row.get("id")
-                or row.get("region_id")
-                or row.get("region_code")
-                or ""
-            ).strip()
-            if not region_id:
-                continue
-            key = region_id.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append({
-                "id": region_id,
-                "name": str(
+                region_id = str(
+                    row.get("id")
+                    or row.get("region_id")
+                    or row.get("region_code")
+                    or ""
+                ).strip()
+                if not region_id:
+                    continue
+                key = region_id.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                name = str(
                     row.get("name")
                     or row.get("region_name")
-                    or row.get("display_name")
                     or region_id
-                ).strip(),
-                "source": row.get("_cmb_source", ""),
-            })
+                ).strip()
+                items.append({"id": region_id, "name": name or region_id})
 
-        return {
-            "ok": True,
-            "items": items,
-            "count": len(items),
-            "errors": errors,
-        }
+            return {"ok": True, "items": items}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "items": []}
 
     def select(self, region):
         self.region = str(region or "")
