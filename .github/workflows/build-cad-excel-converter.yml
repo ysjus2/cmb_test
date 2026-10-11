@@ -8,6 +8,9 @@ on:
       - 'desktop/CadExcelConverter/**'
       - '.github/workflows/build-cad-excel-converter.yml'
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -43,3 +46,16 @@ jobs:
           path: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v3.55_FINAL.exe
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish direct-download GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Compress-Archive -Path dist/CMB_DXF_Viewer_v3.55_FINAL.exe -DestinationPath dist/CMB_DXF_Viewer_v3.55_FINAL.zip -Force
+          gh release view v3.55_FINAL *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload v3.55_FINAL dist/CMB_DXF_Viewer_v3.55_FINAL.zip --clobber
+          } else {
+            gh release create v3.55_FINAL dist/CMB_DXF_Viewer_v3.55_FINAL.zip --title "CMB DXF Viewer v3.55 FINAL" --notes "Windows online viewer final build. Includes fiber/coax/conduit/pole display and device Point upload fixes."
+          }
