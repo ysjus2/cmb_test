@@ -93,6 +93,10 @@ public class MapActivity extends Activity {
     private MapPoint lastQueryCenter=null;
     private String lastQueryFilter="";
     private String lastQueryLevel="";
+    private ServerMapCache mapCache;
+    private ServerMapCache.State cacheState=new ServerMapCache.State();
+    private final LinkedHashMap<String,String> serverVersions=new LinkedHashMap<>();
+    private long lastVersionCheck;
     private final ArrayList<MapPoint> serverBounds=new ArrayList<>();
     private final Runnable serverPoll=new Runnable(){public void run(){
         if(!foreground||destroyed)return;
@@ -211,6 +215,7 @@ public class MapActivity extends Activity {
         layoutMapScreen();mapScreen.setVisibility(android.view.View.GONE);
         screen=new android.widget.FrameLayout(this);screen.addView(mapScreen);setContentView(screen);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        mapCache = new ServerMapCache(this);
 
         if (ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
         else showLoginScreen();
@@ -659,6 +664,7 @@ public class MapActivity extends Activity {
         ServerApiClient previous=server;cancelServerRequest();server=null;serverDataset="";serverLayers=new org.json.JSONArray();
         serverBounds.clear();lastVerified=0;lastConnectionCheck=0;
         lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
+        cacheState=new ServerMapCache.State();serverVersions.clear();lastVersionCheck=0;
         logoutButton.setEnabled(false);connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");
         allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
         regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
@@ -706,15 +712,41 @@ public class MapActivity extends Activity {
         });
     }
 
+    private LinkedHashMap<String,String> versionMap(org.json.JSONObject json){
+        LinkedHashMap<String,String> out=new LinkedHashMap<>();
+        if(json==null)return out;
+        Iterator<String> keys=json.keys();
+        while(keys.hasNext()){
+            String key=keys.next();
+            String value=json.optString(key,"");
+            if(!key.trim().isEmpty()&&!value.trim().isEmpty())out.put(key.trim().toUpperCase(),value.trim());
+        }
+        return out;
+    }
+
+    private void showCachedAround(MapPoint center){
+        if(center==null)return;
+        double keepRadius=Math.max(displayRadiusMeters*1.6,displayRadiusMeters+refreshDistanceMeters);
+        allRecords=ServerMapCache.around(cacheState,center,keepRadius);
+        renderMarkers();
+    }
+
     private void selectServerDataset(ServerApiClient client,String dataset,String title){
         cancelServerRequest();final int generation=serverGeneration;
         serverTask=serverWorker.submit(()->{
             try{
                 org.json.JSONObject metadata=client.onlineLayers(dataset);
                 org.json.JSONObject displaySettings=client.mapDisplaySettings();
+                org.json.JSONObject versionsJson=client.onlineVersions(dataset);
+                LinkedHashMap<String,String> versions=versionMap(versionsJson);
+                ServerMapCache.State loadedCache=mapCache.load(dataset);
+                boolean cacheInvalidated=ServerMapCache.applyVersions(loadedCache,versions);
+                if(cacheInvalidated)mapCache.save(dataset,loadedCache);
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration||client!=server)return;
                     markServerOnline();serverDataset=dataset;serverRegion=title;serverLayers=metadata.optJSONArray("layers");
+                    cacheState=loadedCache;serverVersions.clear();serverVersions.putAll(versions);
+                    lastVersionCheck=android.os.SystemClock.uptimeMillis();
                     displayRadiusMeters=Math.max(100,Math.min(3000,displaySettings.optInt("radius_m",500)));
                     refreshDistanceMeters=Math.max(25,Math.min(displayRadiusMeters,displaySettings.optInt("refresh_distance_m",200)));
                     lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
@@ -726,7 +758,12 @@ public class MapActivity extends Activity {
                         serverBounds.add(new MapPoint(box.optDouble("south"),box.optDouble("west")));
                         serverBounds.add(new MapPoint(box.optDouble("north"),box.optDouble("east")));
                     }
-                    if(mapReady&&currentLocation!=null)map.center(new MapPoint(currentLocation),true);
+                    if(mapReady&&currentLocation!=null){
+                        MapPoint here=new MapPoint(currentLocation);
+                        showCachedAround(here);
+                        map.center(here,true);
+                        if(!cacheState.records.isEmpty())status.setText("로컬 캐시 즉시 표시 · 서버 Revision 확인 완료");
+                    }
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
         });
@@ -766,7 +803,29 @@ public class MapActivity extends Activity {
         serverTask=serverWorker.submit(()->{
             try{
                 client.regions();
-                runOnUiThread(()->{if(!destroyed&&foreground&&server==client&&generation==serverGeneration)markServerOnline();});
+                org.json.JSONObject versionsJson=null;
+                long versionNow=android.os.SystemClock.uptimeMillis();
+                if(!serverDataset.isEmpty()&&(lastVersionCheck==0||versionNow-lastVersionCheck>=60000)){
+                    versionsJson=client.onlineVersions(serverDataset);
+                }
+                final org.json.JSONObject checkedVersions=versionsJson;
+                runOnUiThread(()->{
+                    if(destroyed||!foreground||server!=client||generation!=serverGeneration)return;
+                    markServerOnline();
+                    if(checkedVersions!=null){
+                        LinkedHashMap<String,String> versions=versionMap(checkedVersions);
+                        boolean changed=ServerMapCache.applyVersions(cacheState,versions);
+                        serverVersions.clear();serverVersions.putAll(versions);
+                        lastVersionCheck=android.os.SystemClock.uptimeMillis();
+                        if(changed){
+                            mapCache.save(serverDataset,cacheState);
+                            lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
+                            MapViewport v=map.viewport();
+                            if(v!=null)showCachedAround(new MapPoint((v.south+v.north)/2.0,(v.west+v.east)/2.0));
+                            status.setText("서버 도면 변경 감지 · 변경 그룹만 갱신");
+                        }
+                    }
+                });
             }catch(Exception error){
                 runOnUiThread(()->{if(!destroyed&&foreground&&server==client&&generation==serverGeneration)markServerOffline();});
             }
@@ -781,19 +840,22 @@ public class MapActivity extends Activity {
         return new MapViewport(lng-lngDelta,lat-latDelta,lng+lngDelta,lat+latDelta);
     }
 
-    private void mergeServerRows(ArrayList<CadRecord> rows,MapPoint queryCenter){
-        LinkedHashMap<String,CadRecord> merged=new LinkedHashMap<>();
-        for(CadRecord r:allRecords)merged.put(r.stableKey(),r);
-        for(CadRecord r:rows)merged.put(r.stableKey(),r);
-
-        double keepRadius=Math.max(displayRadiusMeters*1.5,displayRadiusMeters+refreshDistanceMeters);
-        ArrayList<CadRecord> kept=new ArrayList<>();
-        for(CadRecord r:merged.values()){
-            if(!r.hasCoordinates())continue;
-            MapPoint p=new MapPoint(r.latitude,r.longitude);
-            if(p.distanceToAsDouble(queryCenter)<=keepRadius)kept.add(r);
-        }
-        allRecords=kept;
+    private void mergeServerRows(
+            ArrayList<CadRecord> rows,
+            MapPoint queryCenter,
+            String filter,
+            String versionKey
+    ){
+        ServerMapCache.merge(
+                cacheState,
+                rows,
+                queryCenter,
+                displayRadiusMeters,
+                filter,
+                versionKey
+        );
+        mapCache.save(serverDataset,cacheState);
+        showCachedAround(queryCenter);
     }
 
     private void pollServerViewport(){
@@ -817,15 +879,32 @@ public class MapActivity extends Activity {
                 || lastQueryCenter.distanceToAsDouble(center)>=refreshDistanceMeters;
         boolean modeChanged=!filter.equals(lastQueryFilter)||!drawingLevel.equals(lastQueryLevel);
         long now=android.os.SystemClock.uptimeMillis();
-        boolean stale=lastServerFetch>0&&now-lastServerFetch>60000;
+        String cacheVersionKey=ServerMapCache.versionKey(serverVersions,filter);
 
-        if(!moved&&!modeChanged&&!stale)return;
+        if(!moved&&!modeChanged)return;
+
+        if(ServerMapCache.covered(
+                cacheState,
+                center,
+                displayRadiusMeters,
+                filter,
+                cacheVersionKey
+        )){
+            lastQueryCenter=center;
+            lastQueryFilter=filter;
+            lastQueryLevel=drawingLevel;
+            showCachedAround(center);
+            status.setText("로컬 캐시 · 주변 "+displayRadiusMeters+"m");
+            return;
+        }
+
         if(serverTask!=null&&!serverTask.isDone())return;
 
         final MapViewport queryViewport=viewportAround(center,displayRadiusMeters);
         final MapPoint queryCenter=center;
         final String queryFilter=filter;
         final String queryLevel=drawingLevel;
+        final String queryVersionKey=cacheVersionKey;
         final int generation=serverGeneration;
         final ServerApiClient client=server;
         final String dataset=serverDataset;
@@ -841,8 +920,7 @@ public class MapActivity extends Activity {
                     lastQueryCenter=queryCenter;
                     lastQueryFilter=queryFilter;
                     lastQueryLevel=queryLevel;
-                    mergeServerRows(rows,queryCenter);
-                    renderMarkers();
+                    mergeServerRows(rows,queryCenter,queryFilter,queryVersionKey);
                     regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel)
                             +" · 반경 "+displayRadiusMeters+"m");
                 });
