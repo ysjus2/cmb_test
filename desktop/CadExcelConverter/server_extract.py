@@ -8,6 +8,7 @@ from tkinter import ttk, filedialog, messagebox
 from pyproj import Transformer
 
 from server_client_windows import CMBServerClient
+from recovery_v2 import export_network_preserving_dxf
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
 GROUP_LABELS = {
@@ -420,9 +421,15 @@ class ServerExtractWindow(tk.Toplevel):
             if not out:
                 return
 
-            export_dxf(
+            try:
+                symbols = self.client.drawing_symbols(region) or {}
+            except Exception:
+                symbols = {}
+
+            export_network_preserving_dxf(
                 out,
                 features,
+                symbols,
                 self.source_epsg,
             )
 
