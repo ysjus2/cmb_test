@@ -89,6 +89,13 @@ class App(NetworkExtractionMixin, tk.Tk):
             return False
         return True
 
+    def _expire_session(self):
+        self.session_ended = True
+        try:
+            self.destroy()
+        except Exception:
+            pass
+
     def _session_busy(self):
         if bool(getattr(self, "busy", False)):
             return True
@@ -403,6 +410,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         client = CMBServerClient()
         client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        client.on_session_expired = self._expire_session
         AdminUploadWindow(
             self,
             self.viewer.scene,
@@ -418,6 +426,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         client = CMBServerClient()
         client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        client.on_session_expired = self._expire_session
         ServerExtractWindow(
             self,
             self.viewer,
@@ -427,7 +436,15 @@ class App(NetworkExtractionMixin, tk.Tk):
         )
 
     def _open_user_admin(self):
-        UserAdminWindow(self)
+        client = CMBServerClient()
+        client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+        client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        client.on_session_expired = self._expire_session
+        UserAdminWindow(
+            self,
+            client=client,
+            current_user=self.session_user,
+        )
 
     def _epsg_changed(self):
         self.viewer.set_source_epsg(self.epsg_var.get())
@@ -820,16 +837,9 @@ if __name__ == "__main__":
 
         app = App(session_user=verified_user)
 
-        def expire_map_session():
-            app.session_ended = True
-            try:
-                app.destroy()
-            except Exception:
-                pass
-
         app.session_guard = TkIdleSessionGuard(
             app,
-            expire_map_session,
+            app._expire_session,
             client=session_client,
             busy_predicate=app._session_busy,
         )
