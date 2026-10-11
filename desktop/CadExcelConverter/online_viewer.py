@@ -120,10 +120,28 @@ class Api:
             return {"ok": True, "bounds": None, "layers": []}
         try:
             info = self.c.online_layers(self.region) or {}
+            layers = info.get("layers") or []
+            group_summary = []
+            for row in layers:
+                if not isinstance(row, dict):
+                    continue
+                group = str(row.get("group_id") or "").strip().upper()
+                count = (
+                    row.get("object_count")
+                    if row.get("object_count") is not None
+                    else row.get("count")
+                )
+                if group:
+                    try:
+                        count = int(count or 0)
+                    except Exception:
+                        count = 0
+                    group_summary.append({"group_id": group, "count": count})
             return {
                 "ok": True,
                 "bounds": info.get("bounds"),
-                "layers": info.get("layers") or [],
+                "layers": layers,
+                "group_summary": group_summary,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -584,7 +602,13 @@ async function loadObjects(){{
   }});
 
   const visibleGroups=Object.keys(groupEnabled).filter(k=>groupEnabled[k]&&k!=='USER').join('/');
-  setStatus(features.length+'개 · 상세 L'+rawLod+'→L'+lod+' · '+visibleGroups+' · 심볼 '+devices.length+' · 선로 '+snapped);
+  const rawGroups={{}};
+  allFeatures.forEach(f=>{{
+    const g=String(((f.properties||{{}}).group_id)||'NONE').toUpperCase();
+    rawGroups[g]=(rawGroups[g]||0)+1;
+  }});
+  const rawText=Object.keys(rawGroups).sort().map(k=>k+':'+rawGroups[k]).join('/');
+  setStatus('서버 '+allFeatures.length+'개 ['+rawText+'] · 표시 '+features.length+' · 심볼 '+devices.length+' · 선로 '+snapped);
 }}
 
 async function loadRegions(){{
@@ -643,6 +667,8 @@ function bindUi(){{
     document.getElementById('detail').style.display='none';
     const r=await apiCall('select',{{region:e.target.value}});
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
+    const summary=(r.group_summary||[]).map(x=>String(x.group_id)+':'+String(x.count||0)).join(' / ');
+    if(summary) setStatus('서버 도면 · '+summary);
     if(!map){{
       setStatus('카카오맵 초기화 대기');
       return;
