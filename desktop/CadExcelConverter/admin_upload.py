@@ -140,32 +140,42 @@ def _rotation_deg(e):
     return 0.0
 
 
-def _points(e):
+def _geometry_parts(e):
+    """Return all drawable geometry parts for one scene entity.
+
+    Device-like INSERT/POINT keeps a single insertion point.
+    Cable/line entities preserve every line/polyline/polygon primitive so
+    multi-part CAD geometry is not silently truncated to the first primitive.
+    """
     entity_type = str(e.entity_type or "").upper()
 
-    # INSERT/POINT 장비는 블록 내부 선분보다 삽입점을 우선한다.
-    # 그렇지 않으면 장비 블록이 LineString으로 서버에 저장되어
-    # 온라인 Viewer에서 기기 심볼로 표시되지 않는다.
     if entity_type in {"INSERT", "POINT"}:
         for kind, data in e.primitives:
             if kind in {"insert", "point"}:
-                return [(float(data[0]), float(data[1]))]
-
+                return "Point", [(float(data[0]), float(data[1]))]
         if e.bbox:
             x1, y1, x2, y2 = e.bbox
-            return [((x1 + x2) / 2, (y1 + y2) / 2)]
+            return "Point", [((x1 + x2) / 2, (y1 + y2) / 2)]
 
+    parts = []
     for kind, data in e.primitives:
         if kind in {"line", "polyline", "polygon"} and len(data) >= 2:
-            return [(float(x), float(y)) for x, y in data]
+            path = [(float(x), float(y)) for x, y in data]
+            if len(path) >= 2:
+                parts.append(path)
+
+    if parts:
+        return ("LineString", parts[0]) if len(parts) == 1 else ("MultiLineString", parts)
+
+    for kind, data in e.primitives:
         if kind in {"insert", "point"}:
-            return [(float(data[0]), float(data[1]))]
+            return "Point", [(float(data[0]), float(data[1]))]
 
     if e.bbox:
         x1, y1, x2, y2 = e.bbox
-        return [((x1 + x2) / 2, (y1 + y2) / 2)]
+        return "Point", [((x1 + x2) / 2, (y1 + y2) / 2)]
 
-    return []
+    return None, []
 
 
 def build_payload(scene, source_path, group, epsg, region_code, memo=""):
@@ -185,16 +195,40 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         if classify_entity(e) != group:
             continue
 
-        pts = _points(e)
-        geo = []
-
-        for x, y in pts:
-            lon, lat = transformer.transform(x, y)
-            if math.isfinite(lon) and math.isfinite(lat):
-                geo.append([lon, lat])
-
-        if not geo:
+        geometry_type, source_geometry = _geometry_parts(e)
+        if not geometry_type or not source_geometry:
             continue
+
+        def transform_path(points):
+            out = []
+            for x, y in points:
+                lon, lat = transformer.transform(x, y)
+                if math.isfinite(lon) and math.isfinite(lat):
+                    out.append([lon, lat])
+            return out
+
+        if geometry_type == "Point":
+            geo = transform_path(source_geometry)
+            if not geo:
+                continue
+            geometry = {"type": "Point", "coordinates": geo[0]}
+        elif geometry_type == "LineString":
+            geo = transform_path(source_geometry)
+            if len(geo) < 2:
+                continue
+            geometry = {"type": "LineString", "coordinates": geo}
+        else:
+            geo_parts = [
+                transformed
+                for transformed in (transform_path(part) for part in source_geometry)
+                if len(transformed) >= 2
+            ]
+            if not geo_parts:
+                continue
+            geometry = {
+                "type": "LineString" if len(geo_parts) == 1 else "MultiLineString",
+                "coordinates": geo_parts[0] if len(geo_parts) == 1 else geo_parts,
+            }
 
         attrs = dict(e.attributes or {})
         dxf = dict(getattr(e, "dxf_data", {}) or {})
@@ -257,10 +291,7 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             "layer": e.layer,
             "entity_type": e.entity_type,
             "block_name": e.block_name,
-            "geometry": {
-                "type": "Point" if len(geo) == 1 else "LineString",
-                "coordinates": geo[0] if len(geo) == 1 else geo,
-            },
+            "geometry": geometry,
             "attributes": attrs,
             "xdata": dict(e.xdata or []),
         })
