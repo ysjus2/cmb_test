@@ -202,7 +202,8 @@ assert onu_pos < fiber_pos
 assert 'return "COAX"' in admin_upload_source[onu_pos:fiber_pos]
 
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-assert "const pointFeatures=features.filter" in online_source
+assert "const pointCandidates=features.filter" in online_source
+assert "const pointFeatures=[...deviceFeatureMap.values()];" in online_source
 assert "const lineFeatures=features.filter" in online_source
 assert "groupEnabled[group]===true" in online_source
 
