@@ -840,6 +840,9 @@ class DXFViewer(ttk.Frame):
         self.status_var = tk.StringVar(value="DXF를 열어주세요.")
         self.info_var = tk.StringVar(value="")
         self.details_window = None
+        # 기본 추출 Viewer에서는 CAD 텍스트(ID/전주번호/지번 등)를 표시하지 않는다.
+        # 상세 값은 객체 선택 후 상세정보 창에서만 확인한다.
+        self.hide_extraction_text = True
         self._build()
 
     def _build(self):
@@ -1297,8 +1300,11 @@ class DXFViewer(ttk.Frame):
             for item in ids:
                 self.item_to_entity[item] = ent.index
             self.entity_items[ent.index] = ids
+        # 선로는 심벌 아래에 두어 심벌이 케이블을 덮도록 한다.
+        # 이렇게 하면 케이블은 기기 중심까지 이어지면서도 심벌을 가리지 않는다.
+        c.tag_lower("cable")
         c.tag_lower("area_fill")
-        c.tag_raise("cable")
+        c.tag_raise("cable", "area_fill")
         c.tag_raise("annotation")
         self._redraw_measure()
         if self.network_click is not None:
