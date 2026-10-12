@@ -42,6 +42,8 @@ class Api:
         # 앱 실행 세션 동안 지역별 서버 버전 확인은 최초 1회만 한다.
         self.checked_regions = set()
         self.version_check_lock = threading.Lock()
+        self.cache_lock = threading.RLock()
+        self.bbox_refreshing = set()
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
@@ -572,74 +574,50 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def objects(self, west, south, east, north):
-        if not self.region:
-            return {"features": []}
-        try:
-            west = float(west)
-            south = float(south)
-            east = float(east)
-            north = float(north)
-            limit = 2000
-            max_depth = 5
+    def _fetch_bbox_network(self, west, south, east, north):
+        limit = 2000
+        max_depth = 5
 
-            # 체감속도 우선: 이미 내려받은 동일 화면 범위는 서버에 접속하지 않고 즉시 반환한다.
-            # 서버 revision 확인은 새 범위가 필요할 때 수행한다.
-            if self._cache_covers(west, south, east, north):
-                nearby = [
-                    feature for feature in self._cached_features(west, south, east, north)
-                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
-                ]
-                return {
-                    "features": nearby,
-                    "cache": "hit",
-                }
+        def fetch_cell(cw, cs, ce, cn, depth=0):
+            raw = self.c.online_objects(
+                self.region,
+                f"{cw},{cs},{ce},{cn}",
+                limit=limit,
+            ) or {}
+            features = list(raw.get("features") or [])
 
-            self._refresh_versions_if_due()
+            if len(features) < limit or depth >= max_depth:
+                return features
 
-            def feature_key(feature):
-                return self._feature_key(feature)
-
-            def fetch_cell(cw, cs, ce, cn, depth=0):
-                raw = self.c.online_objects(
-                    self.region,
-                    f"{cw},{cs},{ce},{cn}",
-                    limit=limit,
-                ) or {}
-                features = list(raw.get("features") or [])
-
-                if len(features) < limit or depth >= max_depth:
-                    return features
-
-                mx = (cw + ce) / 2.0
-                my = (cs + cn) / 2.0
-                merged = {}
-                for cell in (
-                    (cw, cs, mx, my),
-                    (mx, cs, ce, my),
-                    (cw, my, mx, cn),
-                    (mx, my, ce, cn),
-                ):
-                    for feature in fetch_cell(*cell, depth + 1):
-                        merged[feature_key(feature)] = feature
-                return list(merged.values())
-
+            mx = (cw + ce) / 2.0
+            my = (cs + cn) / 2.0
             merged = {}
-            mx = (west + east) / 2.0
-            my = (south + north) / 2.0
             for cell in (
-                (west, south, mx, my),
-                (mx, south, east, my),
-                (west, my, mx, north),
-                (mx, my, east, north),
+                (cw, cs, mx, my),
+                (mx, cs, ce, my),
+                (cw, my, mx, cn),
+                (mx, my, ce, cn),
             ):
-                for feature in fetch_cell(*cell):
-                    merged[feature_key(feature)] = feature
+                for feature in fetch_cell(*cell, depth + 1):
+                    merged[self._feature_key(feature)] = feature
+            return list(merged.values())
 
+        merged = {}
+        mx = (west + east) / 2.0
+        my = (south + north) / 2.0
+        for cell in (
+            (west, south, mx, my),
+            (mx, south, east, my),
+            (west, my, mx, north),
+            (mx, my, east, north),
+        ):
+            for feature in fetch_cell(*cell):
+                merged[self._feature_key(feature)] = feature
+        return list(merged.values())
+
+    def _commit_bbox_cache(self, features, west, south, east, north):
+        with self.cache_lock:
             feature_store = self.cache_state.setdefault("features", {})
-
-            # 새 서버 응답을 정상 수신한 뒤에만 해당 BBOX의 구버전 캐시를 교체한다.
-            # 이렇게 해야 다운로드 중에는 기존 화면이 유지되고, 삭제된 객체도 캐시에 남지 않는다.
             stale_keys = [
                 key for key, feature in feature_store.items()
                 if self._feature_intersects(feature, west, south, east, north)
@@ -648,7 +626,7 @@ class Api:
             for key in stale_keys:
                 feature_store.pop(key, None)
 
-            for feature in merged.values():
+            for feature in features:
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER":
                     continue
                 feature_store[self._feature_key(feature)] = feature
@@ -663,14 +641,76 @@ class Api:
             self.cache_state["coverage"] = self.cache_state["coverage"][-200:]
             self._save_cache()
 
+    def _start_bbox_refresh(self, west, south, east, north):
+        key = (
+            round(float(west), 6), round(float(south), 6),
+            round(float(east), 6), round(float(north), 6),
+        )
+        with self.cache_lock:
+            if key in self.bbox_refreshing:
+                return False
+            self.bbox_refreshing.add(key)
+
+        region = str(self.region or "")
+
+        def worker():
+            try:
+                if region != self.region:
+                    return
+                self._refresh_versions_if_due()
+                features = self._fetch_bbox_network(west, south, east, north)
+                if region != self.region:
+                    return
+                self._commit_bbox_cache(features, west, south, east, north)
+            except Exception:
+                pass
+            finally:
+                with self.cache_lock:
+                    self.bbox_refreshing.discard(key)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    def objects(self, west, south, east, north):
+        if not self.region:
+            return {"features": []}
+        try:
+            west = float(west)
+            south = float(south)
+            east = float(east)
+            north = float(north)
+
+            # 1) 최신 coverage가 있으면 순수 캐시 hit.
+            if self._cache_covers(west, south, east, north):
+                nearby = [
+                    feature for feature in self._cached_features(west, south, east, north)
+                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+                ]
+                return {"features": nearby, "cache": "hit", "refresh_pending": False}
+
+            # 2) coverage가 오래됐더라도 기존 캐시가 있으면 먼저 즉시 반환한다.
+            # 서버 revision 확인/새 데이터 수신/저장은 백그라운드에서 수행한다.
+            stale_nearby = [
+                feature for feature in self._cached_features(west, south, east, north)
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+            ]
+            if stale_nearby:
+                self._start_bbox_refresh(west, south, east, north)
+                return {
+                    "features": stale_nearby,
+                    "cache": "stale",
+                    "refresh_pending": True,
+                }
+
+            # 3) 이 범위에 캐시가 전혀 없을 때만 최초 서버 수신을 기다린다.
+            self._refresh_versions_if_due()
+            features = self._fetch_bbox_network(west, south, east, north)
+            self._commit_bbox_cache(features, west, south, east, north)
             nearby = [
                 feature for feature in self._cached_features(west, south, east, north)
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
             ]
-            return {
-                "features": nearby,
-                "cache": "network",
-            }
+            return {"features": nearby, "cache": "network", "refresh_pending": False}
         except Exception as exc:
             handled = self._handle_error(exc, {"features": []})
             return handled
@@ -1021,12 +1061,21 @@ function isInfoPointFeature(f){{
   const infoBlockTokens=['TEXT','LABEL','ID','ADDR','ADDRESS','JIBUN','INFO','NOTE','TAG'];
   if(infoBlockTokens.some(k=>block===k || block.startsWith(k+'_') || block.endsWith('_'+k)))return true;
 
+  const keys=Object.keys(fields||{{}}).map(k=>String(k).toUpperCase());
+  const hasTextPayload=keys.some(k=>
+    k==='TEXT' || k==='MTEXT' || k.includes('LABEL') || k.includes('ANNOT') ||
+    k.includes('NOTE') || k.includes('MEMO') || k.includes('CAPTION')
+  );
+  const dxf=fields._cmb_dxf_data||{{}};
+  const dxfKeys=Object.keys(dxf||{{}}).map(k=>String(k).toUpperCase());
+  const dxfHasText=dxfKeys.some(k=>k==='TEXT' || k==='TAG' || k==='PROMPT' || k==='CONTENT');
+  if(hasTextPayload || dxfHasText)return true;
+
   // 실제 기기 판정 힌트가 없고, 속성이 정보성 필드만 가진 POINT는 제외한다.
   const kindHint=String(fields._cmb_symbol_kind||'').toLowerCase();
   const deviceHint=(fields._cmb_is_device===true);
   const knownDeviceKind=['onu','amp','splitter','tap','power','power_ps','closure','pole','manhole'];
   if(!deviceHint && !knownDeviceKind.includes(kindHint)){{
-    const keys=Object.keys(fields||{{}}).map(k=>String(k).toUpperCase());
     const hasInfoKeys=keys.some(k=>
       k.includes('ID') || k.includes('ADDR') || k.includes('ADDRESS') ||
       k.includes('JIBUN') || k.includes('NAME') || k.includes('NUMBER') ||
@@ -1354,8 +1403,7 @@ function renderFiberFeatures(features){{
     if(!Array.isArray(xy)||xy.length<2||
        !Number.isFinite(Number(xy[0]))||!Number.isFinite(Number(xy[1])))return;
 
-    const key=String(p.regional_object_id||p.entity_id||'').trim() ||
-      (kind+'|'+Number(xy[0]).toFixed(7)+'|'+Number(xy[1]).toFixed(7));
+    const key=kind+'|'+Number(xy[0]).toFixed(5)+'|'+Number(xy[1]).toFixed(5);
     if(!fiberDeviceMap.has(key))fiberDeviceMap.set(key,f);
   }});
 
@@ -1434,16 +1482,17 @@ async function loadObjects(force=false){{
   }});
   function deviceFeatureKey(f){{
     const p=f.properties||{{}};
+    const g=f.geometry||{{}},a=g.coordinates||[];
+    const kind=symbolKind(p);
+    // 동일 종류의 실제 심벌과 정보용 복제 POINT는 CAD handle/ID가 달라도
+    // 거의 같은 위치에 놓이므로 위치를 우선해 하나로 합친다.
+    if(Array.isArray(a)&&a.length>=2){{
+      return kind+'|'+Number(a[0]).toFixed(5)+'|'+Number(a[1]).toFixed(5);
+    }}
     const direct=String(
       p.regional_object_id || p.entity_id || p.object_id || p.source_handle || ''
     ).trim();
-    if(direct)return direct;
-    const g=f.geometry||{{}},a=g.coordinates||[];
-    const kind=symbolKind(p);
-    if(Array.isArray(a)&&a.length>=2){{
-      return kind+'|'+Number(a[0]).toFixed(7)+'|'+Number(a[1]).toFixed(7);
-    }}
-    return kind+'|'+String(p.layer||'')+'|'+String(p.block_name||'');
+    return kind+'|'+direct+'|'+String(p.layer||'')+'|'+String(p.block_name||'');
   }}
 
   const pointCandidates=features.filter(f=>{{
@@ -1571,6 +1620,7 @@ async function loadObjects(force=false){{
 
   setStatus(
     'L'+map.getLevel()+
+    ' · '+(r.cache==='stale'?'기존 캐시 즉시 표시 · 서버 갱신중':'캐시/서버 반영')+
     ' · 서버 '+allFeatures.length+'개 ['+rawText+']'+
     ' · '+cableDiag+
     ' · 표시 '+features.length+
@@ -1580,6 +1630,10 @@ async function loadObjects(force=false){{
     '/C:'+String(renderedByGroup.COAX||0)+
     '/D:'+String(renderedByGroup.CONDUIT||0)+']'
   );
+
+  if(r.refresh_pending){{
+    setTimeout(()=>loadObjects(true),900);
+  }}
 }}
 
 async function loadRegions(){{
