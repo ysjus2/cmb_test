@@ -40,8 +40,10 @@ final class KakaoMapRenderer implements MapRenderer {
     private Label current;
     private RouteLineLayer fiberLayer;
     private RouteLineLayer coaxLayer;
+    private RouteLineLayer selectedLineLayer;
     private RouteLineStylesSet fiberStyles;
     private RouteLineStylesSet coaxStyles;
+    private RouteLineStylesSet selectedLineStyles;
     private boolean destroyed;
     private int nextId;
     private int nextLineId;
@@ -96,10 +98,13 @@ final class KakaoMapRenderer implements MapRenderer {
 
                     fiberLayer = map.getRouteLineManager().addLayer("fiber-lines", 3000);
                     coaxLayer = map.getRouteLineManager().addLayer("coax-lines", 2999);
+                    selectedLineLayer = map.getRouteLineManager().addLayer("selected-network-line", 6001);
                     fiberStyles = map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
                             RouteLineStyles.from(RouteLineStyle.from(5f, Color.rgb(30, 136, 229)))));
                     coaxStyles = map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
                             RouteLineStyles.from(RouteLineStyle.from(5f, Color.rgb(245, 124, 0)))));
+                    selectedLineStyles = map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
+                            RouteLineStyles.from(RouteLineStyle.from(9f, Color.rgb(255, 0, 255)))));
                     measurementLayer=map.getRouteLineManager().addLayer("user-measurements",6000);
                     measurementStyles=map.getRouteLineManager().addStylesSet(RouteLineStylesSet.from(
                             RouteLineStyles.from(RouteLineStyle.from(7f,Color.rgb(170,40,210)))));
@@ -130,6 +135,7 @@ final class KakaoMapRenderer implements MapRenderer {
         nextLineId = 0;
         if (fiberLayer != null) fiberLayer.removeAll();
         if (coaxLayer != null) coaxLayer.removeAll();
+        if (selectedLineLayer != null) selectedLineLayer.removeAll();
     }
 
     public void addOnuMarker(MapPoint p, String title, Runnable onClick) {
@@ -148,13 +154,18 @@ final class KakaoMapRenderer implements MapRenderer {
     }
 
     public void addNetworkLine(List<MapPoint> points, boolean fiber) {
+        addNetworkLine(points, fiber, false);
+    }
+
+    @Override public void addNetworkLine(List<MapPoint> points, boolean fiber, boolean selected) {
         if (map == null || points == null || points.size() < 2) return;
         ArrayList<LatLng> converted = new ArrayList<>();
         for (MapPoint p : points) converted.add(point(p));
-        RouteLineStylesSet styles = fiber ? fiberStyles : coaxStyles;
-        RouteLineLayer layer = fiber ? fiberLayer : coaxLayer;
+        RouteLineStylesSet styles = selected ? selectedLineStyles : (fiber ? fiberStyles : coaxStyles);
+        RouteLineLayer layer = selected ? selectedLineLayer : (fiber ? fiberLayer : coaxLayer);
         RouteLineSegment segment = RouteLineSegment.from(converted, styles.getStyles(0));
-        RouteLineOptions options = RouteLineOptions.from((fiber ? "fiber-" : "coax-") + nextLineId++, segment)
+        RouteLineOptions options = RouteLineOptions.from(
+                (selected ? "selected-" : (fiber ? "fiber-" : "coax-")) + nextLineId++, segment)
                 .setStylesSet(styles);
         layer.addRouteLine(options);
     }
