@@ -811,6 +811,9 @@ let activeDistanceLine=null;
 let activeDistanceLabel=null;
 let distanceSessions=[];
 let distanceDeleteMenu=null;
+let currentPointFeatures=[];
+let currentLineFeatures=[];
+let currentDevices=[];
 
 function fiberDiagText(){{
   const d=fiberDiag||{{}};
@@ -1221,8 +1224,27 @@ function latLngToPx(latlng){{
   return map.getProjection().pointFromCoords(latlng);
 }}
 
+function deviceScaleForLevel(level){{
+  const lv=Number(level||3);
+  if(lv<=1)return 1.35;
+  if(lv===2)return 1.00;
+  return 0.72;
+}}
+
+function scaledSymbolSpec(kind){{
+  const base=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  const scale=deviceScaleForLevel(map?map.getLevel():3);
+  const d={{...base}};
+  if(Number.isFinite(Number(base.w)))d.w=Number(base.w)*scale;
+  if(Number.isFinite(Number(base.h)))d.h=Number(base.h)*scale;
+  if(Number.isFinite(Number(base.r)))d.r=Number(base.r)*scale;
+  d._scale=scale;
+  return d;
+}}
+
 function polygonPoints(kind,cx,cy,deg=0){{
-  const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+
+  const d=scaledSymbolSpec(kind);
   let pts=[];
   if(d.shape==='rect'||d.shape==='square_circle'){{
     const w=d.w/2,h=d.h/2;
@@ -1263,7 +1285,7 @@ function boundaryPoint(kind,cx,cy,tx,ty,deg=0){{
   let dx=tx-cx,dy=ty-cy;
   const len=Math.hypot(dx,dy)||1;
   dx/=len;dy/=len;
-  const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  const d=scaledSymbolSpec(kind);
   if(d.shape==='circle'||d.shape==='circle_x'||d.shape==='double_circle'){{
     return [cx+dx*d.r,cy+dy*d.r];
   }}
@@ -1348,7 +1370,7 @@ function inferDirectionalInputFromFeature(feature,lineFeatures){{
 
 function drawDevice(center,props){{
   const kind=symbolKind(props);
-  const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
+  const d=scaledSymbolSpec(kind);
   const px=latLngToPx(center);
   const cx=px.x,cy=px.y;
   const parts=[];
@@ -1405,13 +1427,64 @@ function drawDevice(center,props){{
   if(labelText){{
     const label=new kakao.maps.CustomOverlay({{
       position:center,
-      content:'<div style="font:700 10px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
+      content:'<div style="font:700 '+Math.max(8,Math.round(10*(d._scale||1)))+'px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
       yAnchor:.5,xAnchor:.5
     }});
     label.setMap(map);registerOverlay(label,props.group_id,kind);parts.push(label);
   }}
 
   return {{kind,center,cx,cy,props,parts,deg}};
+}}
+
+function isDeviceOverlayKind(kind){{
+  return [
+    'onu','amp','tap','splitter','pi','power','power_ps','closure','pole','manhole','generic',
+    'amp_input_arrow','tap_input_arrow','splitter_input_arrow'
+  ].includes(String(kind||'').toLowerCase());
+}}
+
+function clearDeviceOverlaysOnly(){{
+  const kept=[];
+  overlays.forEach(x=>{{
+    const kind=String(overlayKinds.get(x)||'').toLowerCase();
+    if(isDeviceOverlayKind(kind)){{
+      try{{x.setMap(null);}}catch(e){{}}
+      overlayGroups.delete(x);
+      overlayKinds.delete(x);
+    }}else{{
+      kept.push(x);
+    }}
+  }});
+  overlays=kept;
+}}
+
+function redrawDevicesFromMemory(){{
+  if(!map)return;
+  clearDeviceOverlaysOnly();
+  currentDevices=[];
+
+  (currentPointFeatures||[]).forEach(f=>{{
+    const g=f.geometry||{{}},p=f.properties||{{}};
+    const a=g.coordinates;
+    if(!Array.isArray(a)||a.length<2||
+       !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
+    try{{
+      const inferred=inferDirectionalInputFromFeature(f,currentLineFeatures||[]);
+      if(inferred){{
+        const attrs=p.attributes||{{}};
+        const fields=attrs.fields||attrs;
+        fields._cmb_rotation_deg=inferred.deg;
+        p.attributes=attrs;
+        p._cmb_directional_input=inferred;
+      }}
+      currentDevices.push(drawDevice(
+        new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p
+      ));
+    }}catch(e){{console.warn('Device redraw failed',e);}}
+  }});
+
+  applyDirectionalInputArrows(currentDevices,currentLineFeatures||[]);
+  applyZoomVisibility(map.getLevel());
 }}
 
 function snapCablePath(coords,devices){{
@@ -1889,6 +1962,8 @@ async function loadObjects(force=false){{
   const pointFeatures=[...deviceFeatureMap.values()];
 
   const lineFeatures=features.filter(f=>['LineString','MultiLineString'].includes((f.geometry||{{}}).type));
+  currentPointFeatures=pointFeatures.slice();
+  currentLineFeatures=lineFeatures.slice();
   const devices=[];
 
   pointFeatures.forEach(f=>{{
@@ -1909,6 +1984,8 @@ async function loadObjects(force=false){{
     }}
     catch(e){{console.warn('Device render failed',e);}}
   }});
+
+  currentDevices=devices.slice();
 
   // 모든 기기는 메모리에 만들어 두고 현재 줌 레벨 정책에 따라 즉시 표시/숨김한다.
   applyZoomVisibility(mapLevel);
@@ -2198,8 +2275,9 @@ function initMap(){{
         const level=map.getLevel();
 
         // 줌 변경은 서버/API와 완전히 분리한다.
-        // 이미 메모리에 생성된 선/기기 오버레이를 레벨 정책에 따라 즉시 표시/숨김한다.
-        applyZoomVisibility(level);
+        // 기기만 메모리에서 현재 줌 레벨 크기로 다시 그리고, 선로는 그대로 유지한다.
+        if(level<=3)redrawDevicesFromMemory();
+        else applyZoomVisibility(level);
         lastDetailMode=(level<=3);
         setStatus(
           'L'+level+
