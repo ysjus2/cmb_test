@@ -263,3 +263,15 @@ assert "applyZoomVisibility(level)" in zoom_block
 assert "loadObjects(true)" not in zoom_block
 assert "lastDetailMode=(level<=3);" in zoom_block
 print("INSTANT_ZOOM_VISIBILITY_OK")
+
+# 캐시 우선 정책: revision 변경 시 캐시를 먼저 삭제하지 않고,
+# 새 BBOX 수신 성공 후 해당 범위만 원자적으로 교체해야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "revision이 바뀌어도 현재 화면 캐시는 즉시 삭제하지 않는다." in online_source
+assert "self._delete_cache_file()" not in online_source.split("def _apply_versions",1)[1].split("def _version_signature",1)[0]
+assert "stale_keys = [" in online_source
+assert "feature_store.pop(key, None)" in online_source
+assert "function fiberDiagText()" in online_source
+assert "fiberDiag.lineObjects=lineObjects;" in online_source
+assert "fiberDiag.renderParts=rendered;" in online_source
+print("CACHE_FIRST_ATOMIC_UPDATE_OK")
