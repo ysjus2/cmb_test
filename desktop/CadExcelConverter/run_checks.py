@@ -578,3 +578,10 @@ assert "overlay.setZIndex(60)" in online_source
 assert "strokeWeight:Math.max(7,Number(baseWeight||4)+3)" in online_source
 assert "bindCableClick(l,p,c,4,5)" in online_source
 print("FIBER_SAFE_CACHE_AND_CABLE_SELECTION_OK")
+
+# 전체 도면 업로드에서는 USER를 서버 전송 대상에서 제외한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert 'FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT")' in admin_upload_source
+full_line = [line for line in admin_upload_source.splitlines() if line.startswith("FULL_UPLOAD_ITEMS =")][0]
+assert '"USER"' not in full_line
+print("FULL_UPLOAD_EXCLUDES_USER_OK")
