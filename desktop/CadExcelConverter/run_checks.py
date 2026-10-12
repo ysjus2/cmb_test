@@ -233,3 +233,12 @@ assert "도면 Revision과 객체" in admin_users_source
 assert "SYMBOL 데이터" in admin_users_source
 assert "사용자-지역 권한 연결" in admin_users_source
 print("REGION_CASCADE_DELETE_WARNING_OK")
+
+# 서버 revision 확인은 앱 실행 세션 동안 지역별 최초 1회만 수행한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "self.checked_regions = set()" in online_source
+assert "self.version_check_lock = threading.Lock()" in online_source
+assert "if not force and region in self.checked_regions:" in online_source
+assert "self.checked_regions.add(region)" in online_source
+assert "now - self.last_version_check < 60" not in online_source
+print("ONCE_PER_REGION_VERSION_CHECK_OK")
