@@ -1128,24 +1128,27 @@ function deviceVisibleAtLevel(feature,mapLevel){{
   return coaxKindVisibleAtLevel(symbolKind(p),mapLevel);
 }}
 
-function pruneDeviceOverlaysForLevel(mapLevel){{
-  const kept=[];
+function applyZoomVisibility(mapLevel){{
   overlays.forEach(x=>{{
-    const group=overlayGroups.get(x);
-    const kind=overlayKinds.get(x);
-    const remove =
-      mapLevel>3
-        ? Boolean(kind)
-        : (group==='COAX' && kind && !coaxKindVisibleAtLevel(kind,mapLevel));
-    if(remove){{
-      try{{x.setMap(null);}}catch(e){{}}
-      overlayGroups.delete(x);
-      overlayKinds.delete(x);
+    const group=String(overlayGroups.get(x)||'').toUpperCase();
+    const kind=String(overlayKinds.get(x)||'').toLowerCase();
+
+    let visible=true;
+    if(group==='FIBER'){{
+      visible=groupEnabled.FIBER===true;
+    }}else if(mapLevel>3){{
+      visible=false;
+    }}else if(kind){{
+      visible=groupEnabled[group]===true;
+      if(visible && group==='COAX'){{
+        visible=coaxKindVisibleAtLevel(kind,mapLevel);
+      }}
     }}else{{
-      kept.push(x);
+      visible=groupEnabled[group]===true;
     }}
+
+    try{{x.setMap(visible?map:null);}}catch(e){{}}
   }});
-  overlays=kept;
   selectedOverlay=null;
 }}
 
@@ -1196,11 +1199,11 @@ async function loadObjects(force=false){{
   const detailMode=mapLevelNow<=3;
   // 광은 모든 줌에서 유지한다. L4 이상에서는 장비/동축/전주/관로만 제거한다.
   if(!detailMode){{
-    clearNonFiberOverlays();
+    applyZoomVisibility(mapLevelNow);
     lastQueryLat=queryLat;
     lastQueryLng=queryLng;
     lastDetailMode=false;
-    setStatus('L'+mapLevelNow+' · 광 캐시 표시 · 기기는 L3 이하에서 표시');
+    setStatus('L'+mapLevelNow+' · 광 캐시 표시 · 기기는 L3 이하에서 숨김');
     return;
   }}
 
@@ -1222,7 +1225,7 @@ async function loadObjects(force=false){{
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
-  if(map.getLevel()>3){{clearNonFiberOverlays();return;}}
+  if(map.getLevel()>3){{applyZoomVisibility(map.getLevel());return;}}
   if(r.error){{setStatus(r.error);return}}
   lastQueryLat=queryLat;
   lastQueryLng=queryLng;
@@ -1286,7 +1289,7 @@ async function loadObjects(force=false){{
     if(kind==='generic' && entityType!=='INSERT')return false;
     if(fields._cmb_is_device===false)return false;
 
-    return deviceVisibleAtLevel(f,mapLevel);
+    return true;
   }});
 
   // 동일 기기는 지도에 반드시 1개만 존재한다.
@@ -1308,6 +1311,9 @@ async function loadObjects(force=false){{
     try{{devices.push(drawDevice(new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p));}}
     catch(e){{console.warn('Device render failed',e);}}
   }});
+
+  // 모든 기기는 메모리에 만들어 두고 현재 줌 레벨 정책에 따라 즉시 표시/숨김한다.
+  applyZoomVisibility(mapLevel);
 
   let renderedLines=0;
   const renderedByGroup={{FIBER:0,COAX:0,CONDUIT:0,POLE:0,USER:0}};
@@ -1361,6 +1367,8 @@ async function loadObjects(force=false){{
       renderedByGroup[group]++;
     }});
   }});
+
+  applyZoomVisibility(mapLevel);
 
   previousOverlays.forEach(x=>{{
     try{{x.setMap(null);}}catch(e){{}}
@@ -1562,21 +1570,14 @@ function initMap(){{
       kakao.maps.event.addListener(map,'zoom_changed',()=>{{
         const level=map.getLevel();
 
-        // 확대 때 생성되는 단계와 반대로, 축소 때는 이전 단계 장비를 즉시 제거한다.
-        pruneDeviceOverlaysForLevel(level);
-
-        if(level>3){{
-          // L4 이상에서는 네트워크 장비는 즉시 숨김.
-          // 선로는 loadObjects 정책에 따라 정리된다.
-          lastQueryLat=NaN;
-          lastQueryLng=NaN;
-          loadObjects(true);
-          return;
-        }}
-
-        lastQueryLat=NaN;
-        lastQueryLng=NaN;
-        loadObjects(true);
+        // 줌 변경은 서버/API와 완전히 분리한다.
+        // 이미 메모리에 생성된 선/기기 오버레이를 레벨 정책에 따라 즉시 표시/숨김한다.
+        applyZoomVisibility(level);
+        lastDetailMode=(level<=3);
+        setStatus(
+          'L'+level+
+          (level<=3 ? ' · 캐시 레벨 즉시 적용' : ' · 광만 표시')
+        );
       }});
       centerMyLocation(false);
       const sel=document.getElementById('region');
