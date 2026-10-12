@@ -1,4 +1,4 @@
-name: Build current CMB DXF Viewer v4.10_FINAL
+name: Build current CMB DXF Viewer v4.11_FINAL
 
 on:
   workflow_dispatch:
@@ -36,23 +36,23 @@ jobs:
         shell: powershell
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name CMB_DXF_Viewer_v4.10_FINAL --collect-all pyproj --collect-all ezdxf --collect-all webview `
+            --name CMB_DXF_Viewer_v4.11_FINAL --collect-all pyproj --collect-all ezdxf --collect-all webview `
             --add-data "cmb_dev_ca.crt;." `
             --exclude-module numpy --exclude-module fontTools main.py
-          Get-FileHash dist/CMB_DXF_Viewer_v4.10_FINAL.exe -Algorithm SHA256
+          Get-FileHash dist/CMB_DXF_Viewer_v4.11_FINAL.exe -Algorithm SHA256
       - name: Verify packaged executable
         shell: powershell
         run: |
-          $process = Start-Process -FilePath dist/CMB_DXF_Viewer_v4.10_FINAL.exe -ArgumentList '--build-smoke-test', 'dist/build-smoke.json' -WindowStyle Hidden -PassThru
+          $process = Start-Process -FilePath dist/CMB_DXF_Viewer_v4.11_FINAL.exe -ArgumentList '--build-smoke-test', 'dist/build-smoke.json' -WindowStyle Hidden -PassThru
           if (-not $process.WaitForExit(120000)) { Stop-Process -Id $process.Id; throw "Packaged smoke test timed out" }
           if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed" }
-          python verify_release.py dist/CMB_DXF_Viewer_v4.10_FINAL.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
+          python verify_release.py dist/CMB_DXF_Viewer_v4.11_FINAL.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
       - name: Upload current build
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-current-v4.10_FINAL
+          name: CMB-DXF-Viewer-current-v4.11_FINAL
           path: |
-            desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v4.10_FINAL.exe
+            desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v4.11_FINAL.exe
             desktop/CadExcelConverter/dist/BUILD_MANIFEST.json
           if-no-files-found: error
           retention-days: 7
@@ -60,15 +60,15 @@ jobs:
       - name: Package direct download ZIP
         shell: powershell
         run: |
-          Compress-Archive -Path dist/CMB_DXF_Viewer_v4.10_FINAL.exe, dist/BUILD_MANIFEST.json -DestinationPath dist/CMB_DXF_Viewer_v4.10_FINAL.zip -Force
+          Compress-Archive -Path dist/CMB_DXF_Viewer_v4.11_FINAL.exe, dist/BUILD_MANIFEST.json -DestinationPath dist/CMB_DXF_Viewer_v4.11_FINAL.zip -Force
 
       - name: Publish direct-download GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.10_FINAL
-          name: CMB DXF Viewer v4.10 FINAL
+          tag_name: v4.11_FINAL
+          name: CMB DXF Viewer v4.11 FINAL
           body: |
-            Windows v4.10: restore safe fiber cache-first behavior so legacy visible fiber is never discarded before a complete replacement is verified; keep multipart-safe keys and stronger collection limits; add cable selection highlight that raises selected FIBER/COAX/CONDUIT above devices with contrasting color and thicker stroke, restoring previous style on reselection.
+            Windows v4.11: exclude USER from full drawing upload; full upload now sends FIBER/COAX/CONDUIT only while POLE/USER/SYMBOL remain selectable manual uploads. Retain safe fiber cache-first behavior, multipart-safe LineString upload, cable selection highlight, fixed toolbar, distance tools, code-first symbols, Connector/Anno filtering, and zoom-responsive devices.
           target_commitish: ${{ github.sha }}
-          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v4.10_FINAL.zip
+          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v4.11_FINAL.zip
           make_latest: true
