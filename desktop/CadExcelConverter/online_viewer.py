@@ -232,8 +232,31 @@ class Api:
         self._refresh_versions_if_due(force=force)
         fiber_version = str((self.cache_state.get("versions") or {}).get("FIBER") or "")
         self._load_fiber_cache()
-        if not force and fiber_version and self.fiber_cache.get("version") == fiber_version:
-            return {"ok": True, "features": self._fiber_features(), "cache": "hit", "version": fiber_version}
+
+        # 과거 버전에서 일부만 저장된 캐시가 동일 revision으로 남아 있을 수 있다.
+        # revision 일치만으로 hit 처리하지 않고 서버 object_count와 개수까지 일치해야 한다.
+        expected_count = self._expected_group_count("FIBER")
+        cached_features = self._fiber_features()
+        cached_count = len(cached_features)
+        cache_complete = (
+            expected_count is None
+            or expected_count <= 0
+            or cached_count == expected_count
+        )
+        if (
+            not force
+            and fiber_version
+            and self.fiber_cache.get("version") == fiber_version
+            and cache_complete
+        ):
+            return {
+                "ok": True,
+                "features": cached_features,
+                "cache": "hit",
+                "version": fiber_version,
+                "expected_count": expected_count,
+                "received_count": cached_count,
+            }
         if not fiber_version:
             self._delete_fiber_cache()
             return {"ok": True, "features": [], "cache": "empty", "version": ""}
@@ -243,7 +266,6 @@ class Api:
             if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
         ]
 
-        expected_count = self._expected_group_count("FIBER")
         received_count = len(fiber_features)
         if expected_count is not None and expected_count > 0 and received_count != expected_count:
             # 일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다.
