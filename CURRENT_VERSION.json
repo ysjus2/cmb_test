@@ -1,9 +1,9 @@
 {
-  "version": "4.08_FINAL",
+  "version": "4.09_FINAL",
   "release_date": "2026-10-12",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v4.08_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v4.09_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v4.08_FINAL",
+  "release_tag": "v4.09_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -46,5 +46,6 @@
   "connector_view_policy": "CN_C_CONNECTOR and CONNECTOR* are excluded from Windows viewer rendering; server data remains unchanged",
   "device_zoom_scale_policy": "L3=0.72x, L2=1.00x, L1=1.35x; devices redraw from in-memory features on zoom; zero server/API calls",
   "upload_geometry_policy": "server accepts Point/LineString only; multipart CAD primitives are uploaded as separate LineString objects with unique part object_id while original source_handle is preserved",
-  "upload_handle_policy": "multipart LineString parts receive unique source_handle suffixes; original CAD handle is preserved in _cmb_original_handle"
+  "upload_handle_policy": "multipart LineString parts receive unique source_handle suffixes; original CAD handle is preserved in _cmb_original_handle",
+  "fiber_view_policy": "legacy fiber cache invalidated; collect within region bounds only; multipart-safe keys; diagnostics show server/received/unique/cache/line/render counts"
 }
