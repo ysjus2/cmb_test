@@ -28,8 +28,8 @@ android {
         applicationId "com.ysjus2.cadnetwork"
         minSdk 23
         targetSdk 35
-        versionCode 25
-        versionName "2.21_FINAL"
+        versionCode 26
+        versionName "2.22_FINAL"
         buildConfigField 'String', 'KAKAO_NATIVE_APP_KEY', '"' + kakaoKey + '"'
     }
 
