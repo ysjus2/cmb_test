@@ -1,4 +1,4 @@
-name: Build Signed APK v2.21_FINAL
+name: Build Signed APK v2.22_FINAL
 
 permissions:
   contents: write
@@ -56,24 +56,30 @@ jobs:
           keytool -printcert -jarfile app/build/outputs/apk/release/app-release.apk -rfc \
             | openssl x509 -outform DER \
             | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
-          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.21_FINAL.apk
+          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.22_FINAL.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Android-v2.21-FINAL
+          name: CMB-Android-v2.22-FINAL
           path: |
-            CMB_Android_v2.20_FINAL.apk
+            CMB_Android_v2.22_FINAL.apk
             kakao-key-hash.txt
           if-no-files-found: error
 
       - name: Publish direct-download Android Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.21_FINAL
-          name: CMB Android v2.21 FINAL
+          tag_name: v2.22_FINAL
+          name: CMB Android v2.22 FINAL
           body: |
-            Mobile online viewer: device IDs, pole numbers and registration text are hidden on the map; details remain available only through the selected-object information flow.
+            Mobile viewer synced to Windows v4.10 behavior:
+            - stale cache remains visible across revision changes and is replaced only after successful area fetch
+            - CMB code-first symbols for 2SP/3SP/DC/PI/ONU/AMP/TAP/PS
+            - Anno and Connector hidden from map
+            - selected cable is highlighted above device symbols
+            - multipart server line identities preserved
+            - distance measurement behavior retained
           target_commitish: ${{ github.sha }}
-          files: CMB_Android_v2.21_FINAL.apk
+          files: CMB_Android_v2.22_FINAL.apk
           make_latest: false
