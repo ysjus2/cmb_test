@@ -150,9 +150,8 @@ class Api:
         try:
             with gzip.open(path, "rt", encoding="utf-8") as fh:
                 raw = json.load(fh)
-            if int(raw.get("schema") or 0) != FIBER_CACHE_SCHEMA:
-                self.fiber_cache = {"version": "", "features": []}
-                return
+            # 구버전 광 캐시도 즉시 화면에 사용한다.
+            # 새 데이터가 완전하게 수집/검증된 뒤 저장할 때만 새 schema로 승격한다.
             self.fiber_cache = {
                 "version": str(raw.get("version") or ""),
                 "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
@@ -234,33 +233,8 @@ class Api:
         }
 
     def _fetch_all_region_features(self):
-        info = self.c.online_layers(self.region) or {}
-        bounds = info.get("bounds") or {}
-
-        try:
-            west = float(bounds.get("west"))
-            south = float(bounds.get("south"))
-            east = float(bounds.get("east"))
-            north = float(bounds.get("north"))
-        except Exception:
-            west, south, east, north = 124.0, 33.0, 132.0, 39.5
-
-        if not (
-            -180 <= west <= 180 and -180 <= east <= 180
-            and -90 <= south <= 90 and -90 <= north <= 90
-            and west < east and south < north
-        ):
-            raise RuntimeError(
-                f"잘못된 지역 bounds: {west},{south},{east},{north}"
-            )
-
-        margin_x = max((east - west) * 0.002, 0.00005)
-        margin_y = max((north - south) * 0.002, 0.00005)
-        west -= margin_x
-        east += margin_x
-        south -= margin_y
-        north += margin_y
-
+        # 기존 검증된 전체 bbox 수집 방식을 유지한다.
+        # multipart-safe _feature_key와 더 높은 limit/depth로 part 누락만 방지한다.
         limit = 5000
         max_depth = 10
 
@@ -271,8 +245,10 @@ class Api:
                 limit=limit,
             ) or {}
             features = list(raw.get("features") or [])
+
             if len(features) < limit:
                 return features
+
             if depth >= max_depth:
                 raise RuntimeError(
                     "FIBER 전체수집 제한 도달: "
@@ -294,7 +270,7 @@ class Api:
             return list(merged.values())
 
         merged = {}
-        for feature in fetch_cell(west, south, east, north):
+        for feature in fetch_cell(-180.0, -90.0, 180.0, 90.0):
             merged[self._feature_key(feature)] = feature
         return list(merged.values())
 
@@ -870,6 +846,8 @@ const overlayGroups=new Map();
 const overlayKinds=new Map();
 let loadGeneration=0;
 let selectedOverlay=null;
+let selectedCable=null;
+let selectedCableStyle=null;
 let lodReferenceSpan=null;
 let idleMinutes=10;
 let myLat=null,myLng=null;
@@ -996,6 +974,7 @@ function registerOverlay(overlay,group,kind=''){{
 }}
 
 function clearOverlays(){{
+  restoreSelectedCable();
   loadGeneration++;
   overlays.forEach(x=>{{
     try{{x.setMap(null);}}catch(e){{}}
@@ -1643,6 +1622,53 @@ function applyDirectionalInputArrows(devices,lineFeatures){{
   return count;
 }}
 
+function restoreSelectedCable(){{
+  if(!selectedCable||!selectedCableStyle)return;
+  try{{
+    selectedCable.setOptions({{
+      strokeWeight:selectedCableStyle.strokeWeight,
+      strokeColor:selectedCableStyle.strokeColor,
+      strokeOpacity:selectedCableStyle.strokeOpacity
+    }});
+    if(typeof selectedCable.setZIndex==='function')selectedCable.setZIndex(selectedCableStyle.zIndex);
+  }}catch(e){{}}
+  selectedCable=null;
+  selectedCableStyle=null;
+}}
+
+function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5){{
+  if(selectedCable!==overlay)restoreSelectedCable();
+
+  selectedCable=overlay;
+  selectedCableStyle={{
+    strokeWeight:Number(baseWeight||4),
+    strokeColor:String(baseColor||'#334155'),
+    strokeOpacity:.95,
+    zIndex:Number(baseZ||5)
+  }};
+
+  // 선택 케이블은 기기보다 위로 올리고 대비색 + 굵기로 강조한다.
+  let highlight='#ff00ff';
+  const c=String(baseColor||'').toLowerCase();
+  if(c==='#ff00ff'||c==='#f0f'||c==='magenta')highlight='#00ffff';
+
+  try{{
+    overlay.setOptions({{
+      strokeWeight:Math.max(7,Number(baseWeight||4)+3),
+      strokeColor:highlight,
+      strokeOpacity:1
+    }});
+    if(typeof overlay.setZIndex==='function')overlay.setZIndex(60);
+  }}catch(e){{}}
+  showDetail(props||{{}});
+}}
+
+function bindCableClick(overlay,props,baseColor,baseWeight=4,baseZ=5){{
+  kakao.maps.event.addListener(overlay,'click',()=>{{
+    selectCable(overlay,props,baseColor,baseWeight,baseZ);
+  }});
+}}
+
 function bindClick(overlay,props){{
   kakao.maps.event.addListener(overlay,'click',()=>showDetail(props||{{}}));
 }}
@@ -1856,6 +1882,10 @@ function applyZoomVisibility(mapLevel){{
     try{{x.setMap(visible?map:null);}}catch(e){{}}
   }});
   selectedOverlay=null;
+  if(selectedCable){{
+    const g=String(overlayGroups.get(selectedCable)||'').toUpperCase();
+    if(!groupEnabled[g] || (g!=='FIBER' && mapLevel>3))restoreSelectedCable();
+  }}
 }}
 
 function renderFiberFeatures(features){{
@@ -1891,7 +1921,7 @@ function renderFiberFeatures(features){{
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(5);
       registerOverlay(l,'FIBER');
-      bindClick(l,p);
+      bindCableClick(l,p,c,4,5);
       rendered++;
     }});
   }});
@@ -2113,7 +2143,11 @@ async function loadObjects(force=false){{
       if(typeof l.setZIndex==='function')l.setZIndex(5);
       const cableKind=(group==='COAX')?coaxCableOverlayKind(f,devices):'';
       registerOverlay(l,group,cableKind);
-      bindClick(l,p);
+      if(['FIBER','COAX','CONDUIT'].includes(group)){{
+        bindCableClick(l,p,c,4,5);
+      }}else{{
+        bindClick(l,p);
+      }}
 
       renderedLines++;
       if(renderedByGroup[group]===undefined)renderedByGroup[group]=0;
