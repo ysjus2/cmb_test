@@ -417,9 +417,9 @@ print("TAP_SPLITTER_INPUT_ARROW_OK")
 # 2/3분배기 및 DC는 원형 splitter, PI만 직사각형 중앙 I 심벌을 사용한다.
 admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-assert '"CN_C_DC" in text' in admin_upload_source
+assert 'layer.startswith("CN_C_DC")' in admin_upload_source
 assert 'return "splitter"' in admin_upload_source
-assert '"CN_C_PI" in text or " PI " in padded' in admin_upload_source
+assert 'layer.startswith("CN_C_PI")' in admin_upload_source
 assert 'return "pi"' in admin_upload_source
 assert "splitter:{{shape:'circle'" in online_source
 assert "pi:{{shape:'rect'" in online_source
