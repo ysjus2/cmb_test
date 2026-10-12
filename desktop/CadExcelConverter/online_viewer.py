@@ -1244,12 +1244,59 @@ async function loadObjects(force=false){{
     if(group==='FIBER')return false;
     return isMaxDetail && groupEnabled[group]===true;
   }});
-  const pointFeatures=features.filter(f=>{{
+  function isInfoPointLayer(layer){{
+    const name=String(layer||'').trim().toUpperCase();
+    return (
+      name.includes('CELLNO') ||
+      name.includes('_ID') ||
+      name.includes('TEXT') ||
+      name.includes('LABEL') ||
+      name.includes('JIBUN') ||
+      name.includes('지번') ||
+      name.includes('ADDRESS') ||
+      name.includes('ADDR')
+    );
+  }}
+
+  function deviceFeatureKey(f){{
+    const p=f.properties||{{}};
+    const direct=String(
+      p.regional_object_id || p.entity_id || p.object_id || p.source_handle || ''
+    ).trim();
+    if(direct)return direct;
+    const g=f.geometry||{{}},a=g.coordinates||[];
+    const kind=symbolKind(p);
+    if(Array.isArray(a)&&a.length>=2){{
+      return kind+'|'+Number(a[0]).toFixed(7)+'|'+Number(a[1]).toFixed(7);
+    }}
+    return kind+'|'+String(p.layer||'')+'|'+String(p.block_name||'');
+  }}
+
+  const pointCandidates=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
+    const layer=String(p.layer||'');
+    if(isInfoPointLayer(layer))return false;
+
+    const kind=symbolKind(p);
+    const entityType=String(p.entity_type||'').toUpperCase();
+
+    // 기존 서버 데이터에는 일반 POINT가 _cmb_is_device=true로 저장된 경우가 있다.
+    // 인식 가능한 기기 심벌 또는 실제 INSERT만 기기로 인정한다.
+    if(kind==='generic' && entityType!=='INSERT')return false;
     if(fields._cmb_is_device===false)return false;
+
     return deviceVisibleAtLevel(f,mapLevel);
   }});
+
+  // 동일 기기는 지도에 반드시 1개만 존재한다.
+  const deviceFeatureMap=new Map();
+  pointCandidates.forEach(f=>{{
+    const key=deviceFeatureKey(f);
+    if(!deviceFeatureMap.has(key))deviceFeatureMap.set(key,f);
+  }});
+  const pointFeatures=[...deviceFeatureMap.values()];
+
   const lineFeatures=features.filter(f=>['LineString','MultiLineString'].includes((f.geometry||{{}}).type));
   const devices=[];
 
