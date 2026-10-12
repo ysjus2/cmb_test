@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import io
 import os
 import ssl
 import sys
@@ -140,6 +141,107 @@ class CMBServerClient:
     @property
     def authenticated(self):
         return bool(self.access_token)
+
+    class _ProgressBody(io.BytesIO):
+        def __init__(self, data, callback=None, chunk_size=256 * 1024):
+            super().__init__(data)
+            self._total = len(data)
+            self._sent = 0
+            self._callback = callback
+            self._chunk_size = int(chunk_size)
+
+        def read(self, size=-1):
+            if size is None or size < 0 or size > self._chunk_size:
+                size = self._chunk_size
+            chunk = super().read(size)
+            if chunk:
+                self._sent += len(chunk)
+                if callable(self._callback):
+                    try:
+                        self._callback(self._sent, self._total)
+                    except Exception:
+                        pass
+            return chunk
+
+    def _raw_json_upload(self, path, payload, progress_callback=None, timeout=None):
+        self._sync_from_shared_state()
+        if not self.access_token:
+            raise ServerError("로그인이 필요합니다.", status=401)
+
+        body_bytes = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        body = self._ProgressBody(body_bytes, callback=progress_callback)
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Length": str(len(body_bytes)),
+            "Authorization": "Bearer " + self.access_token,
+        }
+        req = urllib.request.Request(
+            self.base_url + path,
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, context=self.ssl_context, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")
+            try:
+                parsed = json.loads(detail)
+                detail = parsed.get("detail") or detail
+            except Exception:
+                pass
+            raise ServerError(f"HTTP {exc.code}: {detail or exc.reason}", status=exc.code) from exc
+        except urllib.error.URLError as exc:
+            raise ServerError(f"서버 연결 실패: {exc.reason}") from exc
+        except Exception as exc:
+            raise ServerError(str(exc)) from exc
+
+    def _upload_request(self, path, payload, progress_callback=None, retry_refresh=True):
+        failed_access = self.access_token
+        try:
+            return self._raw_json_upload(
+                path,
+                payload,
+                progress_callback=progress_callback,
+                timeout=None,
+            )
+        except ServerError as exc:
+            if exc.status == 401 and retry_refresh and self.refresh_token:
+                try:
+                    with self._refresh_lock:
+                        with self._shared_state_lock():
+                            self._sync_from_shared_state_unlocked()
+                            if self.access_token == failed_access:
+                                self._refresh_locked(sync_shared=False)
+                                self._sync_to_shared_state_unlocked()
+                    # 토큰 갱신 후에는 전송을 처음부터 다시 시작한다.
+                    if callable(progress_callback):
+                        try:
+                            progress_callback(0, 0)
+                        except Exception:
+                            pass
+                    return self._upload_request(
+                        path,
+                        payload,
+                        progress_callback=progress_callback,
+                        retry_refresh=False,
+                    )
+                except ServerError as refresh_exc:
+                    if refresh_exc.status == 401:
+                        self._notify_session_expired()
+                    raise
+            if exc.status == 401:
+                self._notify_session_expired()
+            raise
 
     def _raw_request(self, method, path, payload=None, auth=True, timeout=60):
         body = None
@@ -332,15 +434,14 @@ class CMBServerClient:
         bb = urllib.parse.quote(bbox, safe=",.-")
         return self._request("GET", f"/online/{q}/objects?bbox={bb}&limit={int(limit)}", timeout=15)
 
-    def upload_group(self, payload):
+    def upload_group(self, payload, progress_callback=None):
         try:
             # 대용량 DXF 업로드/DB 교체는 전주처럼 수시간이 걸릴 수 있다.
             # 고정 timeout을 두지 않고 실제 연결 오류 또는 서버 응답까지 기다린다.
-            return self._request(
-                "POST",
+            return self._upload_request(
                 "/admin/drawings/upload",
                 payload,
-                timeout=None,
+                progress_callback=progress_callback,
             )
         except ServerError as exc:
             # 서버 UploadPackage 스키마의 이전/현재 필드명 차이를 422 응답에 맞춰 보정한다.
@@ -365,25 +466,23 @@ class CMBServerClient:
             if not changed:
                 raise
 
-            return self._request(
-                "POST",
+            return self._upload_request(
                 "/admin/drawings/upload",
                 retry,
+                progress_callback=progress_callback,
                 retry_refresh=False,
-                timeout=None,
             )
 
     def drawing_symbols(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/admin/drawings/{q}/symbols")
 
-    def upload_symbols(self, region, payload):
+    def upload_symbols(self, region, payload, progress_callback=None):
         q = urllib.parse.quote(str(region).strip(), safe="")
-        return self._request(
-            "POST",
+        return self._upload_request(
             f"/admin/drawings/{q}/symbols",
             payload,
-            timeout=None,
+            progress_callback=progress_callback,
         )
 
     def revisions(self, region):
