@@ -1304,7 +1304,8 @@ class DXFViewer(ttk.Frame):
         # 이렇게 하면 케이블은 기기 중심까지 이어지면서도 심벌을 가리지 않는다.
         c.tag_lower("cable")
         c.tag_lower("area_fill")
-        c.tag_raise("cable", "area_fill")
+        if c.find_withtag("area_fill") and c.find_withtag("cable"):
+            c.tag_raise("cable", "area_fill")
         c.tag_raise("annotation")
         self._redraw_measure()
         if self.network_click is not None:
