@@ -89,42 +89,94 @@ def classify_entity(e):
 
 
 def _symbol_kind(e):
-    text = (str(e.layer or "") + " " + str(e.block_name or "") + " " + str(e.entity_type or "")).upper()
+    """Map actual CMB CAD layer/block codes to viewer symbol kinds.
+
+    CAD code is authoritative. Generic English keyword fallback is used only
+    for legacy data that does not expose a recognized CMB code.
+    """
+    layer = str(e.layer or "").strip().upper()
+    block = str(e.block_name or "").strip().upper()
+    entity_type = str(e.entity_type or "").strip().upper()
+    text = f"{layer} {block} {entity_type}"
     padded = f" {text.replace('-', ' ').replace('_', ' ')} "
-    if "ONU" in text:
+
+    # ---- CMB coax device codes (authoritative) ----
+    if layer.startswith("CN_C_ONU") or " ONU " in padded:
         return "onu"
-    if "AMP" in text:
+
+    if layer.startswith("CN_C_AMP") or block.startswith("AMP") or " AMP " in padded:
         return "amp"
-    if "MANHOLE" in text:
-        return "manhole"
-    if "POLE" in text:
-        return "pole"
-    if "TAP" in text:
+
+    if layer.startswith("CN_C_TAP") or block.startswith("TAP") or " TAP " in padded:
         return "tap"
 
-    # 분배/분기 계열은 모두 원형 splitter 심벌로 통일한다.
-    # 2WAY/3WAY는 중앙 숫자로 구분하고 DC도 splitter 계열로 처리한다.
-    if any(k in text for k in (
-        "2WAY", "3WAY", "2-WAY", "3-WAY",
-        "2SP", "3SP",
-        "2분기", "3분기", "2분배", "3분배",
-    )):
-        return "splitter"
+    # Passive family: 2SP/3SP/DC are splitters; PI has its own rectangular-I symbol.
     if (
-        "CN_C_DC" in text
+        block.startswith("2SP")
+        or " 2SP " in padded
+        or "2WAY" in text
+        or "2-WAY" in text
+        or "2분기" in text
+        or "2분배" in text
+    ):
+        return "splitter"
+
+    if (
+        block.startswith("3SP")
+        or " 3SP " in padded
+        or "3WAY" in text
+        or "3-WAY" in text
+        or "3분기" in text
+        or "3분배" in text
+    ):
+        return "splitter"
+
+    if (
+        layer.startswith("CN_C_DC")
+        or block.startswith("DC")
         or " DC " in padded
         or "DIRECTIONAL COUPLER" in text
     ):
         return "splitter"
 
-    # PI는 직사각형 중앙 I 심벌로 별도 관리한다.
-    if "CN_C_PI" in text or " PI " in padded:
+    if (
+        layer.startswith("CN_C_PI")
+        or block.startswith("PI")
+        or " PI " in padded
+    ):
         return "pi"
 
-    if "POWER" in text or " PS " in padded:
+    if (
+        layer.startswith("CN_C_POWER")
+        or block.startswith("PS")
+        or " POWER " in padded
+        or " PS " in padded
+    ):
         return "power_ps"
-    if any(k in text for k in ("CLOSURE", "TERMINAL", "CENTER")):
+
+    # ---- Fiber / infrastructure codes ----
+    if (
+        layer.startswith("CN_F_CLOSURE")
+        or layer.startswith("CN_F_CENTER")
+        or layer.startswith("CN_F_TERMINAL")
+        or any(k in text for k in ("CLOSURE", "TERMINAL", "CENTER"))
+    ):
         return "closure"
+
+    if "MANHOLE" in text:
+        return "manhole"
+
+    if layer == "CN_L_POLE" or layer.startswith("CN_L_POLE_POLE") or "POLE" in text:
+        return "pole"
+
+    # Legacy fallback only.
+    if "ONU" in text:
+        return "onu"
+    if "AMP" in text or "증폭" in text:
+        return "amp"
+    if "TAP" in text:
+        return "tap"
+
     return "generic"
 
 
