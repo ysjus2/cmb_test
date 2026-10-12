@@ -1098,43 +1098,60 @@ function isInfoPointFeature(f){{
 function symbolKind(p){{
   const a=p.attributes||{{}};
   const f=a.fields||a;
-  const s=(
-    (p.layer||'')+' '+
-    (p.block_name||'')+' '+
-    (p.entity_type||'')+' '+
-    JSON.stringify(p.attributes||{{}})
-  ).toUpperCase();
+  const layer=String(p.layer||'').trim().toUpperCase();
+  const block=String(p.block_name||'').trim().toUpperCase();
+  const entityType=String(p.entity_type||'').trim().toUpperCase();
+  const s=(layer+' '+block+' '+entityType+' '+JSON.stringify(p.attributes||{{}})).toUpperCase();
   const padded=' '+s.replace(/[-_]/g,' ')+' ';
 
-  // 실제 CAD 블록명이 저장된 과거 symbol_kind보다 우선한다.
-  // CN_C_Passive의 2SP-B / 3SP-B는 각각 2/3분기기다.
+  // CMB 도면의 실제 layer/block code가 저장된 legacy symbol_kind보다 항상 우선한다.
+  if(layer.startsWith('CN_C_ONU') || padded.includes(' ONU '))return 'onu';
+
+  if(layer.startsWith('CN_C_AMP') || block.startsWith('AMP') || padded.includes(' AMP '))return 'amp';
+
+  if(layer.startsWith('CN_C_TAP') || block.startsWith('TAP') || padded.includes(' TAP '))return 'tap';
+
   if(
-    s.includes('2SP')||s.includes('3SP')||
-    s.includes('2WAY')||s.includes('3WAY')||
-    s.includes('2-WAY')||s.includes('3-WAY')||
-    s.includes('2분기')||s.includes('3분기')||
-    s.includes('2분배')||s.includes('3분배')||
-    s.includes('CN_C_DC')||
-    padded.includes(' DC ')||
-    s.includes('DIRECTIONAL COUPLER')
+    block.startsWith('2SP') || padded.includes(' 2SP ') ||
+    s.includes('2WAY') || s.includes('2-WAY') ||
+    s.includes('2분기') || s.includes('2분배')
   )return 'splitter';
 
-  // PI만 직사각형 중앙 I.
-  if(s.includes('CN_C_PI')||padded.includes(' PI '))return 'pi';
+  if(
+    block.startsWith('3SP') || padded.includes(' 3SP ') ||
+    s.includes('3WAY') || s.includes('3-WAY') ||
+    s.includes('3분기') || s.includes('3분배')
+  )return 'splitter';
 
+  if(
+    layer.startsWith('CN_C_DC') || block.startsWith('DC') ||
+    padded.includes(' DC ') || s.includes('DIRECTIONAL COUPLER')
+  )return 'splitter';
+
+  if(layer.startsWith('CN_C_PI') || block.startsWith('PI') || padded.includes(' PI '))return 'pi';
+
+  if(
+    layer.startsWith('CN_C_POWER') || block.startsWith('PS') ||
+    padded.includes(' POWER ') || padded.includes(' PS ')
+  )return 'power_ps';
+
+  if(
+    layer.startsWith('CN_F_CLOSURE') ||
+    layer.startsWith('CN_F_CENTER') ||
+    layer.startsWith('CN_F_TERMINAL') ||
+    s.includes('CLOSURE') || s.includes('TERMINAL') || s.includes('CENTER')
+  )return 'closure';
+
+  if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
+  if(layer==='CN_L_POLE'||layer.startsWith('CN_L_POLE_POLE')||s.includes('POLE')||s.includes('전주'))return 'pole';
+
+  // Legacy fallback for old server rows without recognizable CMB code.
   if(f._cmb_symbol_kind){{
     const stored=String(f._cmb_symbol_kind).toLowerCase();
     if(stored==='power')return 'power_ps';
     if(['splitter','pi','onu','amp','tap','power_ps','closure','pole','manhole'].includes(stored))return stored;
   }}
 
-  if(s.includes('ONU'))return 'onu';
-  if(s.includes('AMP')||s.includes('증폭'))return 'amp';
-  if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
-  if(s.includes('POLE')||s.includes('전주'))return 'pole';
-  if(s.includes('TAP'))return 'tap';
-  if(s.includes('POWER')||/(^|[^A-Z0-9])PS([^A-Z0-9]|$)/.test(s))return 'power_ps';
-  if(s.includes('CLOSURE')||s.includes('TERMINAL')||s.includes('CENTER'))return 'closure';
   return 'generic';
 }}
 
@@ -1146,13 +1163,17 @@ function rotationDeg(p){{
 }}
 
 function deviceLabel(p,kind){{
+  const layer=String(p.layer||'').trim().toUpperCase();
+  const block=String(p.block_name||'').trim().toUpperCase();
+  const s=(layer+' '+block+' '+JSON.stringify(p.attributes||{{}})).toUpperCase();
+  const padded=' '+s.replace(/[-_]/g,' ')+' ';
+
   if(kind==='splitter'){{
-    const s=((p.layer||'')+' '+(p.block_name||'')+' '+JSON.stringify(p.attributes||{{}})).toUpperCase();
-    const padded=' '+s.replace(/[-_]/g,' ')+' ';
-    if(s.includes('3SP')||s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기')||s.includes('3분배'))return '3';
-    if(s.includes('2SP')||s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기')||s.includes('2분배'))return '2';
-    if(s.includes('CN_C_DC')||padded.includes(' DC ')||s.includes('DIRECTIONAL COUPLER'))return 'DC';
+    if(block.startsWith('3SP')||s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기')||s.includes('3분배'))return '3';
+    if(block.startsWith('2SP')||s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기')||s.includes('2분배'))return '2';
+    if(layer.startsWith('CN_C_DC')||block.startsWith('DC')||padded.includes(' DC ')||s.includes('DIRECTIONAL COUPLER'))return 'DC';
   }}
+
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
 }}
 
