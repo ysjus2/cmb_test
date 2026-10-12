@@ -552,3 +552,16 @@ assert 'f"{original_handle}/part/{part_index:03d}"' in admin_upload_source
 assert 'part_attrs["_cmb_original_handle"] = original_handle' in admin_upload_source
 assert '"source_handle": source_handle' in admin_upload_source
 print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
+
+# FIBER 전체수집은 실제 지역 bounds만 사용하고 multipart part를 dedupe하지 않는다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "FIBER_CACHE_SCHEMA = 2" in online_source
+assert 'bounds = info.get("bounds") or {}' in online_source
+assert "west, south, east, north = 124.0, 33.0, 132.0, 39.5" in online_source
+assert "limit = 5000" in online_source
+assert "max_depth = 10" in online_source
+assert "part_index = str(" in online_source
+assert 'ident = f"{ident}|part={part_index}"' in online_source
+assert "/고유 " in online_source
+assert "-180.0, -90.0, 180.0, 90.0" not in online_source
+print("FIBER_REGION_COLLECTION_AND_PART_KEYS_OK")
