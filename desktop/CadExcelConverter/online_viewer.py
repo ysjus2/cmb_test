@@ -1033,6 +1033,7 @@ const SYMBOL_LIBRARY={{
   pole:{{shape:'circle_x',r:2.2,fill:'#ffffff',stroke:'#6d4c41'}},
   tap:{{shape:'hexagon',w:18,h:16,fill:'#ffc928',stroke:'#6d4c00'}},
   splitter:{{shape:'circle',r:8,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
+  pi:{{shape:'rect',w:18,h:12,fill:'#ffffff',stroke:'#424242',label:'I',labelColor:'#212121'}},
   manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
   power:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
   power_ps:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
@@ -1098,8 +1099,9 @@ function symbolKind(p){{
   const a=p.attributes||{{}};
   const f=a.fields||a;
   if(f._cmb_symbol_kind){{
-    const stored=String(f._cmb_symbol_kind);
-    return stored==='power'?'power_ps':stored;
+    const stored=String(f._cmb_symbol_kind).toLowerCase();
+    if(stored==='power')return 'power_ps';
+    if(['splitter','pi','onu','amp','tap','power_ps','closure','pole','manhole'].includes(stored))return stored;
   }}
   const s=(
     (p.layer||'')+' '+
@@ -1107,12 +1109,22 @@ function symbolKind(p){{
     (p.entity_type||'')+' '+
     JSON.stringify(p.attributes||{{}})
   ).toUpperCase();
+  const padded=' '+s.replace(/[-_]/g,' ')+' ';
   if(s.includes('ONU'))return 'onu';
   if(s.includes('AMP')||s.includes('증폭'))return 'amp';
   if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
   if(s.includes('POLE')||s.includes('전주'))return 'pole';
-  if(s.includes('2WAY')||s.includes('3WAY')||s.includes('2분기')||s.includes('3분기'))return 'splitter';
   if(s.includes('TAP'))return 'tap';
+  if(
+    s.includes('2WAY')||s.includes('3WAY')||
+    s.includes('2-WAY')||s.includes('3-WAY')||
+    s.includes('2분기')||s.includes('3분기')||
+    s.includes('2분배')||s.includes('3분배')||
+    s.includes('CN_C_DC')||
+    padded.includes(' DC ')||
+    s.includes('DIRECTIONAL COUPLER')
+  )return 'splitter';
+  if(s.includes('CN_C_PI')||padded.includes(' PI '))return 'pi';
   if(s.includes('POWER')||/(^|[^A-Z0-9])PS([^A-Z0-9]|$)/.test(s))return 'power_ps';
   if(s.includes('CLOSURE')||s.includes('TERMINAL')||s.includes('CENTER'))return 'closure';
   return 'generic';
@@ -1128,8 +1140,10 @@ function rotationDeg(p){{
 function deviceLabel(p,kind){{
   if(kind==='splitter'){{
     const s=((p.layer||'')+' '+(p.block_name||'')+' '+JSON.stringify(p.attributes||{{}})).toUpperCase();
-    if(s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기'))return '3';
-    if(s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기'))return '2';
+    const padded=' '+s.replace(/[-_]/g,' ')+' ';
+    if(s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기')||s.includes('3분배'))return '3';
+    if(s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기')||s.includes('2분배'))return '2';
+    if(s.includes('CN_C_DC')||padded.includes(' DC ')||s.includes('DIRECTIONAL COUPLER'))return 'DC';
   }}
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
 }}
@@ -1411,7 +1425,7 @@ function coaxKindVisibleAtLevel(kind,mapLevel){{
     return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure'].includes(kind);
   }}
   if(mapLevel===2){{
-    return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure','tap','generic'].includes(kind);
+    return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure','tap','pi','generic'].includes(kind);
   }}
   return mapLevel<=1;
 }}
