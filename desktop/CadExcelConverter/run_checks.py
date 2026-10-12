@@ -401,7 +401,7 @@ assert "const last=clean[clean.length-1];" in online_source
 assert "if(dist>32)return;" in online_source
 assert "fields._cmb_rotation_deg=inferred.deg;" in online_source
 assert "p._cmb_directional_input=inferred;" in online_source
-assert "입력 케이블 끝에서 증폭기 쪽으로 향하는 V 화살표" in online_source
+assert "입력 케이블 끝에서 기기 쪽으로 향하는 V 화살표" in online_source
 print("COAX_ENDPOINT_INPUT_DIRECTION_OK")
 
 # AMP/TAP/분기기는 동일한 케이블 끝점 입력 판정과 입력 화살표 정책을 사용한다.
