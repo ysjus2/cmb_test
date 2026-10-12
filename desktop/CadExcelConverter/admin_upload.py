@@ -202,8 +202,10 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         symbol_kind = _symbol_kind(e)
         attrs["_cmb_symbol_kind"] = symbol_kind
         attrs["_cmb_rotation_deg"] = _rotation_deg(e)
+        # POINT는 좌표/정보 표시에 쓰이는 경우가 많으므로 POINT라는 이유만으로
+        # 기기로 판정하지 않는다. 실제 INSERT 또는 인식 가능한 기기 심벌만 기기다.
         attrs["_cmb_is_device"] = bool(
-            str(e.entity_type or "").upper() in {"INSERT", "POINT"}
+            str(e.entity_type or "").upper() == "INSERT"
             or symbol_kind != "generic"
         )
         for src_key, dst_key in (
@@ -285,7 +287,7 @@ def build_symbol_payload(scene, source_path, region_code, memo=""):
     for e in scene.entities:
         entity_type = str(e.entity_type or "").upper()
         kind = _symbol_kind(e)
-        is_device = entity_type in {"INSERT", "POINT"} or kind != "generic"
+        is_device = entity_type == "INSERT" or kind != "generic"
         if not is_device:
             continue
 
