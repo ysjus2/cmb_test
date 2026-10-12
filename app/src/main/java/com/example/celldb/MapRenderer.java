@@ -15,6 +15,9 @@ interface MapRenderer {
     void addOnuMarker(MapPoint point, String title, Runnable onClick);
     void addCadSymbol(MapPoint point, String title, String symbol, Runnable onClick);
     void addNetworkLine(List<MapPoint> points, boolean fiber);
+    default void addNetworkLine(List<MapPoint> points, boolean fiber, boolean selected) {
+        addNetworkLine(points, fiber);
+    }
     void setMapClick(PointClick click);
     void showMeasurements(List<DistanceMeasurement.Line> lines,List<DistanceMeasurement.Point> current);
     android.graphics.Point screenPoint(MapPoint point);
