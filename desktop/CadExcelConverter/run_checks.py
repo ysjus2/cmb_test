@@ -70,7 +70,7 @@ kind, geom = _geometry_parts(multi)
 assert kind == "MultiLineString"
 assert len(geom) == 2
 print("DEVICE_POINT_GEOMETRY_OK")
-print("MULTIPART_UPLOAD_GEOMETRY_OK")
+print("MULTIPART_SOURCE_GEOMETRY_OK")
 
 # 온라인 Viewer는 광을 영구 캐시 레이어로 유지하고,
 # L1~L3에서만 주변 기기/동축/전주/관로를 추가한다.
@@ -535,3 +535,13 @@ zoom_end = online_source.index("centerMyLocation(false);", zoom_start)
 zoom_block = online_source[zoom_start:zoom_end]
 assert "apiCall('objects'" not in zoom_block
 print("ZOOM_RESPONSIVE_DEVICE_SCALE_OK")
+
+# 서버는 Point/LineString만 허용하므로 multipart CAD geometry는 업로드 시 개별 LineString으로 분리한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert 'geometries = [' in admin_upload_source
+assert '{"type": "LineString", "coordinates": part}' in admin_upload_source
+assert '"_cmb_geometry_part_index"' in admin_upload_source
+assert '"_cmb_geometry_part_count"' in admin_upload_source
+assert 'f"{base_object_id}_part{part_index:03d}"' in admin_upload_source
+assert '"type": "MultiLineString"' not in admin_upload_source
+print("SERVER_COMPATIBLE_SPLIT_LINESTRING_UPLOAD_OK")
