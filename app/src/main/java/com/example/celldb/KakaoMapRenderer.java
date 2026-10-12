@@ -141,8 +141,9 @@ final class KakaoMapRenderer implements MapRenderer {
         String id = "cad-" + nextId++;
         android.graphics.Bitmap shape=CadSymbolIcon.create(symbol);
         LabelStyles style=shape==null?onuStyle:map.getLabelManager().addLabelStyles(LabelStyles.from(id+"-symbol",LabelStyle.from(shape).setAnchorPoint(0.5f,0.5f)));
-        onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(style)
-                .setTexts(new LabelTextBuilder().setTexts(title)).setClickable(true));
+        // 온라인 지도에서는 기기 ID/전주번호/등록정보 텍스트를 표시하지 않는다.
+        // 상세 정보는 선택 후 등록정보 화면에서만 확인한다.
+        onuLayer.addLabel(LabelOptions.from(id, point(p)).setStyles(style).setClickable(true));
         clickActions.put(id, onClick);
     }
 
