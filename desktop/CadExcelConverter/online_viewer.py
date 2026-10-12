@@ -1098,11 +1098,6 @@ function isInfoPointFeature(f){{
 function symbolKind(p){{
   const a=p.attributes||{{}};
   const f=a.fields||a;
-  if(f._cmb_symbol_kind){{
-    const stored=String(f._cmb_symbol_kind).toLowerCase();
-    if(stored==='power')return 'power_ps';
-    if(['splitter','pi','onu','amp','tap','power_ps','closure','pole','manhole'].includes(stored))return stored;
-  }}
   const s=(
     (p.layer||'')+' '+
     (p.block_name||'')+' '+
@@ -1110,12 +1105,11 @@ function symbolKind(p){{
     JSON.stringify(p.attributes||{{}})
   ).toUpperCase();
   const padded=' '+s.replace(/[-_]/g,' ')+' ';
-  if(s.includes('ONU'))return 'onu';
-  if(s.includes('AMP')||s.includes('증폭'))return 'amp';
-  if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
-  if(s.includes('POLE')||s.includes('전주'))return 'pole';
-  if(s.includes('TAP'))return 'tap';
+
+  // 실제 CAD 블록명이 저장된 과거 symbol_kind보다 우선한다.
+  // CN_C_Passive의 2SP-B / 3SP-B는 각각 2/3분기기다.
   if(
+    s.includes('2SP')||s.includes('3SP')||
     s.includes('2WAY')||s.includes('3WAY')||
     s.includes('2-WAY')||s.includes('3-WAY')||
     s.includes('2분기')||s.includes('3분기')||
@@ -1124,7 +1118,21 @@ function symbolKind(p){{
     padded.includes(' DC ')||
     s.includes('DIRECTIONAL COUPLER')
   )return 'splitter';
+
+  // PI만 직사각형 중앙 I.
   if(s.includes('CN_C_PI')||padded.includes(' PI '))return 'pi';
+
+  if(f._cmb_symbol_kind){{
+    const stored=String(f._cmb_symbol_kind).toLowerCase();
+    if(stored==='power')return 'power_ps';
+    if(['splitter','pi','onu','amp','tap','power_ps','closure','pole','manhole'].includes(stored))return stored;
+  }}
+
+  if(s.includes('ONU'))return 'onu';
+  if(s.includes('AMP')||s.includes('증폭'))return 'amp';
+  if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
+  if(s.includes('POLE')||s.includes('전주'))return 'pole';
+  if(s.includes('TAP'))return 'tap';
   if(s.includes('POWER')||/(^|[^A-Z0-9])PS([^A-Z0-9]|$)/.test(s))return 'power_ps';
   if(s.includes('CLOSURE')||s.includes('TERMINAL')||s.includes('CENTER'))return 'closure';
   return 'generic';
@@ -1141,8 +1149,8 @@ function deviceLabel(p,kind){{
   if(kind==='splitter'){{
     const s=((p.layer||'')+' '+(p.block_name||'')+' '+JSON.stringify(p.attributes||{{}})).toUpperCase();
     const padded=' '+s.replace(/[-_]/g,' ')+' ';
-    if(s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기')||s.includes('3분배'))return '3';
-    if(s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기')||s.includes('2분배'))return '2';
+    if(s.includes('3SP')||s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기')||s.includes('3분배'))return '3';
+    if(s.includes('2SP')||s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기')||s.includes('2분배'))return '2';
     if(s.includes('CN_C_DC')||padded.includes(' DC ')||s.includes('DIRECTIONAL COUPLER'))return 'DC';
   }}
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
