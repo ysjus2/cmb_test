@@ -1,9 +1,9 @@
 {
-  "version": "3.90_FINAL",
+  "version": "3.91_FINAL",
   "release_date": "2026-10-12",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v3.90_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v3.91_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v3.90_FINAL",
+  "release_tag": "v3.91_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -29,5 +29,7 @@
   "fiber_diagnostics": "show server/received/cache/line-object/render-part counts",
   "upload_session_policy": "pause local idle guard during upload; heartbeat every 15s; 3600s upload timeout",
   "fiber_cache_policy": "same revision is a hit only when cached fiber count matches server object_count",
-  "coax_device_policy": "preserve explicit legacy device POINTs and keep device symbols above cables"
+  "coax_device_policy": "preserve explicit legacy device POINTs and keep device symbols above cables",
+  "device_filter_policy": "TEXT/MTEXT/ATTRIB/ID/address/info entities are never rendered as devices",
+  "fiber_device_policy": "FIBER Point devices are created from persistent fiber cache and shown only at detailed zoom levels"
 }
