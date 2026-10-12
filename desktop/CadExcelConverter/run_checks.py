@@ -220,6 +220,10 @@ assert 'style["display_color"] = display_color.lower()' in admin_upload_source
 assert 'style["true_color"] = int(display_color[1:], 16)' in admin_upload_source
 assert "function originalCableColor" in online_source
 assert "const c=originalCableColor(p,group);" in online_source
+assert "CAD에서 추출한 실제 선 색상을 최우선으로 복원한다." in online_source
+assert "function hideGroupOverlays(group)" in online_source
+assert "function showGroupOverlays(group)" in online_source
+assert "COAX reopen" not in online_source
 assert 'display_color = str(style.get("display_color") or "")' in recovery_source
 print("CABLE_COLOR_PRESERVATION_OK")
 
