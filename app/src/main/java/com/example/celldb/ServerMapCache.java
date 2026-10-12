@@ -143,6 +143,20 @@ final class ServerMapCache {
     }
 
     static void merge(State state,ArrayList<CadRecord> rows,MapPoint center,int radius,String filter,String versionKey) {
+        // 새 서버 응답을 정상 수신한 뒤에만 해당 조회 범위/레이어의 오래된 캐시를 교체한다.
+        // 그 전까지는 applyVersions()가 기존 records를 유지하므로 화면이 먼저 보인다.
+        HashSet<String> selectedLayers=new HashSet<>();
+        if(filter!=null&&!filter.trim().isEmpty())for(String item:filter.split(",")){
+            String value=item.trim();
+            if(!value.isEmpty())selectedLayers.add(value);
+        }
+        final double replaceRadius=Math.max(radius*1.20,radius+50.0);
+        state.records.removeIf(r->
+                r.hasCoordinates()
+                && (selectedLayers.isEmpty()||selectedLayers.contains(r.layer))
+                && new MapPoint(r.latitude,r.longitude).distanceToAsDouble(center)<=replaceRadius
+        );
+
         LinkedHashMap<String,CadRecord> merged=new LinkedHashMap<>();
         for(CadRecord r:state.records)merged.put(r.stableKey(),r);
         for(CadRecord r:rows)merged.put(r.stableKey(),r);
