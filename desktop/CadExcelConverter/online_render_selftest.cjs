@@ -9,7 +9,7 @@ class Polyline { constructor(options){this.options=options;} setMap(map){this.ma
 const map = {level:3,getLevel(){return this.level;},getCenter(){return new LatLng(35,127);}};
 const context = vm.createContext({document,console,kakao:{maps:{LatLng,Polyline,event:{addListener(){}}}},setTimeout,clearTimeout,setInterval,clearInterval});
 vm.runInContext(fs.readFileSync(process.argv[2],'utf8')+`
-globalThis.test={loadObjects,clearGroupOverlays,clearOverlays,clearNonFiberOverlays,renderFiberFeatures,bindUi,
+globalThis.test={loadObjects,clearGroupOverlays,clearOverlays,clearNonFiberOverlays,hideGroupOverlays,showGroupOverlays,renderFiberFeatures,bindUi,
  setMap:v=>map=v,setApi:v=>apiCall=v,setSnap:v=>snapCablePath=v,
  groups:groupEnabled,getOverlays:()=>overlays,status:()=>document.getElementById('status').textContent,
  reset:()=>{clearOverlays();lastQueryLat=null;lastQueryLng=null;lastDetailMode=null;},
@@ -47,9 +47,16 @@ t.groups.COAX=t.groups.CONDUIT=true;
   const before=requests;
   buttons[1].onclick();
   assert.equal(requests,before,'COAX OFF must not fetch');
-  assert.equal(t.getOverlays().length,2,'fiber + conduit remain');
+  assert.equal(t.getOverlays().length,4,'COAX OFF keeps cached overlay objects');
+  const coaxHidden=t.getOverlays().filter(x=>x.map===null).length;
+  assert.equal(coaxHidden,2,'two COAX lines hidden in-place');
+
+  buttons[1].onclick();
+  assert.equal(requests,before,'COAX reopen must restore cached overlays without fetch');
+  assert.equal(t.getOverlays().filter(x=>x.map===map).length,4,'cached COAX lines restored immediately');
 
   buttons[0].onclick();
-  assert.equal(t.getOverlays().length,1,'FIBER OFF removes only fiber');
-  console.log('ONLINE_PERSISTENT_FIBER_RENDER_OK');
+  assert.equal(t.getOverlays().length,4,'FIBER OFF keeps cached fiber object');
+  assert.equal(t.getOverlays().filter(x=>x.map===null).length,1,'fiber hidden in-place');
+  console.log('ONLINE_PERSISTENT_LAYER_CACHE_RENDER_OK');
 })().catch(e=>{console.error(e);process.exitCode=1;});
