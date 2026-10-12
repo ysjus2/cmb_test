@@ -545,3 +545,10 @@ assert '"_cmb_geometry_part_count"' in admin_upload_source
 assert 'f"{base_object_id}_part{part_index:03d}"' in admin_upload_source
 assert '"type": "MultiLineString"' not in admin_upload_source
 print("SERVER_COMPATIBLE_SPLIT_LINESTRING_UPLOAD_OK")
+
+# multipart 업로드는 서버 source_handle 유일성 제약을 만족하고 원본 CAD handle을 별도 보존한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert 'f"{original_handle}/part/{part_index:03d}"' in admin_upload_source
+assert 'part_attrs["_cmb_original_handle"] = original_handle' in admin_upload_source
+assert '"source_handle": source_handle' in admin_upload_source
+print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
