@@ -9,7 +9,7 @@ class Polyline { constructor(options){this.options=options;} setMap(map){this.ma
 const map = {level:3,getLevel(){return this.level;},getCenter(){return new LatLng(35,127);}};
 const context = vm.createContext({document,console,kakao:{maps:{LatLng,Polyline,event:{addListener(){}}}},setTimeout,clearTimeout,setInterval,clearInterval});
 vm.runInContext(fs.readFileSync(process.argv[2],'utf8')+`
-globalThis.test={loadObjects,clearGroupOverlays,clearOverlays,clearNonFiberOverlays,hideGroupOverlays,showGroupOverlays,renderFiberFeatures,bindUi,
+globalThis.test={loadObjects,clearGroupOverlays,clearOverlays,clearNonFiberOverlays,hideGroupOverlays,showGroupOverlays,applyZoomVisibility,renderFiberFeatures,bindUi,
  setMap:v=>map=v,setApi:v=>apiCall=v,setSnap:v=>snapCablePath=v,
  groups:groupEnabled,getOverlays:()=>overlays,status:()=>document.getElementById('status').textContent,
  reset:()=>{clearOverlays();lastQueryLat=null;lastQueryLng=null;lastDetailMode=null;},
@@ -58,5 +58,15 @@ t.groups.COAX=t.groups.CONDUIT=true;
   buttons[0].onclick();
   assert.equal(t.getOverlays().length,4,'FIBER OFF keeps cached fiber object');
   assert.equal(t.getOverlays().filter(x=>x.map===null).length,1,'fiber hidden in-place');
+
+  const zoomRequests=requests;
+  map.level=4;
+  t.applyZoomVisibility(4);
+  assert.equal(requests,zoomRequests,'zoom visibility must not fetch');
+  assert.equal(t.getOverlays().filter(x=>x.map===map).length,0,'L4 hides all currently cached non-fiber and disabled fiber');
+  map.level=3;
+  t.applyZoomVisibility(3);
+  assert.equal(requests,zoomRequests,'zoom in visibility must not fetch');
+
   console.log('ONLINE_PERSISTENT_LAYER_CACHE_RENDER_OK');
 })().catch(e=>{console.error(e);process.exitCode=1;});
