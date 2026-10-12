@@ -254,3 +254,12 @@ assert "if(kind==='generic' && entityType!=='INSERT')return false;" in online_so
 assert 'str(e.entity_type or "").upper() == "INSERT"' in admin_upload_source
 assert 'in {"INSERT", "POINT"}' not in admin_upload_source.split('attrs["_cmb_is_device"]',1)[1].split('for src_key',1)[0]
 print("UNIQUE_DEVICE_RENDER_OK")
+
+# 줌 레벨 전환은 API 재호출 없이 기존 메모리 오버레이 표시/숨김만 수행해야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function applyZoomVisibility(mapLevel)" in online_source
+zoom_block = online_source.split("kakao.maps.event.addListener(map,'zoom_changed'",1)[1].split("});",1)[0]
+assert "applyZoomVisibility(level)" in zoom_block
+assert "loadObjects(true)" not in zoom_block
+assert "lastDetailMode=(level<=3);" in zoom_block
+print("INSTANT_ZOOM_VISIBILITY_OK")
