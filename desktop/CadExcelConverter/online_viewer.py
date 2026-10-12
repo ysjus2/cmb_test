@@ -726,8 +726,11 @@ def html(k, local_token):
 html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans-serif}}
 #top{{position:absolute;z-index:10;top:10px;left:10px;right:10px;display:flex;gap:8px;align-items:center;pointer-events:none}}
 .card{{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:7px 9px;box-shadow:0 2px 8px rgba(0,0,0,.16);pointer-events:auto}}
-#tools{{display:flex;gap:6px;align-items:center}}
+#tools{{display:flex;gap:6px;align-items:center;min-width:0;width:100%}}
+#toolButtons{{display:flex;gap:6px;align-items:center;flex:0 0 auto;white-space:nowrap}}
 #tools select,#tools button{{height:30px}}
+#statusWrap{{flex:1 1 auto;min-width:0;overflow:hidden;padding-left:4px}}
+#status{{display:block;font-size:12px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
 #measureBox{{display:flex;flex-direction:column;gap:2px;align-items:stretch}}
 #measureBox button{{height:22px!important;padding:0 8px;font-size:11px}}
 #measureDistance.on{{background:#0f766e;color:#fff;border:1px solid #115e59}}
@@ -736,7 +739,6 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 .measureLabel{{background:rgba(255,255,255,.96);border:1px solid #0f766e;border-radius:4px;padding:2px 5px;font:700 11px 'Malgun Gothic';color:#115e59;white-space:nowrap}}
 .layerBtn{{border:1px solid #94a3b8;background:#fff;border-radius:5px;padding:0 9px;cursor:pointer}}
 .layerBtn.on{{background:#2563eb;color:#fff;border-color:#1d4ed8}}
-#status{{font-size:12px;color:#334155;min-width:100px}}
 #detail{{position:absolute;z-index:8;top:60px;right:10px;max-width:360px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:8px;display:none;max-height:50vh;overflow:auto;font-size:12px}}
 .row{{display:grid;grid-template-columns:max-content 1fr;gap:4px 9px;margin:2px 0}}
 .key{{color:#64748b}}
@@ -748,19 +750,21 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 
 <div id='top'>
   <div class='card' id='tools'>
-    <b>CMB 온라인 Viewer</b>
-    <select id='region' title='로그인 계정에 배정된 도면'><option value=''>권한 도면 선택</option></select>
-    <button class='layerBtn on' data-group='FIBER'>광</button>
-    <button class='layerBtn' data-group='COAX'>동축</button>
-    <button class='layerBtn' data-group='POLE'>전주</button>
-    <button class='layerBtn' data-group='CONDUIT'>관로</button>
-    <button id='myLocation'>내 위치</button>
-    <button id='reload'>새로고침</button>
-    <div id='measureBox'>
-      <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
-      <button id='measureDistance' title='거리 측정 시작'>거리</button>
+    <div id='toolButtons'>
+      <b>CMB 온라인 Viewer</b>
+      <select id='region' title='로그인 계정에 배정된 도면'><option value=''>권한 도면 선택</option></select>
+      <button class='layerBtn on' data-group='FIBER'>광</button>
+      <button class='layerBtn' data-group='COAX'>동축</button>
+      <button class='layerBtn' data-group='POLE'>전주</button>
+      <button class='layerBtn' data-group='CONDUIT'>관로</button>
+      <button id='myLocation'>내 위치</button>
+      <button id='reload'>새로고침</button>
+      <div id='measureBox'>
+        <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
+        <button id='measureDistance' title='거리 측정 시작'>거리</button>
+      </div>
     </div>
-    <span id='status'>세션 확인 중</span>
+    <div id='statusWrap'><span id='status' title='현재 상태'>세션 확인 중</span></div>
   </div>
 </div>
 
