@@ -88,7 +88,9 @@ final class OsmMapRenderer implements MapRenderer {
             marker.setIcon(new BitmapDrawable(context.getResources(),Bitmap.createScaledBitmap(shape,Math.round(64*density),Math.round(64*density),true)));
             marker.setAnchor(Marker.ANCHOR_CENTER,Marker.ANCHOR_CENTER);
         }else marker.setIcon(icon(Color.rgb(220, 65, 45), "CAD", false));
-        marker.setTitle(title);
+        // 온라인 지도에는 ID/전주번호/등록정보 텍스트를 띄우지 않는다.
+        // 상세 정보는 선택 후 등록정보 화면에서만 확인한다.
+        marker.setTitle("");
         marker.setOnMarkerClickListener((selected, view) -> { onClick.run(); return true; });
         map.getOverlays().add(marker);
         map.invalidate();
