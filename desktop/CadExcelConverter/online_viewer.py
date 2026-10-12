@@ -728,6 +728,12 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 .card{{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:7px 9px;box-shadow:0 2px 8px rgba(0,0,0,.16);pointer-events:auto}}
 #tools{{display:flex;gap:6px;align-items:center}}
 #tools select,#tools button{{height:30px}}
+#measureBox{{display:flex;flex-direction:column;gap:2px;align-items:stretch}}
+#measureBox button{{height:22px!important;padding:0 8px;font-size:11px}}
+#measureDistance.on{{background:#0f766e;color:#fff;border:1px solid #115e59}}
+.measureDeleteMenu{{background:#fff;border:1px solid #dc2626;border-radius:5px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,.2)}}
+.measureDeleteMenu button{{height:26px;border:0;background:#dc2626;color:#fff;border-radius:4px;cursor:pointer}}
+.measureLabel{{background:rgba(255,255,255,.96);border:1px solid #0f766e;border-radius:4px;padding:2px 5px;font:700 11px 'Malgun Gothic';color:#115e59;white-space:nowrap}}
 .layerBtn{{border:1px solid #94a3b8;background:#fff;border-radius:5px;padding:0 9px;cursor:pointer}}
 .layerBtn.on{{background:#2563eb;color:#fff;border-color:#1d4ed8}}
 #status{{font-size:12px;color:#334155;min-width:100px}}
@@ -750,6 +756,10 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
     <button class='layerBtn' data-group='CONDUIT'>관로</button>
     <button id='myLocation'>내 위치</button>
     <button id='reload'>새로고침</button>
+    <div id='measureBox'>
+      <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
+      <button id='measureDistance' title='거리 측정 시작'>거리</button>
+    </div>
     <span id='status'>세션 확인 중</span>
   </div>
 </div>
@@ -791,6 +801,12 @@ let idleTimer=null;
 let authenticated=false;
 let lastServerTouch=0;
 let fiberDiag={{server:0,received:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
+let distanceMode=false;
+let distancePoints=[];
+let activeDistanceLine=null;
+let activeDistanceLabel=null;
+let distanceSessions=[];
+let distanceDeleteMenu=null;
 
 function fiberDiagText(){{
   const d=fiberDiag||{{}};
@@ -1401,6 +1417,25 @@ function snapCablePath(coords,devices){{
   return pts;
 }}
 
+function coaxCableOverlayKind(coords,devices){{
+  const clean=(coords||[]).filter(a=>Array.isArray(a)&&a.length>=2&&
+    Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1])));
+  if(clean.length<2)return 'coax_main_cable';
+
+  const taps=(devices||[]).filter(d=>d&&d.kind==='tap');
+  if(!taps.length)return 'coax_main_cable';
+
+  const endPoints=[clean[0],clean[clean.length-1]].map(a=>
+    latLngToPx(new kakao.maps.LatLng(Number(a[1]),Number(a[0])))
+  );
+
+  const touchesTap=endPoints.some(ep=>taps.some(tap=>
+    Math.hypot(ep.x-tap.cx,ep.y-tap.cy)<=32
+  ));
+
+  return touchesTap?'coax_tap_cable':'coax_main_cable';
+}}
+
 function applyDirectionalInputArrows(devices,lineFeatures){{
   let count=0;
   (devices||[]).forEach(dev=>{{
@@ -1440,6 +1475,157 @@ function bindClick(overlay,props){{
   kakao.maps.event.addListener(overlay,'click',()=>showDetail(props||{{}}));
 }}
 
+function formatDistance(meters){{
+  const m=Number(meters||0);
+  if(m>=1000)return (m/1000).toFixed(2)+' km';
+  return m.toFixed(m<100?1:0)+' m';
+}}
+
+function distancePathMeters(points){{
+  let total=0;
+  for(let i=1;i<(points||[]).length;i++){{
+    total+=distanceMeters(
+      points[i-1].getLat(),points[i-1].getLng(),
+      points[i].getLat(),points[i].getLng()
+    );
+  }}
+  return total;
+}}
+
+function closeDistanceDeleteMenu(){{
+  if(distanceDeleteMenu){{
+    try{{distanceDeleteMenu.setMap(null);}}catch(e){{}}
+    distanceDeleteMenu=null;
+  }}
+}}
+
+function removeDistanceSession(session){{
+  if(!session)return;
+  try{{session.line&&session.line.setMap(null);}}catch(e){{}}
+  try{{session.label&&session.label.setMap(null);}}catch(e){{}}
+  distanceSessions=distanceSessions.filter(x=>x!==session);
+  closeDistanceDeleteMenu();
+}}
+
+function showDistanceDeleteMenu(session,latlng){{
+  closeDistanceDeleteMenu();
+  const wrap=document.createElement('div');
+  wrap.className='measureDeleteMenu';
+  const btn=document.createElement('button');
+  btn.textContent='삭제';
+  btn.onclick=e=>{{
+    e.stopPropagation();
+    removeDistanceSession(session);
+  }};
+  wrap.appendChild(btn);
+  distanceDeleteMenu=new kakao.maps.CustomOverlay({{
+    position:latlng,
+    content:wrap,
+    xAnchor:.5,
+    yAnchor:1.15,
+    zIndex:50
+  }});
+  distanceDeleteMenu.setMap(map);
+}}
+
+function setDistanceMode(on){{
+  distanceMode=!!on;
+  const btn=document.getElementById('measureDistance');
+  if(btn)btn.classList.toggle('on',distanceMode);
+  if(distanceMode){{
+    distancePoints=[];
+    if(activeDistanceLine){{try{{activeDistanceLine.setMap(null);}}catch(e){{}}}}
+    if(activeDistanceLabel){{try{{activeDistanceLabel.setMap(null);}}catch(e){{}}}}
+    activeDistanceLine=null;
+    activeDistanceLabel=null;
+    closeDistanceDeleteMenu();
+    setStatus('거리 측정 · 지도 클릭으로 점 추가 · Esc로 구간 완료');
+  }}else{{
+    distancePoints=[];
+  }}
+}}
+
+function updateActiveDistance(){{
+  if(!map||distancePoints.length<1)return;
+
+  if(activeDistanceLine)try{{activeDistanceLine.setMap(null);}}catch(e){{}}
+  if(activeDistanceLabel)try{{activeDistanceLabel.setMap(null);}}catch(e){{}}
+
+  if(distancePoints.length>=2){{
+    activeDistanceLine=new kakao.maps.Polyline({{
+      path:distancePoints.slice(),
+      strokeWeight:3,
+      strokeColor:'#0f766e',
+      strokeOpacity:1,
+      strokeStyle:'solid'
+    }});
+    activeDistanceLine.setMap(map);
+    if(typeof activeDistanceLine.setZIndex==='function')activeDistanceLine.setZIndex(45);
+  }}else{{
+    activeDistanceLine=null;
+  }}
+
+  const total=distancePathMeters(distancePoints);
+  const content='<div class="measureLabel">'+formatDistance(total)+'</div>';
+  activeDistanceLabel=new kakao.maps.CustomOverlay({{
+    position:distancePoints[distancePoints.length-1],
+    content:content,
+    xAnchor:.5,
+    yAnchor:1.35,
+    zIndex:46
+  }});
+  activeDistanceLabel.setMap(map);
+}}
+
+function addDistancePoint(latlng){{
+  if(!distanceMode||!latlng)return;
+  distancePoints.push(latlng);
+  updateActiveDistance();
+}}
+
+function finishDistanceMeasurement(){{
+  if(!distanceMode)return;
+
+  if(distancePoints.length>=2 && activeDistanceLine){{
+    const session={{
+      line:activeDistanceLine,
+      label:activeDistanceLabel,
+      points:distancePoints.slice(),
+      total:distancePathMeters(distancePoints)
+    }};
+    distanceSessions.push(session);
+    kakao.maps.event.addListener(session.line,'rightclick',e=>{{
+      showDistanceDeleteMenu(session,e.latLng);
+    }});
+    setStatus('거리 '+formatDistance(session.total)+' · 완료');
+  }}else{{
+    if(activeDistanceLine)try{{activeDistanceLine.setMap(null);}}catch(e){{}}
+    if(activeDistanceLabel)try{{activeDistanceLabel.setMap(null);}}catch(e){{}}
+    setStatus('거리 측정 취소');
+  }}
+
+  activeDistanceLine=null;
+  activeDistanceLabel=null;
+  distancePoints=[];
+  setDistanceMode(false);
+}}
+
+function clearAllDistanceMeasurements(){{
+  if(activeDistanceLine)try{{activeDistanceLine.setMap(null);}}catch(e){{}}
+  if(activeDistanceLabel)try{{activeDistanceLabel.setMap(null);}}catch(e){{}}
+  activeDistanceLine=null;
+  activeDistanceLabel=null;
+  distancePoints=[];
+  distanceSessions.forEach(session=>{{
+    try{{session.line&&session.line.setMap(null);}}catch(e){{}}
+    try{{session.label&&session.label.setMap(null);}}catch(e){{}}
+  }});
+  distanceSessions=[];
+  closeDistanceDeleteMenu();
+  setDistanceMode(false);
+  setStatus('거리 측정 전체 삭제');
+}}
+
 function distanceMeters(lat1,lng1,lat2,lng2){{
   const R=6371000;
   const p1=lat1*Math.PI/180,p2=lat2*Math.PI/180;
@@ -1451,10 +1637,18 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
 
 function coaxKindVisibleAtLevel(kind,mapLevel){{
   if(mapLevel===3){{
-    return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure'].includes(kind);
+    return [
+      'onu','amp','amp_input_arrow','tap_input_arrow',
+      'splitter','splitter_input_arrow','power','power_ps','closure',
+      'coax_main_cable'
+    ].includes(kind);
   }}
   if(mapLevel===2){{
-    return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure','tap','pi','generic'].includes(kind);
+    return [
+      'onu','amp','amp_input_arrow','tap_input_arrow',
+      'splitter','splitter_input_arrow','power','power_ps','closure',
+      'tap','pi','generic','coax_main_cable','coax_tap_cable'
+    ].includes(kind);
   }}
   return mapLevel<=1;
 }}
@@ -1740,7 +1934,8 @@ async function loadObjects(force=false){{
       }});
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(5);
-      registerOverlay(l,group);
+      const cableKind=(group==='COAX')?coaxCableOverlayKind(validCoords,devices):'';
+      registerOverlay(l,group,cableKind);
       bindClick(l,p);
 
       renderedLines++;
@@ -1851,6 +2046,8 @@ async function bootstrapAuth(){{
 function bindUi(){{
   document.getElementById('reload').onclick=()=>loadObjects(true);
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
+  document.getElementById('measureDistance').onclick=()=>setDistanceMode(!distanceMode);
+  document.getElementById('clearDistance').onclick=()=>clearAllDistanceMeasurements();
 
   document.querySelectorAll('.layerBtn').forEach(btn=>{{
     btn.onclick=()=>{{
@@ -1970,6 +2167,10 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      kakao.maps.event.addListener(map,'click',e=>{{
+        closeDistanceDeleteMenu();
+        if(distanceMode)addDistancePoint(e.latLng);
+      }});
       kakao.maps.event.addListener(map,'zoom_changed',()=>{{
         const level=map.getLevel();
 
@@ -2001,6 +2202,12 @@ function initMap(){{
 );
 document.addEventListener('visibilitychange',()=>{{
   if(document.visibilityState==='visible')noteActivity();
+}});
+document.addEventListener('keydown',e=>{{
+  if(e.key==='Escape'&&distanceMode){{
+    e.preventDefault();
+    finishDistanceMeasurement();
+  }}
 }});
 bindUi();
 initMap();
