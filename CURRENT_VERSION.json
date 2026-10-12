@@ -1,9 +1,9 @@
 {
-  "version": "4.06_FINAL",
+  "version": "4.07_FINAL",
   "release_date": "2026-10-12",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v4.06_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v4.07_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v4.06_FINAL",
+  "release_tag": "v4.07_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -44,5 +44,6 @@
   "distance_measurement_policy": "Distance button starts a new multi-point section; map clicks add points; Esc finalizes current total; right-click finished line offers delete; Distance Delete clears all measurements",
   "toolbar_layout_policy": "buttons remain fixed in non-shrinking group; status text uses only remaining width and ellipsizes without moving controls",
   "connector_view_policy": "CN_C_CONNECTOR and CONNECTOR* are excluded from Windows viewer rendering; server data remains unchanged",
-  "device_zoom_scale_policy": "L3=0.72x, L2=1.00x, L1=1.35x; devices redraw from in-memory features on zoom; zero server/API calls"
+  "device_zoom_scale_policy": "L3=0.72x, L2=1.00x, L1=1.35x; devices redraw from in-memory features on zoom; zero server/API calls",
+  "upload_geometry_policy": "server accepts Point/LineString only; multipart CAD primitives are uploaded as separate LineString objects with unique part object_id while original source_handle is preserved"
 }
