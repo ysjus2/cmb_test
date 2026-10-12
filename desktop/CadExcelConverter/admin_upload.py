@@ -284,17 +284,21 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
                     out.append([lon, lat])
             return out
 
+        geometries = []
         if geometry_type == "Point":
             geo = transform_path(source_geometry)
             if not geo:
                 continue
-            geometry = {"type": "Point", "coordinates": geo[0]}
+            geometries = [{"type": "Point", "coordinates": geo[0]}]
         elif geometry_type == "LineString":
             geo = transform_path(source_geometry)
             if len(geo) < 2:
                 continue
-            geometry = {"type": "LineString", "coordinates": geo}
+            geometries = [{"type": "LineString", "coordinates": geo}]
         else:
+            # 서버 저장 API는 Point / LineString만 허용한다.
+            # CAD 객체 내부의 여러 primitive를 MultiLineString 하나로 보내지 않고
+            # 각 선분을 독립 LineString object로 분리한다.
             geo_parts = [
                 transformed
                 for transformed in (transform_path(part) for part in source_geometry)
@@ -302,10 +306,10 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             ]
             if not geo_parts:
                 continue
-            geometry = {
-                "type": "LineString" if len(geo_parts) == 1 else "MultiLineString",
-                "coordinates": geo_parts[0] if len(geo_parts) == 1 else geo_parts,
-            }
+            geometries = [
+                {"type": "LineString", "coordinates": part}
+                for part in geo_parts
+            ]
 
         attrs = dict(e.attributes or {})
         dxf = dict(getattr(e, "dxf_data", {}) or {})
@@ -359,19 +363,35 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         if pole_info:
             attrs["_cmb_pole_info"] = pole_info
 
-        objects.append({
-            "source_handle": e.handle,
-            "object_id": (
+        part_count = len(geometries)
+        for part_index, geometry in enumerate(geometries, start=1):
+            part_attrs = dict(attrs)
+            if part_count > 1:
+                part_attrs["_cmb_geometry_part_index"] = part_index
+                part_attrs["_cmb_geometry_part_count"] = part_count
+
+            base_object_id = (
                 f"{region_code}_{e.handle}"
                 if e.handle else ""
-            ),
-            "layer": e.layer,
-            "entity_type": e.entity_type,
-            "block_name": e.block_name,
-            "geometry": geometry,
-            "attributes": attrs,
-            "xdata": dict(e.xdata or []),
-        })
+            )
+            object_id = (
+                f"{base_object_id}_part{part_index:03d}"
+                if base_object_id and part_count > 1
+                else base_object_id
+            )
+
+            objects.append({
+                # 원본 CAD handle은 연결관계/복구를 위해 그대로 보존한다.
+                "source_handle": e.handle,
+                # 서버 row identity만 part별로 유일하게 만든다.
+                "object_id": object_id,
+                "layer": e.layer,
+                "entity_type": e.entity_type,
+                "block_name": e.block_name,
+                "geometry": geometry,
+                "attributes": part_attrs,
+                "xdata": dict(e.xdata or []),
+            })
 
     p = Path(source_path)
 
