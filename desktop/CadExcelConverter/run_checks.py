@@ -171,14 +171,15 @@ assert 'name == "fiber_cached"' in online_source
 print("FAST_CACHE_VERSION_CHECK_OK")
 
 
-# 서버 버전이 달라지면 기존 지역 캐시 파일과 메모리 데이터를 즉시 폐기해야 한다.
+# 서버 버전이 달라져도 기존 화면 캐시는 유지하고 coverage만 무효화해야 한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "def _delete_cache_file(self):" in online_source
 assert "version_changed = bool(previous) and previous != versions" in online_source
-assert "self._delete_cache_file()" in online_source
-assert '"features": {}' in online_source
-assert '"coverage": []' in online_source
-print("STALE_CACHE_DELETE_ON_VERSION_CHANGE_OK")
+version_block = online_source.split("def _apply_versions",1)[1].split("def _version_signature",1)[0]
+assert "self._delete_cache_file()" not in version_block
+assert 'self.cache_state["coverage"] = []' in version_block
+assert 'self.cache_state["versions"] = versions' in version_block
+print("STALE_CACHE_PRESERVED_UNTIL_REFRESH_OK")
 
 
 # 일반 Windows EXE는 두 번째 Launcher/Tk 인스턴스를 만들면 안 된다.
