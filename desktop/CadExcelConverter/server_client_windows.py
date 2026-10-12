@@ -334,13 +334,13 @@ class CMBServerClient:
 
     def upload_group(self, payload):
         try:
-            # 대용량 DXF 업로드/DB 교체는 60초를 넘을 수 있다.
-            # 작업 중 세션 heartbeat와 병행하므로 업로드 요청 자체는 장시간 허용한다.
+            # 대용량 DXF 업로드/DB 교체는 전주처럼 수시간이 걸릴 수 있다.
+            # 고정 timeout을 두지 않고 실제 연결 오류 또는 서버 응답까지 기다린다.
             return self._request(
                 "POST",
                 "/admin/drawings/upload",
                 payload,
-                timeout=3600,
+                timeout=None,
             )
         except ServerError as exc:
             # 서버 UploadPackage 스키마의 이전/현재 필드명 차이를 422 응답에 맞춰 보정한다.
@@ -370,7 +370,7 @@ class CMBServerClient:
                 "/admin/drawings/upload",
                 retry,
                 retry_refresh=False,
-                timeout=3600,
+                timeout=None,
             )
 
     def drawing_symbols(self, region):
@@ -383,7 +383,7 @@ class CMBServerClient:
             "POST",
             f"/admin/drawings/{q}/symbols",
             payload,
-            timeout=3600,
+            timeout=None,
         )
 
     def revisions(self, region):
