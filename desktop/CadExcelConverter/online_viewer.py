@@ -1006,7 +1006,12 @@ function symbolKind(p){{
     const stored=String(f._cmb_symbol_kind);
     return stored==='power'?'power_ps':stored;
   }}
-  const s=((p.layer||'')+' '+(p.block_name||'')+' '+(p.entity_type||'')).toUpperCase();
+  const s=(
+    (p.layer||'')+' '+
+    (p.block_name||'')+' '+
+    (p.entity_type||'')+' '+
+    JSON.stringify(p.attributes||{{}})
+  ).toUpperCase();
   if(s.includes('ONU'))return 'onu';
   if(s.includes('AMP')||s.includes('증폭'))return 'amp';
   if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
@@ -1120,7 +1125,7 @@ function drawDevice(center,props){{
       path.push(pxToLatLng(cx+Math.cos(a)*d.r,cy+Math.sin(a)*d.r));
     }}
     const poly=new kakao.maps.Polygon({{path:path,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
-    poly.setMap(map);registerOverlay(poly,props.group_id,kind);parts.push(poly);bindClick(poly,props);
+    poly.setMap(map);if(typeof poly.setZIndex==='function')poly.setZIndex(30);registerOverlay(poly,props.group_id,kind);parts.push(poly);bindClick(poly,props);
     if(d.shape==='double_circle'){{
       const path2=[];
       for(let i=0;i<20;i++){{
@@ -1128,7 +1133,7 @@ function drawDevice(center,props){{
         path2.push(pxToLatLng(cx+Math.cos(a)*d.r*.62,cy+Math.sin(a)*d.r*.62));
       }}
       const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillOpacity:0}});
-      inner.setMap(map);registerOverlay(inner,props.group_id,kind);parts.push(inner);bindClick(inner,props);
+      inner.setMap(map);if(typeof inner.setZIndex==='function')inner.setZIndex(30);registerOverlay(inner,props.group_id,kind);parts.push(inner);bindClick(inner,props);
     }}
     if(d.shape==='circle_x'){{
       const a1=pxToLatLng(cx-d.r*.7,cy-d.r*.7),a2=pxToLatLng(cx+d.r*.7,cy+d.r*.7);
@@ -1141,7 +1146,7 @@ function drawDevice(center,props){{
   }}else{{
     const pts=polygonPoints(kind,cx,cy,deg).map(p=>pxToLatLng(p[0],p[1]));
     const poly=new kakao.maps.Polygon({{path:pts,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.fill,fillOpacity:.95}});
-    poly.setMap(map);registerOverlay(poly,props.group_id,kind);parts.push(poly);bindClick(poly,props);
+    poly.setMap(map);if(typeof poly.setZIndex==='function')poly.setZIndex(30);registerOverlay(poly,props.group_id,kind);parts.push(poly);bindClick(poly,props);
       if(d.shape==='square_circle'){{
       const rr=Math.min(d.w,d.h)*.42;
       const path2=[];
@@ -1150,7 +1155,7 @@ function drawDevice(center,props){{
         path2.push(pxToLatLng(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr));
       }}
       const inner=new kakao.maps.Polygon({{path:path2,strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1,fillColor:d.innerFill||'#ffffff',fillOpacity:1}});
-      inner.setMap(map);registerOverlay(inner,props.group_id,kind);parts.push(inner);bindClick(inner,props);
+      inner.setMap(map);if(typeof inner.setZIndex==='function')inner.setZIndex(30);registerOverlay(inner,props.group_id,kind);parts.push(inner);bindClick(inner,props);
     }}
   }}
 
@@ -1158,7 +1163,7 @@ function drawDevice(center,props){{
   const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
   const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
   const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
-  dirLine.setMap(map);registerOverlay(dirLine,props.group_id,kind);parts.push(dirLine);
+  dirLine.setMap(map);if(typeof dirLine.setZIndex==='function')dirLine.setZIndex(31);registerOverlay(dirLine,props.group_id,kind);parts.push(dirLine);
 
   const labelText=deviceLabel(props,kind);
   if(labelText){{
@@ -1214,7 +1219,7 @@ function coaxKindVisibleAtLevel(kind,mapLevel){{
     return ['onu','amp','splitter','power','power_ps','closure'].includes(kind);
   }}
   if(mapLevel===2){{
-    return ['onu','amp','splitter','power','power_ps','closure','tap'].includes(kind);
+    return ['onu','amp','splitter','power','power_ps','closure','tap','generic'].includes(kind);
   }}
   return mapLevel<=1;
 }}
@@ -1386,10 +1391,13 @@ async function loadObjects(force=false){{
     const kind=symbolKind(p);
     const entityType=String(p.entity_type||'').toUpperCase();
 
-    // 기존 서버 데이터에는 일반 POINT가 _cmb_is_device=true로 저장된 경우가 있다.
-    // 인식 가능한 기기 심벌 또는 실제 INSERT만 기기로 인정한다.
-    if(kind==='generic' && entityType!=='INSERT')return false;
+    // 명시적으로 기기가 아니라고 저장된 객체만 제외한다.
     if(fields._cmb_is_device===false)return false;
+
+    // 구버전/기존 서버 데이터는 기기 POINT이면서 심벌 힌트가 attributes에만 있을 수 있다.
+    // 명시적 _cmb_is_device=true이면 generic이라도 기기 후보를 유지한다.
+    const explicitDevice=(fields._cmb_is_device===true);
+    if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return false;
 
     return true;
   }});
