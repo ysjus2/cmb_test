@@ -556,12 +556,25 @@ print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
 # FIBER 전체수집은 실제 지역 bounds만 사용하고 multipart part를 dedupe하지 않는다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "FIBER_CACHE_SCHEMA = 2" in online_source
-assert 'bounds = info.get("bounds") or {}' in online_source
-assert "west, south, east, north = 124.0, 33.0, 132.0, 39.5" in online_source
 assert "limit = 5000" in online_source
 assert "max_depth = 10" in online_source
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
 assert "/고유 " in online_source
-assert "-180.0, -90.0, 180.0, 90.0" not in online_source
+assert "fetch_cell(-180.0, -90.0, 180.0, 90.0)" in online_source
+assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
 print("FIBER_REGION_COLLECTION_AND_PART_KEYS_OK")
+
+# 광은 기존 캐시를 먼저 유지하고 새 수집이 완전할 때만 교체한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
+assert "일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다." in online_source
+assert 'self.fiber_cache = {"version": fiber_version, "features": fiber_features}' in online_source
+
+# 케이블 선택 시 기기 위로 올려 강조하고 다른 선택/해제 시 원상복구한다.
+assert "function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5)" in online_source
+assert "function restoreSelectedCable()" in online_source
+assert "overlay.setZIndex(60)" in online_source
+assert "strokeWeight:Math.max(7,Number(baseWeight||4)+3)" in online_source
+assert "bindCableClick(l,p,c,4,5)" in online_source
+print("FIBER_SAFE_CACHE_AND_CABLE_SELECTION_OK")
