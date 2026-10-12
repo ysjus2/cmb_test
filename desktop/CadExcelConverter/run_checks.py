@@ -385,10 +385,21 @@ assert "if(isAnnoFeature(f))return true;" in online_source
 assert "layer.includes('ANNO')" in online_source
 
 # 증폭기 입력 케이블은 연결 handle + 회전각 + 접속 방향으로 판정하고 입력 1개에만 화살표를 표시한다.
-assert "function drawAmplifierInputArrows(devices,lineFeatures)" in online_source
+assert "function inferAmplifierInputFromFeature(feature,lineFeatures)" in online_source
 assert "fields._cmb_connections" in online_source
-assert "const inputDir=[-forward[0],-forward[1]];" in online_source
-assert "if(!best || best.score<0.50)return;" in online_source
+assert "const last=clean[clean.length-1];" in online_source
+assert "const prev=clean[clean.length-2];" in online_source
+assert "const signalDeg=" in online_source
+assert "function applyAmplifierInputDirection(devices,lineFeatures)" in online_source
 assert "amp_input_arrow" in online_source
 assert "AMP입력화살표" in online_source
 print("ANNO_EXCLUSION_AND_AMP_INPUT_ARROW_OK")
+
+# 동축 케이블 좌표 순서의 끝점을 입력으로 사용하고, 증폭기 방향은 입력 반대 신호방향으로 맞춘다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "const last=clean[clean.length-1];" in online_source
+assert "if(dist>32)return;" in online_source
+assert "fields._cmb_rotation_deg=inferred.deg;" in online_source
+assert "p._cmb_amp_input=inferred;" in online_source
+assert "입력 케이블 끝에서 증폭기 쪽으로 향하는 V 화살표" in online_source
+print("COAX_ENDPOINT_INPUT_DIRECTION_OK")
