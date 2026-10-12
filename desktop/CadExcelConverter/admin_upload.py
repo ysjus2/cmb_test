@@ -28,8 +28,14 @@ def classify_entity(e):
     block = str(e.block_name or "").strip().upper()
     text = f"{layer} {block}"
 
-    # 지형/배경 레이어는 온라인 서버 업로드 대상이 아니다.
-    if layer.startswith("TS_") or layer == "TL_SCCO_SIG":
+    # 지형/배경 및 등록정보/주석(-Anno) 레이어는 온라인 서버 업로드 대상이 아니다.
+    # -Anno는 광/동축 기기 속성 표시용 등록정보이므로 지도 객체로 만들지 않는다.
+    if (
+        layer.startswith("TS_")
+        or layer == "TL_SCCO_SIG"
+        or "ANNO" in layer
+        or "ANNO" in block
+    ):
         return None
 
     # ONU는 현장 운용 기준상 동축 기기로 관리한다.
@@ -113,12 +119,12 @@ def _is_info_entity(e):
 
     info_layer_tokens = (
         "CELLNO", "_ID", "TEXT", "LABEL", "JIBUN", "ADDRESS", "ADDR",
-        "INFO", "ANNOT", "NOTE", "MEMO",
+        "INFO", "ANNO", "ANNOT", "NOTE", "MEMO",
     )
     if any(token in layer for token in info_layer_tokens):
         return True
 
-    info_block_tokens = ("TEXT", "LABEL", "ID", "ADDR", "ADDRESS", "JIBUN", "INFO", "NOTE", "TAG")
+    info_block_tokens = ("TEXT", "LABEL", "ID", "ADDR", "ADDRESS", "JIBUN", "INFO", "ANNO", "ANNOT", "NOTE", "TAG")
     if any(
         block == token or block.startswith(token + "_") or block.endswith("_" + token)
         for token in info_block_tokens
