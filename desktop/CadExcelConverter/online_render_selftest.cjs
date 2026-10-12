@@ -37,12 +37,14 @@ t.groups.COAX=t.groups.CONDUIT=true;
   assert.ok(t.getOverlays().some(x=>x.options.path[0].getLng()===127));
 
   map.level=4;
-  await t.loadObjects(true);
-  assert.equal(t.getOverlays().length,1,'zoom out must preserve cached fiber only');
+  t.applyZoomVisibility(4);
+  assert.equal(t.getOverlays().length,4,'zoom out keeps cached overlays in memory');
+  assert.equal(t.getOverlays().filter(x=>x.map===map).length,1,'zoom out shows cached fiber only');
 
   map.level=3;
-  await t.loadObjects(true);
-  assert.equal(t.getOverlays().length,4);
+  t.applyZoomVisibility(3);
+  assert.equal(t.getOverlays().length,4,'zoom in reuses cached overlays');
+  assert.equal(t.getOverlays().filter(x=>x.map===map).length,4,'zoom in restores cached overlays immediately');
 
   const before=requests;
   buttons[1].onclick();
