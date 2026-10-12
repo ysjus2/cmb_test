@@ -321,3 +321,13 @@ server_client_source = (root / "server_client_windows.py").read_text(encoding="u
 assert server_client_source.count("timeout=None") >= 3
 assert "timeout=3600" not in server_client_source
 print("NO_FIXED_UPLOAD_TIMEOUT_OK")
+
+# 장시간 업로드는 UI가 멈춘 것처럼 보이지 않도록 파일/객체수/용량/경과시간을 실시간 표시해야 한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert "self.upload_progress = ttk.Progressbar" in admin_upload_source
+assert 'mode="indeterminate"' in admin_upload_source
+assert "패키지 {package_mb:.1f} MB" in admin_upload_source
+assert "경과 {elapsed} · 세션 유지중" in admin_upload_source
+assert "def _run_background_task" in admin_upload_source
+assert "self.update()" in admin_upload_source
+print("LIVE_UPLOAD_PROGRESS_OK")
