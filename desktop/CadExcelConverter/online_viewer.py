@@ -1041,9 +1041,9 @@ function snapCablePath(coords,devices){{
       if(dist<threshold&&dist<bestDist){{best=dev;bestDist=dist}}
     }}
     if(!best)return;
-    const target=px[neighborIndex];
-    const bp=boundaryPoint(best.kind,best.cx,best.cy,target.x,target.y,best.deg||0);
-    pts[index]=pxToLatLng(bp[0],bp[1]);
+    // 케이블 끝점은 심벌 경계가 아니라 심벌 중심으로 보정한다.
+    // 심벌은 더 높은 Z-order로 그려져 케이블을 덮는다.
+    pts[index]=pxToLatLng(best.cx,best.cy);
   }}
 
   snapEnd(0,1);
