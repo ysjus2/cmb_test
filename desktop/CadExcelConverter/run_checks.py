@@ -242,3 +242,15 @@ assert "if not force and region in self.checked_regions:" in online_source
 assert "self.checked_regions.add(region)" in online_source
 assert "now - self.last_version_check < 60" not in online_source
 print("ONCE_PER_REGION_VERSION_CHECK_OK")
+
+# 온라인 Viewer는 정보용 POINT를 기기로 렌더하지 않고 동일 기기 키를 1회만 렌더해야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert "function isInfoPointLayer(layer)" in online_source
+assert "function deviceFeatureKey(f)" in online_source
+assert "const deviceFeatureMap=new Map();" in online_source
+assert "if(!deviceFeatureMap.has(key))deviceFeatureMap.set(key,f);" in online_source
+assert "if(kind==='generic' && entityType!=='INSERT')return false;" in online_source
+assert 'str(e.entity_type or "").upper() == "INSERT"' in admin_upload_source
+assert 'in {"INSERT", "POINT"}' not in admin_upload_source.split('attrs["_cmb_is_device"]',1)[1].split('for src_key',1)[0]
+print("UNIQUE_DEVICE_RENDER_OK")
