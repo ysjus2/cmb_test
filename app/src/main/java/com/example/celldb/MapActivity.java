@@ -67,6 +67,7 @@ public class MapActivity extends Activity {
     private Button measureButton;
     private final DistanceMeasurement measurements=new DistanceMeasurement();
     private CadRecord selectedRecord;
+    private String selectedCableKey="";
     private DistanceMeasurement.Line selectedMeasurement;
     private final ArrayList<ArrayList<CadRecord>> displayedLines=new ArrayList<>();
     private long ignoreTapUntil;
@@ -363,11 +364,14 @@ public class MapActivity extends Activity {
     }
 
     private String group(CadRecord r) {
-        if(LayerGroups.excluded(r.layer)) return "";
+        if(LayerGroups.excluded(r.layer+" "+r.name+" "+r.fields.get("__serverBlock"))) return "";
         return layerPrefs().getString("assignment_"+LayerGroups.key(r),LayerGroups.defaultGroup(r.layer,r.category));
     }
 
     private boolean recordVisible(CadRecord r) {
+        if(LayerGroups.excluded(r.layer+" "+r.name+" "+r.fields.get("__serverBlock")))return false;
+        String symbol=String.valueOf(r.fields.get("__symbol"));
+        if(symbol.startsWith("HIDDEN:"))return false;
         String group=group(r);
         if(!DrawingLevel.groupVisible(drawingLevel,group)||!DrawingLevel.recordVisible(drawingLevel,r))return false;
         for(int i=0;i<categories.length;i++) if(categories[i].equals(group))
@@ -497,7 +501,9 @@ public class MapActivity extends Activity {
             ArrayList<MapPoint> points=new ArrayList<>();
             for(CadRecord r:records) { line.points.add(new GeoPoint(r.latitude,r.longitude)); points.add(new MapPoint(r.latitude,r.longitude)); }
             (isFiber?networkData.fiber:networkData.coax).add(line);
-            if(mapReady && networkRenderer==null) map.addNetworkLine(points,isFiber);
+            String lineKey=first.layer+"|"+first.id;
+            boolean selected=lineKey.equals(selectedCableKey);
+            if(mapReady && networkRenderer==null) map.addNetworkLine(points,isFiber,selected);
         }
     }
 
@@ -788,7 +794,8 @@ public class MapActivity extends Activity {
         lastVerified=0;
         connectionStatus.setText("● 연결 확인 실패 · 재연결 중");
         connectionStatus.setTextColor(Color.RED);connectionBadge.setTextColor(Color.RED);
-        allRecords.clear();selectedRecord=null;renderMarkers();viewportKey="";
+        // 서버가 잠시 끊겨도 Windows Viewer와 동일하게 기존 캐시 화면을 유지한다.
+        viewportKey="";
     }
 
     private void checkServerConnection(){
@@ -950,9 +957,12 @@ public class MapActivity extends Activity {
     private void selectRecord(CadRecord record,MapPoint point) {
         if(android.os.SystemClock.uptimeMillis()<ignoreTapUntil)return;
         if(measurements.active()){addMeasurementPoint(point);return;}
+        boolean hadCable=!selectedCableKey.isEmpty();
+        selectedCableKey="";
         selectedRecord=record;selectedMeasurement=null;
         String pole=CadObjectInfo.pole(record);
         selectionStatus.setText("선택: "+record.title()+(pole.isEmpty()?"":" · 전주 "+pole)+" · 길게 누르기/우클릭으로 속성");
+        if(hadCable)renderMarkers();
     }
 
     private void addMeasurementPoint(MapPoint point){
@@ -996,8 +1006,17 @@ public class MapActivity extends Activity {
             double distance=segmentDistance(tap,map.screenPoint(new MapPoint(a.latitude,a.longitude)),map.screenPoint(new MapPoint(b.latitude,b.longitude)));
             if(distance<best){best=distance;candidate=line.get(0);}
         }
-        if(candidate!=null)selectRecord(candidate,point);
-        else {selectedRecord=null;selectedMeasurement=null;selectionStatus.setText("객체를 선택하세요.");}
+        if(candidate!=null){
+            selectedCableKey=candidate.layer+"|"+candidate.id;
+            selectedRecord=candidate;selectedMeasurement=null;
+            selectionStatus.setText("케이블 선택 · 기기 위 강조 표시 · 길게 누르기/우클릭으로 속성");
+            renderMarkers();
+        } else {
+            boolean hadCable=!selectedCableKey.isEmpty();
+            selectedCableKey="";
+            selectedRecord=null;selectedMeasurement=null;selectionStatus.setText("객체를 선택하세요.");
+            if(hadCable)renderMarkers();
+        }
     }
 
     private void showSelectionMenu(){
