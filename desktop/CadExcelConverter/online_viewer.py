@@ -750,7 +750,7 @@ let lastActivity=Date.now();
 let idleTimer=null;
 let authenticated=false;
 let lastServerTouch=0;
-let fiberDiag={{server:0,received:0,cache:0,lineObjects:0,renderParts:0}};
+let fiberDiag={{server:0,received:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
 
 function fiberDiagText(){{
   const d=fiberDiag||{{}};
@@ -759,6 +759,7 @@ function fiberDiagText(){{
     '/수신 '+String(d.received||0)+
     '/캐시 '+String(d.cache||0)+
     '/선객체 '+String(d.lineObjects||0)+
+    '/광기기 '+String(d.deviceObjects||0)+
     '/렌더 '+String(d.renderParts||0)+']';
 }}
 const MAX_LEVEL=14;
@@ -998,6 +999,43 @@ const SYMBOL_LIBRARY={{
   closure:{{shape:'flat_capsule',w:26,h:14,fill:'#2196f3',stroke:'#0d47a1'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
+
+function isInfoPointFeature(f){{
+  const p=f.properties||{{}};
+  const a=p.attributes||{{}};
+  const fields=a.fields||a;
+  const layer=String(p.layer||'').trim().toUpperCase();
+  const entityType=String(p.entity_type||'').trim().toUpperCase();
+  const block=String(p.block_name||'').trim().toUpperCase();
+
+  // 문자/주석 엔티티는 기기가 아니다.
+  if(['TEXT','MTEXT','ATTRIB','ATTDEF','DIMENSION','LEADER','MLEADER'].includes(entityType))return true;
+
+  const infoLayerTokens=[
+    'CELLNO','_ID','TEXT','LABEL','JIBUN','지번','ADDRESS','ADDR',
+    'NAME','NUMBER','NO_','번호','INFO','ANNOT','NOTE','MEMO'
+  ];
+  if(infoLayerTokens.some(k=>layer.includes(k)))return true;
+
+  // 정보/주석 전용 블록도 기기로 만들지 않는다.
+  const infoBlockTokens=['TEXT','LABEL','ID','ADDR','ADDRESS','JIBUN','INFO','NOTE','TAG'];
+  if(infoBlockTokens.some(k=>block===k || block.startsWith(k+'_') || block.endsWith('_'+k)))return true;
+
+  // 실제 기기 판정 힌트가 없고, 속성이 정보성 필드만 가진 POINT는 제외한다.
+  const kindHint=String(fields._cmb_symbol_kind||'').toLowerCase();
+  const deviceHint=(fields._cmb_is_device===true);
+  const knownDeviceKind=['onu','amp','splitter','tap','power','power_ps','closure','pole','manhole'];
+  if(!deviceHint && !knownDeviceKind.includes(kindHint)){{
+    const keys=Object.keys(fields||{{}}).map(k=>String(k).toUpperCase());
+    const hasInfoKeys=keys.some(k=>
+      k.includes('ID') || k.includes('ADDR') || k.includes('ADDRESS') ||
+      k.includes('JIBUN') || k.includes('NAME') || k.includes('NUMBER') ||
+      k.includes('NO') || k.includes('TEXT') || k.includes('LABEL')
+    );
+    if(hasInfoKeys && entityType!=='INSERT')return true;
+  }}
+  return false;
+}}
 
 function symbolKind(p){{
   const a=p.attributes||{{}};
@@ -1239,6 +1277,8 @@ function applyZoomVisibility(mapLevel){{
     let visible=true;
     if(group==='FIBER'){{
       visible=groupEnabled.FIBER===true;
+      // 광 선로(kind 없음)는 항상 표시하고, 광 기기(kind 있음)는 상세 줌에서만 표시한다.
+      if(visible && kind)visible=(mapLevel<=3);
     }}else if(mapLevel>3){{
       visible=false;
     }}else if(kind){{
@@ -1291,8 +1331,46 @@ function renderFiberFeatures(features){{
       rendered++;
     }});
   }});
+
+  // FIBER 캐시에는 광선로뿐 아니라 광함체/센터/터미널 등 Point 기기도 포함된다.
+  // 이 Point들은 서버 재호출 없이 캐시에서 미리 생성하고 줌 레벨로 표시/숨김한다.
+  let fiberDeviceObjects=0;
+  const fiberDeviceMap=new Map();
+  (features||[]).forEach(f=>{{
+    if((f.geometry||{{}}).type!=='Point')return;
+    const p=f.properties||{{}};
+    if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
+    if(isInfoPointFeature(f))return;
+
+    const a=p.attributes||{{}},fields=a.fields||a;
+    if(fields._cmb_is_device===false)return;
+
+    const kind=symbolKind(p);
+    const entityType=String(p.entity_type||'').toUpperCase();
+    const explicitDevice=(fields._cmb_is_device===true);
+    if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
+
+    const g=f.geometry||{{}},xy=g.coordinates||[];
+    if(!Array.isArray(xy)||xy.length<2||
+       !Number.isFinite(Number(xy[0]))||!Number.isFinite(Number(xy[1])))return;
+
+    const key=String(p.regional_object_id||p.entity_id||'').trim() ||
+      (kind+'|'+Number(xy[0]).toFixed(7)+'|'+Number(xy[1]).toFixed(7));
+    if(!fiberDeviceMap.has(key))fiberDeviceMap.set(key,f);
+  }});
+
+  fiberDeviceMap.forEach(f=>{{
+    const p=f.properties||{{}},xy=(f.geometry||{{}}).coordinates||[];
+    try{{
+      drawDevice(new kakao.maps.LatLng(Number(xy[1]),Number(xy[0])),p);
+      fiberDeviceObjects++;
+    }}catch(e){{console.warn('Fiber device render failed',e);}}
+  }});
+
+  applyZoomVisibility(map.getLevel());
   fiberDiag.lineObjects=lineObjects;
   fiberDiag.renderParts=rendered;
+  fiberDiag.deviceObjects=fiberDeviceObjects;
   return rendered;
 }}
 
@@ -1354,20 +1432,6 @@ async function loadObjects(force=false){{
     if(group==='FIBER')return false;
     return isMaxDetail && groupEnabled[group]===true;
   }});
-  function isInfoPointLayer(layer){{
-    const name=String(layer||'').trim().toUpperCase();
-    return (
-      name.includes('CELLNO') ||
-      name.includes('_ID') ||
-      name.includes('TEXT') ||
-      name.includes('LABEL') ||
-      name.includes('JIBUN') ||
-      name.includes('지번') ||
-      name.includes('ADDRESS') ||
-      name.includes('ADDR')
-    );
-  }}
-
   function deviceFeatureKey(f){{
     const p=f.properties||{{}};
     const direct=String(
@@ -1385,8 +1449,7 @@ async function loadObjects(force=false){{
   const pointCandidates=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
-    const layer=String(p.layer||'');
-    if(isInfoPointLayer(layer))return false;
+    if(isInfoPointFeature(f))return false;
 
     const kind=symbolKind(p);
     const entityType=String(p.entity_type||'').toUpperCase();
