@@ -17,9 +17,9 @@ from backup_v2 import enrich_payload_v2
 
 GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
 MANAGED_ITEMS = GROUPS + ("SYMBOL",)
-# 전체 업로드는 자주 변경되는 도면 데이터만 교체한다.
-# POLE과 SYMBOL은 선택 업로드에서만 처리한다.
-FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT", "USER")
+# 전체 업로드는 운용에 필요한 도면 데이터만 교체한다.
+# POLE, USER, SYMBOL은 전체 업로드에서 제외하고 선택 업로드에서만 처리한다.
+FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT")
 
 
 def classify_entity(e):
