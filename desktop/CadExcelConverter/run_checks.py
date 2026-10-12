@@ -57,18 +57,16 @@ device = SimpleNamespace(
 assert _points(device) == [(15.0, 15.0)]
 print("DEVICE_POINT_GEOMETRY_OK")
 
-# 온라인 Viewer는 초기 광-only 상태를 유지하되,
-# L1~L3에서는 체크 그룹을 표시하고 L4 이상에서는 모두 숨긴다.
+# 온라인 Viewer는 광을 영구 캐시 레이어로 유지하고,
+# L1~L3에서만 주변 기기/동축/전주/관로를 추가한다.
 assert "FIBER:true,COAX:false,POLE:false,CONDUIT:false" in page
 assert "const mapLevelNow=map.getLevel();" in page
 assert "const detailMode=mapLevelNow<=3;" in page
-assert "if(!detailMode)" in page
-assert "L3 이하에서 광/동축/전주/관로 표시" in page
+assert "clearNonFiberOverlays()" in page
+assert "광 캐시 표시" in page
+assert "function renderFiberFeatures(features)" in page
+assert "if(group==='FIBER')return false;" in page
 assert "if(myGeneration!==loadGeneration)return;" in page
-assert "if(map.getLevel()>3)" in page
-assert "return isMaxDetail && groupEnabled[group]===true;" in page
-assert "['FIBER','COAX','CONDUIT'].map" in page
-assert "+' 선:'+" in page
 print("ONLINE_LAYER_VISIBILITY_RULES_OK")
 
 # 세션 401은 Viewer 오류 표시가 아니라 종료/로그인 복귀 흐름으로 처리되어야 한다.
@@ -162,13 +160,14 @@ assert 'layer.startswith("CN_L_POLE_LINE_")' in admin_upload_source
 assert admin_upload_source.index('return "CONDUIT"') < admin_upload_source.index('return "POLE"')
 print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
-# 지역 선택 시 캐시를 읽고 서버 버전만 확인한 뒤, 동일 버전이면 /layers 없이 즉시 캐시 렌더 단계로 넘어가야 한다.
+# 지역 선택 자체는 서버를 기다리지 않고 로컬 캐시를 즉시 읽어야 한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 select_block = online_source.split("    def select(self, region):", 1)[1].split("    def objects(", 1)[0]
 assert "self._load_cache()" in select_block
-assert "self.c.online_versions(self.region)" in select_block
-assert "self.c.online_layers(self.region)" not in select_block
-assert '"cache_ready": cache_ready' in select_block
+assert "self._load_fiber_cache()" in select_block
+assert "self.c.online_versions(self.region)" not in select_block
+assert "def cached_fiber(self):" in online_source
+assert 'name == "fiber_cached"' in online_source
 print("FAST_CACHE_VERSION_CHECK_OK")
 
 
