@@ -433,10 +433,10 @@ print("SPLITTER_PI_SYMBOL_MAPPING_OK")
 admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert 'block.startswith("2SP")' in admin_upload_source and 'block.startswith("3SP")' in admin_upload_source
-assert "s.includes('2SP')||s.includes('3SP')" in online_source
-assert "실제 CAD 블록명이 저장된 과거 symbol_kind보다 우선한다." in online_source
-assert "if(s.includes('3SP')" in online_source
-assert "if(s.includes('2SP')" in online_source
+assert "block.startsWith('2SP')" in online_source and "block.startsWith('3SP')" in online_source
+assert "CMB 도면의 실제 layer/block code가 저장된 legacy symbol_kind보다 항상 우선한다." in online_source
+assert "if(block.startsWith('3SP')" in online_source
+assert "if(block.startsWith('2SP')" in online_source
 print("SP_PASSIVE_SPLITTER_OVERRIDE_OK")
 
 # 전체 심벌은 CMB 실제 layer/block code가 legacy 저장 kind보다 우선한다.
