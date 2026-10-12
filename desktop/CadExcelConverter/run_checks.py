@@ -511,3 +511,11 @@ assert "flex:1 1 auto" in online_source
 assert "text-overflow:ellipsis" in online_source
 assert "white-space:nowrap" in online_source
 print("FIXED_TOOLBAR_STATUS_LAYOUT_OK")
+
+# Connector는 Windows Viewer에서 기기/선 표시 대상에서 제외한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function isConnectorFeature(f)" in online_source
+assert "layer.startsWith('CN_C_CONNECTOR')" in online_source
+assert "block.startsWith('CONNECTOR')" in online_source
+assert "if(isConnectorFeature(f))return false;" in online_source
+print("CONNECTOR_VIEWER_EXCLUSION_OK")
