@@ -380,10 +380,18 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
                 else base_object_id
             )
 
+            original_handle = str(e.handle or "")
+            source_handle = (
+                f"{original_handle}/part/{part_index:03d}"
+                if original_handle and part_count > 1
+                else original_handle
+            )
+            if original_handle:
+                part_attrs["_cmb_original_handle"] = original_handle
+
             objects.append({
-                # 원본 CAD handle은 연결관계/복구를 위해 그대로 보존한다.
-                "source_handle": e.handle,
-                # 서버 row identity만 part별로 유일하게 만든다.
+                # 서버는 source_handle 중복을 허용하지 않으므로 part별로 유일하게 만든다.
+                "source_handle": source_handle,
                 "object_id": object_id,
                 "layer": e.layer,
                 "entity_type": e.entity_type,
