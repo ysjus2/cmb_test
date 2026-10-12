@@ -347,14 +347,11 @@ class Api:
         version_changed = bool(previous) and previous != versions
 
         if version_changed:
-            # 버전이 하나라도 달라지면 지역 캐시 파일을 즉시 폐기한다.
-            # 다운로드 실패 시에도 구버전 데이터를 다시 보여주지 않는다.
-            self._delete_cache_file()
-            self.cache_state = {
-                "versions": versions,
-                "features": {},
-                "coverage": [],
-            }
+            # 캐시 우선 정책:
+            # revision이 바뀌어도 현재 화면 캐시는 즉시 삭제하지 않는다.
+            # 기존 화면을 유지한 상태에서 새 범위를 내려받고, 저장이 끝난 뒤 교체한다.
+            self.cache_state["versions"] = versions
+            self.cache_state["coverage"] = []
             return changed
 
         self.cache_state["versions"] = versions
@@ -618,7 +615,20 @@ class Api:
                     merged[feature_key(feature)] = feature
 
             feature_store = self.cache_state.setdefault("features", {})
+
+            # 새 서버 응답을 정상 수신한 뒤에만 해당 BBOX의 구버전 캐시를 교체한다.
+            # 이렇게 해야 다운로드 중에는 기존 화면이 유지되고, 삭제된 객체도 캐시에 남지 않는다.
+            stale_keys = [
+                key for key, feature in feature_store.items()
+                if self._feature_intersects(feature, west, south, east, north)
+                and str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+            ]
+            for key in stale_keys:
+                feature_store.pop(key, None)
+
             for feature in merged.values():
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER":
+                    continue
                 feature_store[self._feature_key(feature)] = feature
 
             self.cache_state.setdefault("coverage", []).append({
@@ -718,6 +728,17 @@ let lastActivity=Date.now();
 let idleTimer=null;
 let authenticated=false;
 let lastServerTouch=0;
+let fiberDiag={{server:0,received:0,cache:0,lineObjects:0,renderParts:0}};
+
+function fiberDiagText(){{
+  const d=fiberDiag||{{}};
+  if(!d.server&&!d.received&&!d.cache&&!d.renderParts)return '';
+  return ' · 광[서버 '+String(d.server||'?')+
+    '/수신 '+String(d.received||0)+
+    '/캐시 '+String(d.cache||0)+
+    '/선객체 '+String(d.lineObjects||0)+
+    '/렌더 '+String(d.renderParts||0)+']';
+}}
 const MAX_LEVEL=14;
 const ZOOM_STEP=1.35;
 const MIN_NETWORK_LEVEL=8;
@@ -1212,11 +1233,13 @@ function renderFiberFeatures(features){{
   clearGroupOverlays('FIBER');
   if(!groupEnabled.FIBER)return 0;
   let rendered=0;
+  let lineObjects=0;
   (features||[]).forEach(f=>{{
     const g=f.geometry||{{}};
     const p=f.properties||{{}};
     if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
     if(!['LineString','MultiLineString'].includes(g.type))return;
+    lineObjects++;
     const c=originalCableColor(p,'FIBER');
     const parts=g.type==='MultiLineString' ? (g.coordinates||[]) : [g.coordinates||[]];
     parts.forEach(before=>{{
@@ -1241,6 +1264,8 @@ function renderFiberFeatures(features){{
       rendered++;
     }});
   }});
+  fiberDiag.lineObjects=lineObjects;
+  fiberDiag.renderParts=rendered;
   return rendered;
 }}
 
@@ -1258,7 +1283,7 @@ async function loadObjects(force=false){{
     lastQueryLat=queryLat;
     lastQueryLng=queryLng;
     lastDetailMode=false;
-    setStatus('L'+mapLevelNow+' · 광 캐시 표시 · 기기는 L3 이하에서 숨김');
+    setStatus('L'+mapLevelNow+' · 광 캐시 표시 · 기기는 L3 이하에서 숨김'+fiberDiagText());
     return;
   }}
 
@@ -1554,9 +1579,13 @@ function bindUi(){{
     let cached={{features:[],cache:'empty'}};
     try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
     if(region!==document.getElementById('region').value)return;
-    const cachedCount=renderFiberFeatures(cached.features||[]);
+    const cachedFeatures=cached.features||[];
+    const cachedCount=renderFiberFeatures(cachedFeatures);
+    fiberDiag.cache=cachedFeatures.length;
+    fiberDiag.received=0;
+    fiberDiag.server=0;
     setStatus(cachedCount>0
-      ? '광 캐시 즉시 표시 · FIBER '+cachedCount+'개'
+      ? '광 캐시 즉시 표시'+fiberDiagText()
       : '광 캐시 없음 · 최초 다운로드 시작');
 
     apiCall('fiber_all',{{force:false}}).then(fiber=>{{
@@ -1566,13 +1595,19 @@ function bindUi(){{
         setStatus(fiber.error+' · 기존 광 캐시 유지');
         return;
       }}
-      const fiberCount=(fiber.features||[]).length;
+      const fiberFeatures=fiber.features||[];
+      const fiberCount=fiberFeatures.length;
+      const expected=Number(fiber.expected_count||0);
+      fiberDiag.server=expected;
+      fiberDiag.received=Number(fiber.received_count||fiberCount);
       if(fiber.cache!=='hit' || cachedCount===0){{
-        renderFiberFeatures(fiber.features||[]);
+        renderFiberFeatures(fiberFeatures);
+        fiberDiag.cache=fiberFeatures.length;
+      }}else{{
+        fiberDiag.cache=fiberFeatures.length;
       }}
       const source=fiber.cache==='hit'?'광 캐시 최신':'광 캐시 갱신 완료';
-      const expected=Number(fiber.expected_count||0);
-      setStatus(source+' · FIBER '+fiberCount+'개'+(expected?' / 서버 '+expected+'개':''));
+      setStatus(source+fiberDiagText());
     }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
 
     if(!map){{
@@ -1636,7 +1671,8 @@ function initMap(){{
         lastDetailMode=(level<=3);
         setStatus(
           'L'+level+
-          (level<=3 ? ' · 캐시 레벨 즉시 적용' : ' · 광만 표시')
+          (level<=3 ? ' · 캐시 레벨 즉시 적용' : ' · 광만 표시')+
+          fiberDiagText()
         );
       }});
       centerMyLocation(false);
