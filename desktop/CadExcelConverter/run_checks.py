@@ -457,3 +457,23 @@ assert "layer.startsWith('CN_C_DC')" in online_source
 assert "layer.startsWith('CN_C_PI')" in online_source
 assert "layer.startsWith('CN_C_POWER')" in online_source
 print("CMB_CODE_FIRST_SYMBOL_MAPPING_OK")
+
+# L3 동축은 주요기기 간 trunk만 표시하고 TAP 접속 케이블은 숨긴다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function coaxCableOverlayKind(coords,devices)" in online_source
+assert "return touchesTap?'coax_tap_cable':'coax_main_cable';" in online_source
+assert "'coax_main_cable'" in online_source
+assert "'coax_tap_cable'" in online_source
+assert "if(mapLevel===3)" in online_source
+assert "if(mapLevel===2)" in online_source
+
+# Windows 온라인 Viewer 거리 측정: 새 구간, Esc 완료, 우클릭 개별삭제, 전체삭제.
+assert "id='measureDistance'" in online_source
+assert "id='clearDistance'" in online_source
+assert "function addDistancePoint(latlng)" in online_source
+assert "function finishDistanceMeasurement()" in online_source
+assert "function clearAllDistanceMeasurements()" in online_source
+assert "kakao.maps.event.addListener(session.line,'rightclick'" in online_source
+assert "if(e.key==='Escape'&&distanceMode)" in online_source
+assert "거리 측정 · 지도 클릭으로 점 추가 · Esc로 구간 완료" in online_source
+print("L3_COAX_TRUNK_AND_DISTANCE_TOOL_OK")
