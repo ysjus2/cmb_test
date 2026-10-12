@@ -165,7 +165,9 @@ final class ServerMapCache {
             if(old!=null&&!old.equals(e.getValue()))changed.add(e.getKey());
         }
         if(!changed.isEmpty()){
-            state.records.removeIf(r->changed.contains(group(r)));
+            // Windows Viewer와 동일하게 기존 캐시를 먼저 유지한다.
+            // Revision이 바뀌면 coverage만 무효화하고, 새 범위를 성공적으로
+            // 내려받아 저장한 뒤 해당 stableKey가 새 데이터로 교체되게 한다.
             state.coverage.clear();
         }
         state.versions.clear();
