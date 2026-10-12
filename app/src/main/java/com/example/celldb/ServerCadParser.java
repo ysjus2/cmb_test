@@ -20,15 +20,19 @@ final class ServerCadParser {
             JSONArray point=type.equals("Point")?coordinates:coordinates.getJSONArray(i);
             CadRecord record=new CadRecord();
             record.layer=properties.optString("layer","SERVER");
-            String entity=properties.optString("entity_id",properties.optString("regional_object_id",properties.optString("source_handle","")));
+            String sourceHandle=properties.optString("source_handle","");
+            String entity=properties.optString("entity_id",properties.optString("regional_object_id",sourceHandle));
+            String blockName=properties.optString("block_name","");
             record.id=dataset+":"+record.layer+":"+entity;
             record.category=type.equals("LineString")?(group.equals("FIBER")?"FIBER":group.equals("COAX")?"COAX":"EQUIPMENT"):(group.equals("POLE")?"FACILITY":"EQUIPMENT");
-            record.name=properties.optString("name",record.layer);record.source="SERVER";record.sequence=i;
+            record.name=!blockName.isEmpty()?blockName:properties.optString("name",record.layer);record.source="SERVER";record.sequence=i;
             record.longitude=point.getDouble(0);record.latitude=point.getDouble(1);
             if(!record.hasCoordinates())throw new Exception("서버 좌표가 잘못되었습니다.");
             if(fields!=null)for(Iterator<String> keys=fields.keys();keys.hasNext();){String key=keys.next();record.fields.put(key,fields.optString(key,""));}
             record.fields.put("CAD레이어",record.layer);
-            record.fields.put("__symbol",CmbSymbolType.fromLayer(record.layer+" "+record.name)+":"+properties.optDouble("symbol_rotation",0));
+            record.fields.put("__serverSourceHandle",sourceHandle);
+            record.fields.put("__serverBlock",blockName);
+            record.fields.put("__symbol",CmbSymbolType.fromLayer(record.layer+" "+blockName+" "+record.name)+":"+properties.optDouble("symbol_rotation",0));
             JSONObject layout=properties.optJSONObject("cmb_layout");
             if(type.equals("Point")&&layout!=null&&"cmb-authored-v1".equals(layout.optString("source")))
                 record.fields.put("__cmbLayout",layout.toString());
