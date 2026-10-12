@@ -383,6 +383,7 @@ class CMBServerClient:
             "POST",
             f"/admin/drawings/{q}/symbols",
             payload,
+            timeout=3600,
         )
 
     def revisions(self, region):
