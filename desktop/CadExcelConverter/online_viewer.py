@@ -1061,6 +1061,16 @@ const SYMBOL_LIBRARY={{
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
 
+function isConnectorFeature(f){{
+  const p=f.properties||{{}};
+  const layer=String(p.layer||'').trim().toUpperCase();
+  const block=String(p.block_name||'').trim().toUpperCase();
+  const text=(layer+' '+block).toUpperCase();
+  return layer.startsWith('CN_C_CONNECTOR') ||
+         block.startsWith('CONNECTOR') ||
+         text.includes(' CONNECTOR');
+}}
+
 function isAnnoFeature(f){{
   const p=f.properties||{{}};
   const layer=String(p.layer||'').trim().toUpperCase();
@@ -1827,7 +1837,7 @@ async function loadObjects(force=false){{
   const features=allFeatures.filter(f=>{{
     const p=f.properties||{{}};
     const layerName=String(p.layer||'').trim().toUpperCase();
-    if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG'||isAnnoFeature(f)) return false;
+    if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG'||isAnnoFeature(f)||isConnectorFeature(f)) return false;
 
     const group=String(p.group_id||'').toUpperCase();
 
@@ -1854,6 +1864,7 @@ async function loadObjects(force=false){{
     if((f.geometry||{{}}).type!=='Point')return false;
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
     if(isInfoPointFeature(f))return false;
+    if(isConnectorFeature(f))return false;
 
     const kind=symbolKind(p);
     const entityType=String(p.entity_type||'').toUpperCase();
