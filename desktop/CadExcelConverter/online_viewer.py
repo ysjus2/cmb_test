@@ -157,6 +157,18 @@ class Api:
     def _fiber_features(self):
         return list(self.fiber_cache.get("features") or [])
 
+    def cached_fiber(self):
+        """Return the on-disk fiber cache immediately without touching the server."""
+        if not self.region:
+            return {"ok": True, "features": [], "cache": "none", "version": ""}
+        self._load_fiber_cache()
+        return {
+            "ok": True,
+            "features": self._fiber_features(),
+            "cache": "hit" if self.fiber_cache.get("features") else "empty",
+            "version": str(self.fiber_cache.get("version") or ""),
+        }
+
     def _fetch_all_region_features(self):
         limit = 2000
         max_depth = 7
@@ -439,27 +451,22 @@ class Api:
         self.last_version_check = 0.0
         if not self.region:
             self.cache_state = {"versions": {}, "features": {}, "coverage": []}
+            self.fiber_cache = {"version": "", "features": []}
             return {"ok": True, "bounds": None, "layers": []}
         try:
-            # 지역 선택 직후에는 캐시를 먼저 읽고 서버에는 버전만 확인한다.
-            # 버전이 동일하면 /layers 응답을 기다리지 않고 바로 캐시 렌더 단계로 넘긴다.
+            # UI 응답 우선: 지역 선택에서는 서버를 기다리지 않는다.
             self._load_cache()
             self._load_fiber_cache()
-            previous_versions = dict(self.cache_state.get("versions") or {})
-            cached_count = len(self.cache_state.get("features") or {})
-
-            current_versions = self.c.online_versions(self.region) or {}
-            self.last_version_check = time.monotonic()
-            changed = self._apply_versions(current_versions)
-
-            cache_versions_match = bool(previous_versions) and not changed
-            cache_ready = cache_versions_match and cached_count > 0
 
             group_counts = {}
             for feature in (self.cache_state.get("features") or {}).values():
                 group = str(((feature.get("properties") or {}).get("group_id") or "")).upper()
                 if group:
                     group_counts[group] = group_counts.get(group, 0) + 1
+
+            fiber_count = len(self.fiber_cache.get("features") or [])
+            if fiber_count:
+                group_counts["FIBER"] = fiber_count
 
             group_summary = [
                 {"group_id": group, "count": count}
@@ -471,9 +478,9 @@ class Api:
                 "bounds": None,
                 "layers": [],
                 "group_summary": group_summary,
-                "cache_ready": cache_ready,
-                "cache_count": len(self.cache_state.get("features") or {}),
-                "versions_changed": sorted(changed),
+                "cache_ready": bool(fiber_count or self.cache_state.get("features")),
+                "cache_count": len(self.cache_state.get("features") or {}) + fiber_count,
+                "fiber_cache_count": fiber_count,
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -496,7 +503,7 @@ class Api:
                     if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
                 ]
                 return {
-                    "features": self._fiber_features() + nearby,
+                    "features": nearby,
                     "cache": "hit",
                 }
 
@@ -558,7 +565,7 @@ class Api:
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
             ]
             return {
-                "features": self._fiber_features() + nearby,
+                "features": nearby,
                 "cache": "network",
             }
         except Exception as exc:
@@ -741,6 +748,22 @@ function clearOverlays(){{
     overlayKinds.delete(x);
   }});
   overlays=[];
+  selectedOverlay=null;
+}}
+
+function clearNonFiberOverlays(){{
+  loadGeneration++;
+  const kept=[];
+  overlays.forEach(x=>{{
+    if(overlayGroups.get(x)==='FIBER'){{
+      kept.push(x);
+    }}else{{
+      try{{x.setMap(null);}}catch(e){{}}
+      overlayGroups.delete(x);
+      overlayKinds.delete(x);
+    }}
+  }});
+  overlays=kept;
   selectedOverlay=null;
 }}
 
@@ -1079,6 +1102,43 @@ function pruneDeviceOverlaysForLevel(mapLevel){{
   selectedOverlay=null;
 }}
 
+function renderFiberFeatures(features){{
+  if(!map)return 0;
+  clearGroupOverlays('FIBER');
+  if(!groupEnabled.FIBER)return 0;
+  let rendered=0;
+  (features||[]).forEach(f=>{{
+    const g=f.geometry||{{}};
+    const p=f.properties||{{}};
+    if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
+    if(!['LineString','MultiLineString'].includes(g.type))return;
+    const c=originalCableColor(p,'FIBER');
+    const parts=g.type==='MultiLineString' ? (g.coordinates||[]) : [g.coordinates||[]];
+    parts.forEach(before=>{{
+      if(!Array.isArray(before))return;
+      const path=before.filter(a=>Array.isArray(a)&&a.length>=2&&
+        a[0]!==null&&a[1]!==null&&a[0]!==''&&a[1]!==''&&
+        Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1]))&&
+        Math.abs(Number(a[0]))<=180&&Math.abs(Number(a[1]))<=90)
+        .map(a=>new kakao.maps.LatLng(Number(a[1]),Number(a[0])));
+      if(path.length<2)return;
+      const l=new kakao.maps.Polyline({{
+        path:path,
+        strokeWeight:4,
+        strokeColor:c,
+        strokeOpacity:.95,
+        strokeStyle:'solid'
+      }});
+      l.setMap(map);
+      if(typeof l.setZIndex==='function')l.setZIndex(5);
+      registerOverlay(l,'FIBER');
+      bindClick(l,p);
+      rendered++;
+    }});
+  }});
+  return rendered;
+}}
+
 async function loadObjects(force=false){{
   const region=document.getElementById('region').value;
   if(!region||!map)return;
@@ -1087,14 +1147,13 @@ async function loadObjects(force=false){{
   const queryLng=Number(center.getLng());
   const mapLevelNow=map.getLevel();
   const detailMode=mapLevelNow<=3;
-  // L4 이상부터 네트워크 도면 오버레이를 전부 숨긴다.
-  // 이전 L1~L3 서버 요청이 늦게 끝나더라도 loadGeneration 검증으로 다시 그리지 못한다.
+  // 광은 모든 줌에서 유지한다. L4 이상에서는 장비/동축/전주/관로만 제거한다.
   if(!detailMode){{
-    clearOverlays();
+    clearNonFiberOverlays();
     lastQueryLat=queryLat;
     lastQueryLng=queryLng;
     lastDetailMode=false;
-    setStatus('L'+mapLevelNow+' · 도면 숨김 · L3 이하에서 광/동축/전주/관로 표시');
+    setStatus('L'+mapLevelNow+' · 광 캐시 표시 · 기기는 L3 이하에서 표시');
     return;
   }}
 
@@ -1116,13 +1175,13 @@ async function loadObjects(force=false){{
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
-  if(map.getLevel()>3){{clearOverlays();return;}}
+  if(map.getLevel()>3){{clearNonFiberOverlays();return;}}
   if(r.error){{setStatus(r.error);return}}
   lastQueryLat=queryLat;
   lastQueryLng=queryLng;
   lastDetailMode=detailMode;
-  const previousOverlays=overlays;
-  overlays=[];
+  const previousOverlays=overlays.filter(x=>overlayGroups.get(x)!=='FIBER');
+  overlays=overlays.filter(x=>overlayGroups.get(x)==='FIBER');
   selectedOverlay=null;
   const allFeatures=r.features||[];
   const mapLevel=map.getLevel();
@@ -1134,7 +1193,8 @@ async function loadObjects(force=false){{
 
     const group=String(p.group_id||'').toUpperCase();
 
-    // L1~L3에서 체크된 네트워크 그룹을 표시한다.
+    // 광은 별도 영구 캐시 레이어에서 그리므로 주변 객체 갱신에서는 제외한다.
+    if(group==='FIBER')return false;
     return isMaxDetail && groupEnabled[group]===true;
   }});
   const pointFeatures=features.filter(f=>{{
@@ -1325,15 +1385,29 @@ function bindUi(){{
   document.getElementById('region').onchange=async e=>{{
     clearOverlays();
     document.getElementById('detail').style.display='none';
-    const r=await apiCall('select',{{region:e.target.value}});
+    const region=String(e.target.value||'');
+    const r=await apiCall('select',{{region:region}});
     if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
-    const summary=(r.group_summary||[]).map(x=>String(x.group_id)+':'+String(x.count||0)).join(' / ');
-    setStatus('광케이블 전체 확인 중...'+(summary?' · '+summary:''));
-    const fiber=await apiCall('fiber_all',{{force:false}});
-    if(fiber.error){{setStatus(fiber.error);return}}
-    const fiberCount=(fiber.features||[]).length;
-    const fiberSource=fiber.cache==='hit'?'광 캐시':'광 전체 다운로드';
-    setStatus(fiberSource+' · FIBER '+fiberCount+'개 · 주변 도면 준비 중...');
+
+    let cached={{features:[],cache:'empty'}};
+    try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
+    if(region!==document.getElementById('region').value)return;
+    const cachedCount=renderFiberFeatures(cached.features||[]);
+    setStatus(cachedCount>0
+      ? '광 캐시 즉시 표시 · FIBER '+cachedCount+'개'
+      : '광 캐시 없음 · 최초 다운로드 시작');
+
+    apiCall('fiber_all',{{force:false}}).then(fiber=>{{
+      if(region!==document.getElementById('region').value)return;
+      if(fiber.error){{setStatus(fiber.error);return;}}
+      const fiberCount=(fiber.features||[]).length;
+      if(fiber.cache!=='hit' || cachedCount===0){{
+        renderFiberFeatures(fiber.features||[]);
+      }}
+      const source=fiber.cache==='hit'?'광 캐시 최신':'광 캐시 갱신 완료';
+      setStatus(source+' · FIBER '+fiberCount+'개');
+    }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
+
     if(!map){{
       setStatus('카카오맵 초기화 대기');
       return;
@@ -1499,6 +1573,8 @@ def run_online_viewer():
                     result = api.regions()
                 elif name == "select":
                     result = api.select(data.get("region"))
+                elif name == "fiber_cached":
+                    result = api.cached_fiber()
                 elif name == "fiber_all":
                     result = api.ensure_fiber_all(
                         force=bool(data.get("force", False)),
