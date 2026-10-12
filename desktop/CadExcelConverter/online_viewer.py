@@ -809,7 +809,7 @@ const groupEnabled={{FIBER:true,COAX:false,POLE:false,CONDUIT:false,USER:false}}
 
 function layerLevel(layer){{
   const name=String(layer||'').trim().toUpperCase();
-  if(name.startsWith('TS_')||name==='TL_SCCO_SIG') return 999;
+  if(name.startsWith('TS_')||name==='TL_SCCO_SIG'||name.includes('ANNO')) return 999;
   if(['F_CABLE','FOC','FIBER','OPTIC','광케이블','광선로'].some(k=>name.includes(k))) return 0;
   const rules=[
     [['CN_C_CELLBOUND'],1],
@@ -1040,7 +1040,15 @@ const SYMBOL_LIBRARY={{
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
 
+function isAnnoFeature(f){{
+  const p=f.properties||{{}};
+  const layer=String(p.layer||'').trim().toUpperCase();
+  const block=String(p.block_name||'').trim().toUpperCase();
+  return layer.includes('ANNO') || block.includes('ANNO');
+}}
+
 function isInfoPointFeature(f){{
+  if(isAnnoFeature(f))return true;
   const p=f.properties||{{}};
   const a=p.attributes||{{}};
   const fields=a.fields||a;
@@ -1053,7 +1061,7 @@ function isInfoPointFeature(f){{
 
   const infoLayerTokens=[
     'CELLNO','_ID','TEXT','LABEL','JIBUN','지번','ADDRESS','ADDR',
-    'NAME','NUMBER','NO_','번호','INFO','ANNOT','NOTE','MEMO'
+    'NAME','NUMBER','NO_','번호','INFO','ANNO','ANNOT','NOTE','MEMO'
   ];
   if(infoLayerTokens.some(k=>layer.includes(k)))return true;
 
@@ -1288,6 +1296,90 @@ function snapCablePath(coords,devices){{
   return pts;
 }}
 
+function drawAmplifierInputArrows(devices,lineFeatures){{
+  const amps=(devices||[]).filter(d=>d&&d.kind==='amp'&&
+    String((d.props||{{}}).group_id||'').toUpperCase()==='COAX');
+  if(!amps.length)return 0;
+
+  let count=0;
+  amps.forEach(dev=>{{
+    const a=(dev.props||{{}}).attributes||{{}};
+    const fields=a.fields||a;
+    const connected=new Set(
+      (Array.isArray(fields._cmb_connections)?fields._cmb_connections:[])
+        .map(v=>String(v||'').trim().toUpperCase())
+        .filter(Boolean)
+    );
+
+    const rad=Number(dev.deg||0)*Math.PI/180;
+    const forward=[Math.sin(rad),-Math.cos(rad)];
+    const inputDir=[-forward[0],-forward[1]];
+    const candidates=[];
+
+    (lineFeatures||[]).forEach(f=>{{
+      const p=f.properties||{{}};
+      if(String(p.group_id||'').toUpperCase()!=='COAX')return;
+      if(isAnnoFeature(f))return;
+
+      const handle=String(
+        p.source_handle||p.regional_object_id||p.entity_id||p.object_id||''
+      ).trim().toUpperCase();
+      if(connected.size && handle && !connected.has(handle))return;
+
+      const g=f.geometry||{{}};
+      const parts=g.type==='MultiLineString'?(g.coordinates||[]):[g.coordinates||[]];
+      parts.forEach(coords=>{{
+        if(!Array.isArray(coords)||coords.length<2)return;
+        const clean=coords.filter(x=>Array.isArray(x)&&x.length>=2&&
+          Number.isFinite(Number(x[0]))&&Number.isFinite(Number(x[1])));
+        if(clean.length<2)return;
+
+        [[0,1],[clean.length-1,clean.length-2]].forEach(pair=>{{
+          const end=latLngToPx(new kakao.maps.LatLng(Number(clean[pair[0]][1]),Number(clean[pair[0]][0])));
+          const near=latLngToPx(new kakao.maps.LatLng(Number(clean[pair[1]][1]),Number(clean[pair[1]][0])));
+          const dist=Math.hypot(end.x-dev.cx,end.y-dev.cy);
+          if(dist>32)return;
+
+          let vx=near.x-dev.cx,vy=near.y-dev.cy;
+          const len=Math.hypot(vx,vy);
+          if(len<2)return;
+          vx/=len;vy/=len;
+          const score=vx*inputDir[0]+vy*inputDir[1];
+          candidates.push({{score,vx,vy,dist}});
+        }});
+      }});
+    }});
+
+    candidates.sort((x,y)=>y.score-x.score || x.dist-y.dist);
+    const best=candidates[0];
+    if(!best || best.score<0.50)return;
+    if(candidates.length>1 && candidates[1].score>0.50 &&
+       Math.abs(best.score-candidates[1].score)<0.12)return;
+
+    // 입력 케이블 위에서 증폭기 방향으로 들어가는 작은 V 화살표를 그린다.
+    const tipDist=13,backDist=24,wing=5;
+    const tip=[dev.cx+best.vx*tipDist,dev.cy+best.vy*tipDist];
+    const base=[dev.cx+best.vx*backDist,dev.cy+best.vy*backDist];
+    const px=-best.vy,py=best.vx;
+    const left=[base[0]+px*wing,base[1]+py*wing];
+    const right=[base[0]-px*wing,base[1]-py*wing];
+    [[left,tip],[right,tip]].forEach(seg=>{{
+      const l=new kakao.maps.Polyline({{
+        path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
+        strokeWeight:3,
+        strokeColor:'#d32f2f',
+        strokeOpacity:1,
+        strokeStyle:'solid'
+      }});
+      l.setMap(map);
+      if(typeof l.setZIndex==='function')l.setZIndex(32);
+      registerOverlay(l,'COAX','amp_input_arrow');
+    }});
+    count++;
+  }});
+  return count;
+}}
+
 function bindClick(overlay,props){{
   kakao.maps.event.addListener(overlay,'click',()=>showDetail(props||{{}}));
 }}
@@ -1303,10 +1395,10 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
 
 function coaxKindVisibleAtLevel(kind,mapLevel){{
   if(mapLevel===3){{
-    return ['onu','amp','splitter','power','power_ps','closure'].includes(kind);
+    return ['onu','amp','amp_input_arrow','splitter','power','power_ps','closure'].includes(kind);
   }}
   if(mapLevel===2){{
-    return ['onu','amp','splitter','power','power_ps','closure','tap','generic'].includes(kind);
+    return ['onu','amp','amp_input_arrow','splitter','power','power_ps','closure','tap','generic'].includes(kind);
   }}
   return mapLevel<=1;
 }}
@@ -1354,6 +1446,7 @@ function renderFiberFeatures(features){{
     const g=f.geometry||{{}};
     const p=f.properties||{{}};
     if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
+    if(isAnnoFeature(f))return;
     if(!['LineString','MultiLineString'].includes(g.type))return;
     lineObjects++;
     const c=originalCableColor(p,'FIBER');
@@ -1472,7 +1565,7 @@ async function loadObjects(force=false){{
   const features=allFeatures.filter(f=>{{
     const p=f.properties||{{}};
     const layerName=String(p.layer||'').trim().toUpperCase();
-    if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG') return false;
+    if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG'||isAnnoFeature(f)) return false;
 
     const group=String(p.group_id||'').toUpperCase();
 
@@ -1590,6 +1683,7 @@ async function loadObjects(force=false){{
     }});
   }});
 
+  const ampInputArrows=drawAmplifierInputArrows(devices,lineFeatures);
   applyZoomVisibility(mapLevel);
 
   previousOverlays.forEach(x=>{{
@@ -1625,6 +1719,7 @@ async function loadObjects(force=false){{
     ' · '+cableDiag+
     ' · 표시 '+features.length+
     ' · 심볼 '+devices.length+
+    ' · AMP입력화살표 '+ampInputArrows+
     ' · 렌더선 '+renderedLines+
     ' [F:'+String(renderedByGroup.FIBER||0)+
     '/C:'+String(renderedByGroup.COAX||0)+
