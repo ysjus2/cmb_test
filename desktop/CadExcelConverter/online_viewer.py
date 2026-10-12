@@ -496,7 +496,8 @@ class Api:
             limit = 2000
             max_depth = 5
 
-            self._refresh_versions_if_due()
+            # 체감속도 우선: 이미 내려받은 동일 화면 범위는 서버에 접속하지 않고 즉시 반환한다.
+            # 서버 revision 확인은 새 범위가 필요할 때 수행한다.
             if self._cache_covers(west, south, east, north):
                 nearby = [
                     feature for feature in self._cached_features(west, south, east, north)
@@ -506,6 +507,8 @@ class Api:
                     "features": nearby,
                     "cache": "hit",
                 }
+
+            self._refresh_versions_if_due()
 
             def feature_key(feature):
                 return self._feature_key(feature)
@@ -775,12 +778,34 @@ function clearGroupOverlays(group){{
     if(overlayGroups.get(x)===target){{
       try{{x.setMap(null);}}catch(e){{}}
       overlayGroups.delete(x);
+      overlayKinds.delete(x);
     }}else{{
       kept.push(x);
     }}
   }});
   overlays=kept;
   selectedOverlay=null;
+}}
+
+function hideGroupOverlays(group){{
+  const target=String(group||'').toUpperCase();
+  let count=0;
+  overlays.forEach(x=>{{
+    if(overlayGroups.get(x)!==target)return;
+    try{{x.setMap(null);count++;}}catch(e){{}}
+  }});
+  selectedOverlay=null;
+  return count;
+}}
+
+function showGroupOverlays(group){{
+  const target=String(group||'').toUpperCase();
+  let count=0;
+  overlays.forEach(x=>{{
+    if(overlayGroups.get(x)!==target)return;
+    try{{x.setMap(map);count++;}}catch(e){{}}
+  }});
+  return count;
 }}
 
 function showDetail(p){{
@@ -822,22 +847,31 @@ function colorFor(group){{
 
 function originalCableColor(p,group){{
   group=String(group||'').toUpperCase();
-
-  // 온라인 지도에서는 CAD 원본의 흰색/검정색이 지도 배경에 묻힐 수 있다.
-  // 핵심 네트워크 선로는 그룹별 고정색으로 표시한다.
-  if(['FIBER','COAX','CONDUIT','POLE'].includes(group)){{
-    return colorFor(group);
-  }}
-
+  const layer=String((p&&p.layer)||'').trim().toUpperCase();
   const a=(p&&p.attributes)||{{}};
   const f=a.fields||a;
   const style=f._cmb_style||{{}};
+
+  // CAD에서 추출한 실제 선 색상을 최우선으로 복원한다.
+  // 그룹 고정색으로 덮어쓰면 동축/셀테두리/연결선이 모두 같은 색이 되는 문제가 생긴다.
   const display=String(style.display_color||'').trim();
-  if(/^#[0-9a-fA-F]{{6}}$/.test(display)) return display;
+  if(/^#[0-9a-fA-F]{{6}}$/.test(display)){{
+    const d=display.toLowerCase();
+    // 카카오 지도에서 완전 흰색/검정색만 묻히므로 이 두 색만 레이어별 안전색으로 보정한다.
+    if(d!=='#ffffff' && d!=='#000000') return d;
+  }}
   const tc=Number(style.true_color);
   if(Number.isFinite(tc)&&tc>=0&&tc<=0xFFFFFF){{
-    return '#'+Math.trunc(tc).toString(16).padStart(6,'0');
+    const d='#'+Math.trunc(tc).toString(16).padStart(6,'0');
+    if(d!=='#ffffff' && d!=='#000000') return d;
   }}
+
+  // 원본 색상이 화면에서 사용할 수 없을 때만 레이어 역할별 기본색을 사용한다.
+  if(layer.startsWith('CN_C_CELLBOUND')) return '#00a152';
+  if(layer.startsWith('CN_C_CABLE') || layer.includes('COAX') || layer.includes('동축')) return '#f57c00';
+  if(layer.includes('F_CABLE') || layer.includes('FOC') || layer.includes('FIBER') ||
+     layer.includes('OPTIC') || layer.includes('광케이블') || layer.includes('광선로')) return '#1e88e5';
+  if(layer.includes('CONNECT') || layer.includes('LINK') || layer.includes('PASSIVE')) return '#7b1fa2';
   return colorFor(group);
 }}
 
@@ -1369,13 +1403,18 @@ function bindUi(){{
       btn.classList.toggle('on',groupEnabled[g]);
 
       if(groupEnabled[g]){{
-        loadObjects(true);
+        const restored=showGroupOverlays(g);
+        if(restored>0){{
+          setStatus('L'+map.getLevel()+' · '+g+' 캐시 즉시 표시 · '+restored+'개');
+        }}else{{
+          loadObjects(true);
+        }}
       }}else{{
-        clearGroupOverlays(g);
+        const hidden=hideGroupOverlays(g);
         const active=Object.keys(groupEnabled).filter(k=>groupEnabled[k]).join('/');
         setStatus(
           'L'+map.getLevel()+
-          ' · '+g+' 즉시 숨김'+
+          ' · '+g+' 즉시 숨김 '+hidden+'개'+
           (active ? ' · 활성 '+active : ' · 활성 그룹 없음')
         );
       }}
