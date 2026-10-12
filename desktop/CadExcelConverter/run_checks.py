@@ -25,7 +25,7 @@ print('ONLINE_VIEWER_LOCAL_API_OK')
 
 
 from types import SimpleNamespace
-from admin_upload import classify_entity, _points
+from admin_upload import classify_entity, _geometry_parts
 
 def _e(layer, block=""):
     return SimpleNamespace(layer=layer, block_name=block)
@@ -54,8 +54,23 @@ device = SimpleNamespace(
     ],
     bbox=(10.0, 10.0, 20.0, 20.0),
 )
-assert _points(device) == [(15.0, 15.0)]
+kind, geom = _geometry_parts(device)
+assert kind == "Point"
+assert geom == [(15.0, 15.0)]
+
+multi = SimpleNamespace(
+    entity_type="LWPOLYLINE",
+    primitives=[
+        ("polyline", [(0.0, 0.0), (1.0, 1.0)]),
+        ("line", [(2.0, 2.0), (3.0, 3.0)]),
+    ],
+    bbox=(0.0, 0.0, 3.0, 3.0),
+)
+kind, geom = _geometry_parts(multi)
+assert kind == "MultiLineString"
+assert len(geom) == 2
 print("DEVICE_POINT_GEOMETRY_OK")
+print("MULTIPART_UPLOAD_GEOMETRY_OK")
 
 # 온라인 Viewer는 광을 영구 캐시 레이어로 유지하고,
 # L1~L3에서만 주변 기기/동축/전주/관로를 추가한다.
@@ -343,3 +358,19 @@ assert "progress_callback=progress_callback" in server_client_source
 assert "pct = max(0.0, min(100.0, sent * 100.0 / total))" in admin_upload_source
 assert "서버 DB 저장/검증 중" in admin_upload_source
 print("EXACT_UPLOAD_BYTE_PROGRESS_OK")
+
+# COAX/POLE/CONDUIT는 stale coverage라도 기존 캐시를 즉시 반환하고 백그라운드 갱신해야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "def _start_bbox_refresh" in online_source
+assert '"cache": "stale"' in online_source
+assert '"refresh_pending": True' in online_source
+assert "threading.Thread(target=worker, daemon=True).start()" in online_source
+assert "setTimeout(()=>loadObjects(true),900);" in online_source
+print("STALE_CACHE_BACKGROUND_REFRESH_OK")
+
+# 동일 종류의 근접 기기는 CAD handle/ID가 달라도 중복 심벌로 만들지 않는다.
+assert "Number(a[0]).toFixed(5)" in online_source
+assert "Number(a[1]).toFixed(5)" in online_source
+assert "const hasTextPayload=" in online_source
+assert "const dxfHasText=" in online_source
+print("DEVICE_SPATIAL_DEDUPE_AND_TEXT_FILTER_OK")
