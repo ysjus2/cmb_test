@@ -1296,7 +1296,7 @@ function snapCablePath(coords,devices){{
   return pts;
 }}
 
-function drawAmplifierInputArrows(devices,lineFeatures){{
+function applyAmplifierInputDirection(devices,lineFeatures){{
   const amps=(devices||[]).filter(d=>d&&d.kind==='amp'&&
     String((d.props||{{}}).group_id||'').toUpperCase()==='COAX');
   if(!amps.length)return 0;
@@ -1311,9 +1311,6 @@ function drawAmplifierInputArrows(devices,lineFeatures){{
         .filter(Boolean)
     );
 
-    const rad=Number(dev.deg||0)*Math.PI/180;
-    const forward=[Math.sin(rad),-Math.cos(rad)];
-    const inputDir=[-forward[0],-forward[1]];
     const candidates=[];
 
     (lineFeatures||[]).forEach(f=>{{
@@ -1328,41 +1325,46 @@ function drawAmplifierInputArrows(devices,lineFeatures){{
 
       const g=f.geometry||{{}};
       const parts=g.type==='MultiLineString'?(g.coordinates||[]):[g.coordinates||[]];
+
       parts.forEach(coords=>{{
         if(!Array.isArray(coords)||coords.length<2)return;
         const clean=coords.filter(x=>Array.isArray(x)&&x.length>=2&&
           Number.isFinite(Number(x[0]))&&Number.isFinite(Number(x[1])));
         if(clean.length<2)return;
 
-        [[0,1],[clean.length-1,clean.length-2]].forEach(pair=>{{
-          const end=latLngToPx(new kakao.maps.LatLng(Number(clean[pair[0]][1]),Number(clean[pair[0]][0])));
-          const near=latLngToPx(new kakao.maps.LatLng(Number(clean[pair[1]][1]),Number(clean[pair[1]][0])));
-          const dist=Math.hypot(end.x-dev.cx,end.y-dev.cy);
-          if(dist>32)return;
+        // CMB CAD 케이블의 좌표 순서를 신호방향으로 사용한다.
+        // 증폭기에 닿는 '끝점(last point)' 케이블만 입력으로 본다.
+        const last=clean[clean.length-1];
+        const prev=clean[clean.length-2];
+        const lastPx=latLngToPx(new kakao.maps.LatLng(Number(last[1]),Number(last[0])));
+        const prevPx=latLngToPx(new kakao.maps.LatLng(Number(prev[1]),Number(prev[0])));
+        const dist=Math.hypot(lastPx.x-dev.cx,lastPx.y-dev.cy);
+        if(dist>32)return;
 
-          let vx=near.x-dev.cx,vy=near.y-dev.cy;
-          const len=Math.hypot(vx,vy);
-          if(len<2)return;
-          vx/=len;vy/=len;
-          const score=vx*inputDir[0]+vy*inputDir[1];
-          candidates.push({{score,vx,vy,dist}});
-        }});
+        let vx=dev.cx-prevPx.x,vy=dev.cy-prevPx.y;
+        const len=Math.hypot(vx,vy);
+        if(len<2)return;
+        vx/=len;vy/=len;
+
+        candidates.push({{dist,vx,vy,prevPx,lastPx}});
       }});
     }});
 
-    candidates.sort((x,y)=>y.score-x.score || x.dist-y.dist);
+    candidates.sort((x,y)=>x.dist-y.dist);
     const best=candidates[0];
-    if(!best || best.score<0.50)return;
-    if(candidates.length>1 && candidates[1].score>0.50 &&
-       Math.abs(best.score-candidates[1].score)<0.12)return;
+    if(!best)return;
 
-    // 입력 케이블 위에서 증폭기 방향으로 들어가는 작은 V 화살표를 그린다.
-    const tipDist=13,backDist=24,wing=5;
-    const tip=[dev.cx+best.vx*tipDist,dev.cy+best.vy*tipDist];
-    const base=[dev.cx+best.vx*backDist,dev.cy+best.vy*backDist];
+    // 같은 증폭기에 끝점 후보가 여러 개면 CAD 연결이 모호한 것이므로 표시하지 않는다.
+    if(candidates.length>1 && Math.abs(candidates[1].dist-best.dist)<5)return;
+
+    // 입력 케이블 끝에서 증폭기 쪽으로 향하는 V 화살표.
+    const tip=[dev.cx-best.vx*5,dev.cy-best.vy*5];
+    const base=[dev.cx-best.vx*18,dev.cy-best.vy*18];
     const px=-best.vy,py=best.vx;
+    const wing=5;
     const left=[base[0]+px*wing,base[1]+py*wing];
     const right=[base[0]-px*wing,base[1]-py*wing];
+
     [[left,tip],[right,tip]].forEach(seg=>{{
       const l=new kakao.maps.Polyline({{
         path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
@@ -1375,6 +1377,14 @@ function drawAmplifierInputArrows(devices,lineFeatures){{
       if(typeof l.setZIndex==='function')l.setZIndex(32);
       registerOverlay(l,'COAX','amp_input_arrow');
     }});
+
+    // 증폭기 방향은 입력 반대쪽, 즉 신호 진행방향으로 맞춘다.
+    // Kakao 화면좌표 기준 방향벡터를 회전각으로 환산한다.
+    const signalX=best.vx;
+    const signalY=best.vy;
+    const signalDeg=(Math.atan2(signalX,-signalY)*180/Math.PI+360)%360;
+    dev.deg=signalDeg;
+
     count++;
   }});
   return count;
@@ -1683,7 +1693,7 @@ async function loadObjects(force=false){{
     }});
   }});
 
-  const ampInputArrows=drawAmplifierInputArrows(devices,lineFeatures);
+  const ampInputArrows=applyAmplifierInputDirection(devices,lineFeatures);
   applyZoomVisibility(mapLevel);
 
   previousOverlays.forEach(x=>{{
