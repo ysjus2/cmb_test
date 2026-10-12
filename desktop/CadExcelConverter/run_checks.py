@@ -385,14 +385,14 @@ assert "if(isAnnoFeature(f))return true;" in online_source
 assert "layer.includes('ANNO')" in online_source
 
 # 증폭기 입력 케이블은 연결 handle + 회전각 + 접속 방향으로 판정하고 입력 1개에만 화살표를 표시한다.
-assert "function inferAmplifierInputFromFeature(feature,lineFeatures)" in online_source
+assert "function inferDirectionalInputFromFeature(feature,lineFeatures)" in online_source
 assert "fields._cmb_connections" in online_source
 assert "const last=clean[clean.length-1];" in online_source
 assert "const prev=clean[clean.length-2];" in online_source
 assert "const signalDeg=" in online_source
-assert "function applyAmplifierInputDirection(devices,lineFeatures)" in online_source
+assert "function applyDirectionalInputArrows(devices,lineFeatures)" in online_source
 assert "amp_input_arrow" in online_source
-assert "AMP입력화살표" in online_source
+assert "입력화살표" in online_source
 print("ANNO_EXCLUSION_AND_AMP_INPUT_ARROW_OK")
 
 # 동축 케이블 좌표 순서의 끝점을 입력으로 사용하고, 증폭기 방향은 입력 반대 신호방향으로 맞춘다.
@@ -400,6 +400,16 @@ online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "const last=clean[clean.length-1];" in online_source
 assert "if(dist>32)return;" in online_source
 assert "fields._cmb_rotation_deg=inferred.deg;" in online_source
-assert "p._cmb_amp_input=inferred;" in online_source
+assert "p._cmb_directional_input=inferred;" in online_source
 assert "입력 케이블 끝에서 증폭기 쪽으로 향하는 V 화살표" in online_source
 print("COAX_ENDPOINT_INPUT_DIRECTION_OK")
+
+# AMP/TAP/분기기는 동일한 케이블 끝점 입력 판정과 입력 화살표 정책을 사용한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "if(!['amp','tap','splitter'].includes(kind))return null;" in online_source
+assert "function applyDirectionalInputArrows(devices,lineFeatures)" in online_source
+assert "['amp','tap','splitter'].includes(dev.kind)" in online_source
+assert "tap_input_arrow" in online_source
+assert "splitter_input_arrow" in online_source
+assert "입력화살표" in online_source
+print("TAP_SPLITTER_INPUT_ARROW_OK")
