@@ -331,3 +331,14 @@ assert "경과 {elapsed} · 세션 유지중" in admin_upload_source
 assert "def _run_background_task" in admin_upload_source
 assert "self.update()" in admin_upload_source
 print("LIVE_UPLOAD_PROGRESS_OK")
+
+# 업로드 전송률은 실제 전송 바이트/전체 바이트 기준으로 표시해야 한다.
+server_client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert "class _ProgressBody(io.BytesIO):" in server_client_source
+assert "self._callback(self._sent, self._total)" in server_client_source
+assert '"Content-Length": str(len(body_bytes))' in server_client_source
+assert "progress_callback=progress_callback" in server_client_source
+assert "pct = max(0.0, min(100.0, sent * 100.0 / total))" in admin_upload_source
+assert "서버 DB 저장/검증 중" in admin_upload_source
+print("EXACT_UPLOAD_BYTE_PROGRESS_OK")
