@@ -1313,7 +1313,10 @@ function inferDirectionalInputFromFeature(feature,lineFeatures){{
       const len=Math.hypot(vx,vy);
       if(len<2)return;
       vx/=len;vy/=len;
-      candidates.push({{dist,vx,vy}});
+      candidates.push({{
+        dist,vx,vy,
+        color:originalCableColor(lp,'COAX')
+      }});
     }});
   }});
 
@@ -1323,7 +1326,10 @@ function inferDirectionalInputFromFeature(feature,lineFeatures){{
   if(candidates.length>1 && Math.abs(candidates[1].dist-best.dist)<5)return null;
 
   const signalDeg=(Math.atan2(best.vx,-best.vy)*180/Math.PI+360)%360;
-  return {{vx:best.vx,vy:best.vy,deg:signalDeg,dist:best.dist}};
+  return {{
+    vx:best.vx,vy:best.vy,deg:signalDeg,dist:best.dist,
+    color:best.color||'#334155'
+  }};
 }}
 
 function drawDevice(center,props){{
@@ -1449,9 +1455,9 @@ function applyDirectionalInputArrows(devices,lineFeatures){{
     if(!Number.isFinite(vx)||!Number.isFinite(vy))return;
 
     // 입력 케이블 끝에서 기기 쪽으로 향하는 V 화살표.
-    const tip=[dev.cx-vx*5,dev.cy-vy*5];
-    const base=[dev.cx-vx*18,dev.cy-vy*18];
-    const px=-vy,py=vx,wing=5;
+    const tip=[dev.cx-vx*4,dev.cy-vy*4];
+    const base=[dev.cx-vx*12,dev.cy-vy*12];
+    const px=-vy,py=vx,wing=3;
     const left=[base[0]+px*wing,base[1]+py*wing];
     const right=[base[0]-px*wing,base[1]-py*wing];
 
@@ -1459,8 +1465,8 @@ function applyDirectionalInputArrows(devices,lineFeatures){{
     [[left,tip],[right,tip]].forEach(seg=>{{
       const l=new kakao.maps.Polyline({{
         path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
-        strokeWeight:3,
-        strokeColor:'#d32f2f',
+        strokeWeight:2,
+        strokeColor:String(inferred.color||'#334155'),
         strokeOpacity:1,
         strokeStyle:'solid'
       }});
