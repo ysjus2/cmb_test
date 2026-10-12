@@ -501,3 +501,13 @@ assert "const base=[dev.cx-vx*12,dev.cy-vy*12];" in online_source
 assert "const px=-vy,py=vx,wing=3;" in online_source
 assert "strokeWeight:2" in online_source
 print("INPUT_ARROW_COMPACT_CABLE_COLOR_OK")
+
+# 상태 텍스트가 변해도 버튼 위치는 고정되어야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "id='toolButtons'" in online_source
+assert "id='statusWrap'" in online_source
+assert "flex:0 0 auto" in online_source
+assert "flex:1 1 auto" in online_source
+assert "text-overflow:ellipsis" in online_source
+assert "white-space:nowrap" in online_source
+print("FIXED_TOOLBAR_STATUS_LAYOUT_OK")
