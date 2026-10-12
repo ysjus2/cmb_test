@@ -1,9 +1,9 @@
 {
-  "version": "3.93_FINAL",
+  "version": "3.94_FINAL",
   "release_date": "2026-10-12",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v3.93_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v3.94_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v3.93_FINAL",
+  "release_tag": "v3.94_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -33,5 +33,5 @@
   "device_filter_policy": "TEXT/MTEXT/ATTRIB/ID/address/info entities are never rendered as devices",
   "fiber_device_policy": "FIBER Point devices are created from persistent fiber cache and shown only at detailed zoom levels",
   "server_upload_proxy_policy": "apply server-tools/apply_long_upload_timeout_v1.sh to set nginx request/proxy timeouts to 86400s",
-  "upload_progress_policy": "show source file, group, object count, package MB, elapsed time and live session status during packaging/upload"
+  "upload_progress_policy": "exact transmitted bytes / total JSON bytes percentage; after 100%, show server DB save/validation phase"
 }
