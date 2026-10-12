@@ -277,3 +277,28 @@ assert "function fiberDiagText()" in online_source
 assert "fiberDiag.lineObjects=lineObjects;" in online_source
 assert "fiberDiag.renderParts=rendered;" in online_source
 print("CACHE_FIRST_ATOMIC_UPDATE_OK")
+
+# 장시간 서버 업로드 중에는 로컬 idle logout을 중지하고 서버 heartbeat를 유지해야 한다.
+server_client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert '"/admin/drawings/upload",' in server_client_source
+assert "timeout=3600" in server_client_source
+assert "guard.pause()" in admin_upload_source
+assert "guard.resume()" in admin_upload_source
+assert "for _ in range(15):" in admin_upload_source
+print("LONG_UPLOAD_SESSION_KEEPALIVE_OK")
+
+# 동일 revision이라도 광 캐시 개수가 서버 object_count와 다르면 cache hit으로 인정하면 안 된다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "cached_count == expected_count" in online_source
+assert "and cache_complete" in online_source
+assert '"expected_count": expected_count' in online_source
+print("FIBER_CACHE_COUNT_VALIDATION_OK")
+
+# 구버전 COAX 기기 POINT도 _cmb_is_device=true이면 유지하고 기기는 케이블보다 위에 표시한다.
+assert "const explicitDevice=(fields._cmb_is_device===true);" in online_source
+assert "&& !explicitDevice" in online_source
+assert "JSON.stringify(p.attributes||{})" in online_source
+assert "setZIndex(30)" in online_source
+assert "setZIndex(31)" in online_source
+print("LEGACY_COAX_DEVICE_LOD_OK")
