@@ -477,3 +477,18 @@ assert "kakao.maps.event.addListener(session.line,'rightclick'" in online_source
 assert "if(e.key==='Escape'&&distanceMode)" in online_source
 assert "거리 측정 · 지도 클릭으로 점 추가 · Esc로 구간 완료" in online_source
 print("L3_COAX_TRUNK_AND_DISTANCE_TOOL_OK")
+
+# L3 TAP 구간은 거리 근접이 아니라 실제 _cmb_connections의 cable handle로만 숨긴다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function coaxCableOverlayKind(feature,devices)" in online_source
+assert "fields._cmb_connections" in online_source
+assert "if(connected.includes(cableHandle))return 'coax_tap_cable';" in online_source
+assert "coaxCableOverlayKind(f,devices)" in online_source
+
+# L3에서는 TAP 기기와 TAP 입력화살표 모두 숨기고 주요기기 trunk만 남긴다.
+l3_start = online_source.index("if(mapLevel===3)")
+l3_end = online_source.index("if(mapLevel===2)", l3_start)
+l3_block = online_source[l3_start:l3_end]
+assert "'coax_main_cable'" in l3_block
+assert "'tap_input_arrow'" not in l3_block
+print("L3_TAP_HANDLE_FILTER_FIX_OK")
