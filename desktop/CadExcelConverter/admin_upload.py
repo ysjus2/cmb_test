@@ -645,14 +645,23 @@ class AdminUploadWindow(tk.Toplevel):
         self._busy_generation += 1
         generation = self._busy_generation
 
+        # 업로드는 Tk 메인 스레드를 오래 점유할 수 있으므로
+        # 로컬 idle guard가 사용자 입력 없음으로 로그아웃시키지 않게 일시정지한다.
+        try:
+            guard = getattr(self.master, "session_guard", None)
+            if guard is not None:
+                guard.pause()
+        except Exception:
+            pass
+
         def heartbeat():
-            # 대용량 업로드로 Tk 이벤트 루프가 막혀도 서버 세션을 유지한다.
+            # 업로드 중에는 사용자 입력과 무관하게 서버 세션을 계속 활성 상태로 유지한다.
             while self.session_busy and generation == self._busy_generation:
                 try:
                     self.client.touch_session()
                 except Exception:
                     pass
-                for _ in range(20):
+                for _ in range(15):
                     if not self.session_busy or generation != self._busy_generation:
                         return
                     time.sleep(1)
@@ -662,6 +671,12 @@ class AdminUploadWindow(tk.Toplevel):
     def _end_busy(self):
         self.session_busy = False
         self._busy_generation += 1
+        try:
+            guard = getattr(self.master, "session_guard", None)
+            if guard is not None:
+                guard.resume()
+        except Exception:
+            pass
 
     def _upload(self, group, allow_empty=False):
         self._require_admin()
