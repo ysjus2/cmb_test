@@ -374,3 +374,21 @@ assert "Number(a[1]).toFixed(5)" in online_source
 assert "const hasTextPayload=" in online_source
 assert "const dxfHasText=" in online_source
 print("DEVICE_SPATIAL_DEDUPE_AND_TEXT_FILTER_OK")
+
+# -Anno 등록정보는 광/동축 모두 업로드 및 Viewer에서 완전히 제외한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert 'or "ANNO" in layer' in admin_upload_source
+assert 'or "ANNO" in block' in admin_upload_source
+assert "function isAnnoFeature(f)" in online_source
+assert "if(isAnnoFeature(f))return true;" in online_source
+assert "layer.includes('ANNO')" in online_source
+
+# 증폭기 입력 케이블은 연결 handle + 회전각 + 접속 방향으로 판정하고 입력 1개에만 화살표를 표시한다.
+assert "function drawAmplifierInputArrows(devices,lineFeatures)" in online_source
+assert "fields._cmb_connections" in online_source
+assert "const inputDir=[-forward[0],-forward[1]];" in online_source
+assert "if(!best || best.score<0.50)return;" in online_source
+assert "amp_input_arrow" in online_source
+assert "AMP입력화살표" in online_source
+print("ANNO_EXCLUSION_AND_AMP_INPUT_ARROW_OK")
