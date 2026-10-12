@@ -302,3 +302,16 @@ assert "JSON.stringify(p.attributes||{})" in online_source
 assert "setZIndex(30)" in online_source
 assert "setZIndex(31)" in online_source
 print("LEGACY_COAX_DEVICE_LOD_OK")
+
+# 정보/주석 POINT는 기기로 표시하지 않고 FIBER Point 기기는 상세 줌에서 캐시로 표시해야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert "function isInfoPointFeature(f)" in online_source
+assert "['TEXT','MTEXT','ATTRIB','ATTDEF','DIMENSION','LEADER','MLEADER']" in online_source
+assert "if(isInfoPointFeature(f))return false;" in online_source
+assert "fiberDeviceMap" in online_source
+assert "drawDevice(new kakao.maps.LatLng" in online_source
+assert "if(visible && kind)visible=(mapLevel<=3);" in online_source
+assert "def _is_info_entity(e):" in admin_upload_source
+assert "not _is_info_entity(e)" in admin_upload_source
+print("FIBER_DEVICE_AND_INFO_FILTER_OK")
