@@ -1,9 +1,9 @@
 {
-  "version": "3.98_FINAL",
+  "version": "3.99_FINAL",
   "release_date": "2026-10-12",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v3.98_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v3.99_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v3.98_FINAL",
+  "release_tag": "v3.99_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -37,5 +37,6 @@
   "fiber_geometry_policy": "preserve every CAD line/polyline/polygon primitive; use MultiLineString for multipart entities",
   "annotation_policy": "-Anno/ANNO registration and annotation objects are excluded from upload and rendering for fiber/coax",
   "amplifier_direction_policy": "coax polyline last point touching amplifier = input; arrow points into amplifier; amplifier orientation is opposite input / signal-output direction; ambiguous input shows no arrow",
-  "directional_device_policy": "AMP/TAP/splitter: coax polyline last point touching device = input; arrow on input cable only; device orientation follows signal output direction"
+  "directional_device_policy": "AMP/TAP/splitter: coax polyline last point touching device = input; arrow on input cable only; device orientation follows signal output direction",
+  "splitter_symbol_policy": "2-way/3-way/DC use circular splitter symbol; center label 2/3/DC; PI uses rectangular symbol with centered I"
 }
