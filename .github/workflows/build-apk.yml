@@ -1,4 +1,7 @@
-name: Build Signed APK
+name: Build Signed APK v2.21_FINAL
+
+permissions:
+  contents: write
 
 on:
   workflow_dispatch:
@@ -53,13 +56,24 @@ jobs:
           keytool -printcert -jarfile app/build/outputs/apk/release/app-release.apk -rfc \
             | openssl x509 -outform DER \
             | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
-          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.20_FINAL.apk
+          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.21_FINAL.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Android-v2.20-FINAL
+          name: CMB-Android-v2.21-FINAL
           path: |
             CMB_Android_v2.20_FINAL.apk
             kakao-key-hash.txt
           if-no-files-found: error
+
+      - name: Publish direct-download Android Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.21_FINAL
+          name: CMB Android v2.21 FINAL
+          body: |
+            Mobile online viewer: device IDs, pole numbers and registration text are hidden on the map; details remain available only through the selected-object information flow.
+          target_commitish: ${{ github.sha }}
+          files: CMB_Android_v2.21_FINAL.apk
+          make_latest: false
