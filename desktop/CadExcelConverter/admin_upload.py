@@ -701,6 +701,8 @@ class AdminUploadWindow(tk.Toplevel):
                 self.upload_progress.pack(fill="x", pady=(8, 3))
             if not self.upload_detail_label.winfo_manager():
                 self.upload_detail_label.pack(fill="x")
+            self.upload_progress.stop()
+            self.upload_progress.configure(mode="indeterminate", value=0)
             self.upload_progress.start(12)
         except Exception:
             pass
@@ -719,7 +721,15 @@ class AdminUploadWindow(tk.Toplevel):
         except Exception:
             pass
 
-    def _run_background_task(self, func, phase, group, object_count=0, package_mb=None):
+    def _run_background_task(
+        self,
+        func,
+        phase,
+        group,
+        object_count=0,
+        package_mb=None,
+        progress_state=None,
+    ):
         """Run long work off the Tk thread while keeping visible progress alive."""
         state = {"done": False, "result": None, "error": None}
         started = time.monotonic()
@@ -743,9 +753,40 @@ class AdminUploadWindow(tk.Toplevel):
         while not state["done"]:
             elapsed = self._format_elapsed(time.monotonic() - started)
             size_text = f" · 패키지 {package_mb:.1f} MB" if package_mb is not None else ""
+
+            progress_text = ""
+            if isinstance(progress_state, dict):
+                sent = int(progress_state.get("sent") or 0)
+                total = int(progress_state.get("total") or 0)
+                if total > 0:
+                    pct = max(0.0, min(100.0, sent * 100.0 / total))
+                    sent_mb = sent / (1024.0 * 1024.0)
+                    total_mb = total / (1024.0 * 1024.0)
+                    if sent < total:
+                        progress_text = (
+                            f" · 전송 {pct:5.1f}%"
+                            f" ({sent_mb:.1f}/{total_mb:.1f} MB)"
+                        )
+                        try:
+                            self.upload_progress.stop()
+                            self.upload_progress.configure(mode="determinate", value=pct)
+                        except Exception:
+                            pass
+                    else:
+                        progress_text = (
+                            f" · 전송 100.0% ({total_mb:.1f} MB)"
+                            " · 서버 DB 저장/검증 중"
+                        )
+                        try:
+                            self.upload_progress.stop()
+                            self.upload_progress.configure(mode="indeterminate", value=0)
+                            self.upload_progress.start(12)
+                        except Exception:
+                            pass
+
             self.upload_detail.set(
                 f"{Path(self.source_path).name} · {group} · 대상 {int(object_count):,}개"
-                f"{size_text} · {phase} · 경과 {elapsed} · 세션 유지중"
+                f"{size_text} · {phase}{progress_text} · 경과 {elapsed} · 세션 유지중"
             )
             try:
                 self.update()
@@ -854,12 +895,23 @@ class AdminUploadWindow(tk.Toplevel):
             self.status.set(
                 f"{group} · {object_count:,}개 · {package_mb:.1f} MB · 서버 전송/DB 저장 중"
             )
+            transfer = {"sent": 0, "total": package_bytes}
+
+            def on_upload_progress(sent, total):
+                transfer["sent"] = int(sent or 0)
+                if int(total or 0) > 0:
+                    transfer["total"] = int(total)
+
             result = self._run_background_task(
-                lambda: self.client.upload_group(payload),
+                lambda: self.client.upload_group(
+                    payload,
+                    progress_callback=on_upload_progress,
+                ),
                 "서버 전송/DB 저장 중",
                 group,
                 object_count=object_count,
                 package_mb=package_mb,
+                progress_state=transfer,
             )
 
             self.status.set(
@@ -900,12 +952,24 @@ class AdminUploadWindow(tk.Toplevel):
             self.status.set(
                 f"SYMBOL · {symbol_count:,}개 · {package_mb:.1f} MB · 서버 전송/DB 저장 중"
             )
+            transfer = {"sent": 0, "total": package_bytes}
+
+            def on_upload_progress(sent, total):
+                transfer["sent"] = int(sent or 0)
+                if int(total or 0) > 0:
+                    transfer["total"] = int(total)
+
             result = self._run_background_task(
-                lambda: self.client.upload_symbols(region_code, payload),
+                lambda: self.client.upload_symbols(
+                    region_code,
+                    payload,
+                    progress_callback=on_upload_progress,
+                ),
                 "서버 전송/DB 저장 중",
                 "SYMBOL",
                 object_count=symbol_count,
                 package_mb=package_mb,
+                progress_state=transfer,
             )
             self.status.set(
                 "SYMBOL 업로드 완료 · "
