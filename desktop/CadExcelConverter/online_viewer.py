@@ -1205,9 +1205,10 @@ function boundaryPoint(kind,cx,cy,tx,ty,deg=0){{
   return best||[cx,cy];
 }}
 
-function inferAmplifierInputFromFeature(feature,lineFeatures){{
+function inferDirectionalInputFromFeature(feature,lineFeatures){{
   const p=(feature||{{}}).properties||{{}};
-  if(symbolKind(p)!=='amp')return null;
+  const kind=symbolKind(p);
+  if(!['amp','tap','splitter'].includes(kind))return null;
   const g=(feature||{{}}).geometry||{{}};
   const xy=g.coordinates||[];
   if(!Array.isArray(xy)||xy.length<2)return null;
@@ -1241,7 +1242,7 @@ function inferAmplifierInputFromFeature(feature,lineFeatures){{
         Number.isFinite(Number(x[0]))&&Number.isFinite(Number(x[1])));
       if(clean.length<2)return;
 
-      // 케이블의 마지막 좌표가 증폭기에 닿는 경우만 입력으로 인정한다.
+      // 케이블의 마지막 좌표가 방향성 기기(AMP/TAP/분기기)에 닿는 경우만 입력으로 인정한다.
       const last=clean[clean.length-1];
       const prev=clean[clean.length-2];
       const lastPx=latLngToPx(new kakao.maps.LatLng(Number(last[1]),Number(last[0])));
@@ -1357,23 +1358,24 @@ function snapCablePath(coords,devices){{
   return pts;
 }}
 
-function applyAmplifierInputDirection(devices,lineFeatures){{
+function applyDirectionalInputArrows(devices,lineFeatures){{
   let count=0;
   (devices||[]).forEach(dev=>{{
-    if(!dev||dev.kind!=='amp')return;
-    const inferred=(dev.props||{{}})._cmb_amp_input;
+    if(!dev||!['amp','tap','splitter'].includes(dev.kind))return;
+    const inferred=(dev.props||{{}})._cmb_directional_input;
     if(!inferred)return;
 
     const vx=Number(inferred.vx),vy=Number(inferred.vy);
     if(!Number.isFinite(vx)||!Number.isFinite(vy))return;
 
-    // 입력 케이블 끝에서 증폭기 쪽으로 향하는 V 화살표.
+    // 입력 케이블 끝에서 기기 쪽으로 향하는 V 화살표.
     const tip=[dev.cx-vx*5,dev.cy-vy*5];
     const base=[dev.cx-vx*18,dev.cy-vy*18];
     const px=-vy,py=vx,wing=5;
     const left=[base[0]+px*wing,base[1]+py*wing];
     const right=[base[0]-px*wing,base[1]-py*wing];
 
+    const arrowKind=dev.kind+'_input_arrow';
     [[left,tip],[right,tip]].forEach(seg=>{{
       const l=new kakao.maps.Polyline({{
         path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
@@ -1384,7 +1386,7 @@ function applyAmplifierInputDirection(devices,lineFeatures){{
       }});
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(32);
-      registerOverlay(l,'COAX','amp_input_arrow');
+      registerOverlay(l,'COAX',arrowKind);
     }});
     count++;
   }});
@@ -1406,10 +1408,10 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
 
 function coaxKindVisibleAtLevel(kind,mapLevel){{
   if(mapLevel===3){{
-    return ['onu','amp','amp_input_arrow','splitter','power','power_ps','closure'].includes(kind);
+    return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure'].includes(kind);
   }}
   if(mapLevel===2){{
-    return ['onu','amp','amp_input_arrow','splitter','power','power_ps','closure','tap','generic'].includes(kind);
+    return ['onu','amp','amp_input_arrow','tap_input_arrow','splitter','splitter_input_arrow','power','power_ps','closure','tap','generic'].includes(kind);
   }}
   return mapLevel<=1;
 }}
@@ -1635,13 +1637,13 @@ async function loadObjects(force=false){{
     if(!Array.isArray(a)||a.length<2||a[0]===null||a[1]===null||
       !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
     try{{
-      const inferred=inferAmplifierInputFromFeature(f,lineFeatures);
+      const inferred=inferDirectionalInputFromFeature(f,lineFeatures);
       if(inferred){{
         const attrs=p.attributes||{{}};
         const fields=attrs.fields||attrs;
         fields._cmb_rotation_deg=inferred.deg;
         p.attributes=attrs;
-        p._cmb_amp_input=inferred;
+        p._cmb_directional_input=inferred;
       }}
       devices.push(drawDevice(new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p));
     }}
@@ -1704,7 +1706,7 @@ async function loadObjects(force=false){{
     }});
   }});
 
-  const ampInputArrows=applyAmplifierInputDirection(devices,lineFeatures);
+  const directionalInputArrows=applyDirectionalInputArrows(devices,lineFeatures);
   applyZoomVisibility(mapLevel);
 
   previousOverlays.forEach(x=>{{
@@ -1740,7 +1742,7 @@ async function loadObjects(force=false){{
     ' · '+cableDiag+
     ' · 표시 '+features.length+
     ' · 심볼 '+devices.length+
-    ' · AMP입력화살표 '+ampInputArrows+
+    ' · 입력화살표 '+directionalInputArrows+
     ' · 렌더선 '+renderedLines+
     ' [F:'+String(renderedByGroup.FIBER||0)+
     '/C:'+String(renderedByGroup.COAX||0)+
