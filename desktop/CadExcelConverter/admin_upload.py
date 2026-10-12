@@ -106,6 +106,7 @@ def _symbol_kind(e):
     # 2WAY/3WAY는 중앙 숫자로 구분하고 DC도 splitter 계열로 처리한다.
     if any(k in text for k in (
         "2WAY", "3WAY", "2-WAY", "3-WAY",
+        "2SP", "3SP",
         "2분기", "3분기", "2분배", "3분배",
     )):
         return "splitter"
