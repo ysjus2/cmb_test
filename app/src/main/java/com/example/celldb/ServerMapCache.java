@@ -132,6 +132,15 @@ final class ServerMapCache {
         return b.toString();
     }
 
+    private static double distanceMeters(double lat1,double lng1,double lat2,double lng2) {
+        double r=6371000.0;
+        double p1=Math.toRadians(lat1),p2=Math.toRadians(lat2);
+        double dp=Math.toRadians(lat2-lat1),dl=Math.toRadians(lng2-lng1);
+        double a=Math.sin(dp/2)*Math.sin(dp/2)
+                +Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+        return r*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+    }
+
     static boolean covered(State state,MapPoint center,int radius,String filter,String versionKey) {
         for(Coverage c:state.coverage){
             if(c.radius<radius)continue;
@@ -154,7 +163,7 @@ final class ServerMapCache {
         state.records.removeIf(r->
                 r.hasCoordinates()
                 && (selectedLayers.isEmpty()||selectedLayers.contains(r.layer))
-                && new MapPoint(r.latitude,r.longitude).distanceToAsDouble(center)<=replaceRadius
+                && distanceMeters(r.latitude,r.longitude,center.getLatitude(),center.getLongitude())<=replaceRadius
         );
 
         LinkedHashMap<String,CadRecord> merged=new LinkedHashMap<>();
