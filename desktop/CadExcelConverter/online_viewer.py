@@ -159,6 +159,33 @@ class Api:
     def _fiber_features(self):
         return list(self.fiber_cache.get("features") or [])
 
+    def _expected_group_count(self, group_id):
+        """Return active server metadata object_count for one group when available."""
+        try:
+            info = self.c.online_layers(self.region) or {}
+            rows = info.get("layers") or info.get("items") or []
+            group = str(group_id or "").upper()
+            counts = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("group_id") or "").upper() != group:
+                    continue
+                if row.get("active") is False:
+                    continue
+                value = row.get("object_count")
+                if value is None:
+                    value = row.get("count")
+                if value is None:
+                    continue
+                try:
+                    counts.append(int(value))
+                except Exception:
+                    pass
+            return sum(counts) if counts else None
+        except Exception:
+            return None
+
     def cached_fiber(self):
         """Return the on-disk fiber cache immediately without touching the server."""
         if not self.region:
@@ -178,8 +205,12 @@ class Api:
         def fetch_cell(w, s, e, n, depth=0):
             raw = self.c.online_objects(self.region, f"{w},{s},{e},{n}", limit=limit) or {}
             features = list(raw.get("features") or [])
-            if len(features) < limit or depth >= max_depth:
+            if len(features) < limit:
                 return features
+            if depth >= max_depth:
+                raise RuntimeError(
+                    f"FIBER 전체수집 제한 도달: depth={depth}, cell_count={len(features)}, limit={limit}"
+                )
             mx = (w + e) / 2.0
             my = (s + n) / 2.0
             merged = {}
@@ -211,9 +242,33 @@ class Api:
             feature for feature in all_features
             if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
         ]
+
+        expected_count = self._expected_group_count("FIBER")
+        received_count = len(fiber_features)
+        if expected_count is not None and expected_count > 0 and received_count != expected_count:
+            # 일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다.
+            return {
+                "ok": False,
+                "error": (
+                    f"광 전체수집 검증 실패 · 서버 메타 {expected_count}개 / 수신 {received_count}개"
+                ),
+                "features": self._fiber_features(),
+                "cache": "stale",
+                "version": str(self.fiber_cache.get("version") or ""),
+                "expected_count": expected_count,
+                "received_count": received_count,
+            }
+
         self.fiber_cache = {"version": fiber_version, "features": fiber_features}
         self._save_fiber_cache()
-        return {"ok": True, "features": fiber_features, "cache": "network", "version": fiber_version}
+        return {
+            "ok": True,
+            "features": fiber_features,
+            "cache": "network",
+            "version": fiber_version,
+            "expected_count": expected_count,
+            "received_count": received_count,
+        }
 
     def _load_cache(self):
         self.cache_state = {"versions": {}, "features": {}, "coverage": []}
@@ -1506,13 +1561,18 @@ function bindUi(){{
 
     apiCall('fiber_all',{{force:false}}).then(fiber=>{{
       if(region!==document.getElementById('region').value)return;
-      if(fiber.error){{setStatus(fiber.error);return;}}
+      if(fiber.error){{
+        // 기존 캐시는 그대로 유지한다. 불완전한 새 데이터로 화면을 덮어쓰지 않는다.
+        setStatus(fiber.error+' · 기존 광 캐시 유지');
+        return;
+      }}
       const fiberCount=(fiber.features||[]).length;
       if(fiber.cache!=='hit' || cachedCount===0){{
         renderFiberFeatures(fiber.features||[]);
       }}
       const source=fiber.cache==='hit'?'광 캐시 최신':'광 캐시 갱신 완료';
-      setStatus(source+' · FIBER '+fiberCount+'개');
+      const expected=Number(fiber.expected_count||0);
+      setStatus(source+' · FIBER '+fiberCount+'개'+(expected?' / 서버 '+expected+'개':''));
     }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
 
     if(!map){{
