@@ -90,6 +90,7 @@ def classify_entity(e):
 
 def _symbol_kind(e):
     text = (str(e.layer or "") + " " + str(e.block_name or "") + " " + str(e.entity_type or "")).upper()
+    padded = f" {text.replace('-', ' ').replace('_', ' ')} "
     if "ONU" in text:
         return "onu"
     if "AMP" in text:
@@ -100,9 +101,26 @@ def _symbol_kind(e):
         return "pole"
     if "TAP" in text:
         return "tap"
-    if any(k in text for k in ("2WAY", "3WAY", "2-WAY", "3-WAY")):
+
+    # 분배/분기 계열은 모두 원형 splitter 심벌로 통일한다.
+    # 2WAY/3WAY는 중앙 숫자로 구분하고 DC도 splitter 계열로 처리한다.
+    if any(k in text for k in (
+        "2WAY", "3WAY", "2-WAY", "3-WAY",
+        "2분기", "3분기", "2분배", "3분배",
+    )):
         return "splitter"
-    if "POWER" in text or " PS " in f" {text} ":
+    if (
+        "CN_C_DC" in text
+        or " DC " in padded
+        or "DIRECTIONAL COUPLER" in text
+    ):
+        return "splitter"
+
+    # PI는 직사각형 중앙 I 심벌로 별도 관리한다.
+    if "CN_C_PI" in text or " PI " in padded:
+        return "pi"
+
+    if "POWER" in text or " PS " in padded:
         return "power_ps"
     if any(k in text for k in ("CLOSURE", "TERMINAL", "CENTER")):
         return "closure"
