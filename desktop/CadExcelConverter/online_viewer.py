@@ -39,7 +39,9 @@ class Api:
         self.session_ended = False
         self.cache_state = {"versions": {}, "features": {}, "coverage": []}
         self.fiber_cache = {"version": "", "features": []}
-        self.last_version_check = 0.0
+        # 앱 실행 세션 동안 지역별 서버 버전 확인은 최초 1회만 한다.
+        self.checked_regions = set()
+        self.version_check_lock = threading.Lock()
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
@@ -194,8 +196,10 @@ class Api:
     def ensure_fiber_all(self, force=False):
         if not self.region:
             return {"ok": True, "features": [], "cache": "none"}
-        versions = self.c.online_versions(self.region) or {}
-        fiber_version = str(versions.get("FIBER") or "")
+
+        # 이 지역의 서버 revision은 앱 실행 후 최초 진입 시 한 번만 확인한다.
+        self._refresh_versions_if_due(force=force)
+        fiber_version = str((self.cache_state.get("versions") or {}).get("FIBER") or "")
         self._load_fiber_cache()
         if not force and fiber_version and self.fiber_cache.get("version") == fiber_version:
             return {"ok": True, "features": self._fiber_features(), "cache": "hit", "version": fiber_version}
@@ -330,12 +334,22 @@ class Api:
         ]
 
     def _refresh_versions_if_due(self, force=False):
-        now = time.monotonic()
-        if not force and now - self.last_version_check < 60:
+        region = str(self.region or "")
+        if not region:
             return set()
-        versions = self.c.online_versions(self.region) if self.region else {}
-        self.last_version_check = now
-        return self._apply_versions(versions)
+
+        # force는 관리자/명시적 새로고침에서만 사용한다.
+        if not force and region in self.checked_regions:
+            return set()
+
+        # fiber_all / objects가 동시에 시작돼도 같은 지역 서버 확인은 한 번만 수행한다.
+        with self.version_check_lock:
+            if not force and region in self.checked_regions:
+                return set()
+            versions = self.c.online_versions(region) or {}
+            changed = self._apply_versions(versions)
+            self.checked_regions.add(region)
+            return changed
 
     def _handle_error(self, exc, fallback=None):
         if isinstance(exc, ServerError) and exc.status == 401:
@@ -448,7 +462,6 @@ class Api:
 
     def select(self, region):
         self.region = str(region or "")
-        self.last_version_check = 0.0
         if not self.region:
             self.cache_state = {"versions": {}, "features": {}, "coverage": []}
             self.fiber_cache = {"version": "", "features": []}
