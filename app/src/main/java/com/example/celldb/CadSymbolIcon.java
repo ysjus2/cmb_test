@@ -87,6 +87,17 @@ final class CadSymbolIcon {
                 drawCircleLabel(c,p,"");
                 break;
             }
+            case "SPL_DC":{
+                drawCircleLabel(c,p,"DC");
+                break;
+            }
+            case "PI":{
+                c.rotate(-rotation,32,32);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);c.drawRect(12,21,52,43,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(66,66,66));c.drawRect(12,21,52,43,p);
+                drawCenteredText(c,p,"I",32,32,15,Color.rgb(33,33,33));
+                break;
+            }
             case "MH":{
                 p.setColor(Color.rgb(66,66,66));p.setStyle(Paint.Style.FILL);c.drawCircle(32,32,12,p);
                 p.setColor(Color.rgb(245,245,245));c.drawCircle(32,32,9.5f,p);
