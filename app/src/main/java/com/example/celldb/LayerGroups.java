@@ -8,6 +8,7 @@ final class LayerGroups {
     static boolean excluded(String layer) {
         String s=layer.toUpperCase(Locale.ROOT);
         return s.startsWith("TL_") || s.startsWith("CN_L_POLEMAP_")
+                || s.contains("ANNO") || s.contains("CONNECTOR")
                 || s.contains("BUILDING") || s.contains("ROAD") || s.contains("TERRAIN")
                 || s.contains("도로") || s.contains("건물") || s.contains("지형");
     }
