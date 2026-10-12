@@ -1417,23 +1417,25 @@ function snapCablePath(coords,devices){{
   return pts;
 }}
 
-function coaxCableOverlayKind(coords,devices){{
-  const clean=(coords||[]).filter(a=>Array.isArray(a)&&a.length>=2&&
-    Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1])));
-  if(clean.length<2)return 'coax_main_cable';
+function coaxCableOverlayKind(feature,devices){{
+  const p=(feature||{{}}).properties||{{}};
+  const cableHandle=String(
+    p.source_handle||p.regional_object_id||p.entity_id||p.object_id||''
+  ).trim().toUpperCase();
+
+  if(!cableHandle)return 'coax_main_cable';
 
   const taps=(devices||[]).filter(d=>d&&d.kind==='tap');
-  if(!taps.length)return 'coax_main_cable';
+  for(const tap of taps){{
+    const a=(tap.props||{{}}).attributes||{{}};
+    const fields=a.fields||a;
+    const connected=(Array.isArray(fields._cmb_connections)?fields._cmb_connections:[])
+      .map(v=>String(v||'').trim().toUpperCase())
+      .filter(Boolean);
+    if(connected.includes(cableHandle))return 'coax_tap_cable';
+  }}
 
-  const endPoints=[clean[0],clean[clean.length-1]].map(a=>
-    latLngToPx(new kakao.maps.LatLng(Number(a[1]),Number(a[0])))
-  );
-
-  const touchesTap=endPoints.some(ep=>taps.some(tap=>
-    Math.hypot(ep.x-tap.cx,ep.y-tap.cy)<=32
-  ));
-
-  return touchesTap?'coax_tap_cable':'coax_main_cable';
+  return 'coax_main_cable';
 }}
 
 function applyDirectionalInputArrows(devices,lineFeatures){{
@@ -1638,7 +1640,7 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
 function coaxKindVisibleAtLevel(kind,mapLevel){{
   if(mapLevel===3){{
     return [
-      'onu','amp','amp_input_arrow','tap_input_arrow',
+      'onu','amp','amp_input_arrow',
       'splitter','splitter_input_arrow','power','power_ps','closure',
       'coax_main_cable'
     ].includes(kind);
@@ -1934,7 +1936,7 @@ async function loadObjects(force=false){{
       }});
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(5);
-      const cableKind=(group==='COAX')?coaxCableOverlayKind(validCoords,devices):'';
+      const cableKind=(group==='COAX')?coaxCableOverlayKind(f,devices):'';
       registerOverlay(l,group,cableKind);
       bindClick(l,p);
 
