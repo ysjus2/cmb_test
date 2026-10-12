@@ -1,9 +1,9 @@
 {
-  "version": "3.85_FINAL",
+  "version": "3.86_FINAL",
   "release_date": "2026-10-12",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v3.85_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v3.86_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,8 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v3.85_FINAL",
-  "online_rendering": "persistent fiber disk cache + non-fiber viewport refresh",
-  "map_labels": "device IDs/pole numbers/address text hidden; details on selection only"
+  "release_tag": "v3.86_FINAL",
+  "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
+  "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
+  "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines"
 }
