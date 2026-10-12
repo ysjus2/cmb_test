@@ -282,7 +282,7 @@ print("CACHE_FIRST_ATOMIC_UPDATE_OK")
 server_client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
 admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
 assert '"/admin/drawings/upload",' in server_client_source
-assert "timeout=3600" in server_client_source
+assert "timeout=None" in server_client_source
 assert "guard.pause()" in admin_upload_source
 assert "guard.resume()" in admin_upload_source
 assert "for _ in range(15):" in admin_upload_source
@@ -315,3 +315,9 @@ assert "if(visible && kind)visible=(mapLevel<=3);" in online_source
 assert "def _is_info_entity(e):" in admin_upload_source
 assert "not _is_info_entity(e)" in admin_upload_source
 print("FIBER_DEVICE_AND_INFO_FILTER_OK")
+
+# 초대형 전주 데이터는 1시간을 넘길 수 있으므로 클라이언트 업로드에 고정 timeout을 두지 않는다.
+server_client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+assert server_client_source.count("timeout=None") >= 3
+assert "timeout=3600" not in server_client_source
+print("NO_FIXED_UPLOAD_TIMEOUT_OK")
