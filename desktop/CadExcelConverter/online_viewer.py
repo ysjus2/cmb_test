@@ -1205,6 +1205,67 @@ function boundaryPoint(kind,cx,cy,tx,ty,deg=0){{
   return best||[cx,cy];
 }}
 
+function inferAmplifierInputFromFeature(feature,lineFeatures){{
+  const p=(feature||{{}}).properties||{{}};
+  if(symbolKind(p)!=='amp')return null;
+  const g=(feature||{{}}).geometry||{{}};
+  const xy=g.coordinates||[];
+  if(!Array.isArray(xy)||xy.length<2)return null;
+
+  const center=new kakao.maps.LatLng(Number(xy[1]),Number(xy[0]));
+  const centerPx=latLngToPx(center);
+  const a=p.attributes||{{}};
+  const fields=a.fields||a;
+  const connected=new Set(
+    (Array.isArray(fields._cmb_connections)?fields._cmb_connections:[])
+      .map(v=>String(v||'').trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const candidates=[];
+
+  (lineFeatures||[]).forEach(f=>{{
+    const lp=f.properties||{{}};
+    if(String(lp.group_id||'').toUpperCase()!=='COAX')return;
+    if(isAnnoFeature(f))return;
+
+    const handle=String(
+      lp.source_handle||lp.regional_object_id||lp.entity_id||lp.object_id||''
+    ).trim().toUpperCase();
+    if(connected.size && handle && !connected.has(handle))return;
+
+    const lg=f.geometry||{{}};
+    const parts=lg.type==='MultiLineString'?(lg.coordinates||[]):[lg.coordinates||[]];
+    parts.forEach(coords=>{{
+      if(!Array.isArray(coords)||coords.length<2)return;
+      const clean=coords.filter(x=>Array.isArray(x)&&x.length>=2&&
+        Number.isFinite(Number(x[0]))&&Number.isFinite(Number(x[1])));
+      if(clean.length<2)return;
+
+      // 케이블의 마지막 좌표가 증폭기에 닿는 경우만 입력으로 인정한다.
+      const last=clean[clean.length-1];
+      const prev=clean[clean.length-2];
+      const lastPx=latLngToPx(new kakao.maps.LatLng(Number(last[1]),Number(last[0])));
+      const prevPx=latLngToPx(new kakao.maps.LatLng(Number(prev[1]),Number(prev[0])));
+      const dist=Math.hypot(lastPx.x-centerPx.x,lastPx.y-centerPx.y);
+      if(dist>32)return;
+
+      let vx=centerPx.x-prevPx.x,vy=centerPx.y-prevPx.y;
+      const len=Math.hypot(vx,vy);
+      if(len<2)return;
+      vx/=len;vy/=len;
+      candidates.push({{dist,vx,vy}});
+    }});
+  }});
+
+  candidates.sort((x,y)=>x.dist-y.dist);
+  const best=candidates[0];
+  if(!best)return null;
+  if(candidates.length>1 && Math.abs(candidates[1].dist-best.dist)<5)return null;
+
+  const signalDeg=(Math.atan2(best.vx,-best.vy)*180/Math.PI+360)%360;
+  return {{vx:best.vx,vy:best.vy,deg:signalDeg,dist:best.dist}};
+}}
+
 function drawDevice(center,props){{
   const kind=symbolKind(props);
   const d=SYMBOL_LIBRARY[kind]||SYMBOL_LIBRARY.generic;
@@ -1297,71 +1358,19 @@ function snapCablePath(coords,devices){{
 }}
 
 function applyAmplifierInputDirection(devices,lineFeatures){{
-  const amps=(devices||[]).filter(d=>d&&d.kind==='amp'&&
-    String((d.props||{{}}).group_id||'').toUpperCase()==='COAX');
-  if(!amps.length)return 0;
-
   let count=0;
-  amps.forEach(dev=>{{
-    const a=(dev.props||{{}}).attributes||{{}};
-    const fields=a.fields||a;
-    const connected=new Set(
-      (Array.isArray(fields._cmb_connections)?fields._cmb_connections:[])
-        .map(v=>String(v||'').trim().toUpperCase())
-        .filter(Boolean)
-    );
+  (devices||[]).forEach(dev=>{{
+    if(!dev||dev.kind!=='amp')return;
+    const inferred=(dev.props||{{}})._cmb_amp_input;
+    if(!inferred)return;
 
-    const candidates=[];
-
-    (lineFeatures||[]).forEach(f=>{{
-      const p=f.properties||{{}};
-      if(String(p.group_id||'').toUpperCase()!=='COAX')return;
-      if(isAnnoFeature(f))return;
-
-      const handle=String(
-        p.source_handle||p.regional_object_id||p.entity_id||p.object_id||''
-      ).trim().toUpperCase();
-      if(connected.size && handle && !connected.has(handle))return;
-
-      const g=f.geometry||{{}};
-      const parts=g.type==='MultiLineString'?(g.coordinates||[]):[g.coordinates||[]];
-
-      parts.forEach(coords=>{{
-        if(!Array.isArray(coords)||coords.length<2)return;
-        const clean=coords.filter(x=>Array.isArray(x)&&x.length>=2&&
-          Number.isFinite(Number(x[0]))&&Number.isFinite(Number(x[1])));
-        if(clean.length<2)return;
-
-        // CMB CAD 케이블의 좌표 순서를 신호방향으로 사용한다.
-        // 증폭기에 닿는 '끝점(last point)' 케이블만 입력으로 본다.
-        const last=clean[clean.length-1];
-        const prev=clean[clean.length-2];
-        const lastPx=latLngToPx(new kakao.maps.LatLng(Number(last[1]),Number(last[0])));
-        const prevPx=latLngToPx(new kakao.maps.LatLng(Number(prev[1]),Number(prev[0])));
-        const dist=Math.hypot(lastPx.x-dev.cx,lastPx.y-dev.cy);
-        if(dist>32)return;
-
-        let vx=dev.cx-prevPx.x,vy=dev.cy-prevPx.y;
-        const len=Math.hypot(vx,vy);
-        if(len<2)return;
-        vx/=len;vy/=len;
-
-        candidates.push({{dist,vx,vy,prevPx,lastPx}});
-      }});
-    }});
-
-    candidates.sort((x,y)=>x.dist-y.dist);
-    const best=candidates[0];
-    if(!best)return;
-
-    // 같은 증폭기에 끝점 후보가 여러 개면 CAD 연결이 모호한 것이므로 표시하지 않는다.
-    if(candidates.length>1 && Math.abs(candidates[1].dist-best.dist)<5)return;
+    const vx=Number(inferred.vx),vy=Number(inferred.vy);
+    if(!Number.isFinite(vx)||!Number.isFinite(vy))return;
 
     // 입력 케이블 끝에서 증폭기 쪽으로 향하는 V 화살표.
-    const tip=[dev.cx-best.vx*5,dev.cy-best.vy*5];
-    const base=[dev.cx-best.vx*18,dev.cy-best.vy*18];
-    const px=-best.vy,py=best.vx;
-    const wing=5;
+    const tip=[dev.cx-vx*5,dev.cy-vy*5];
+    const base=[dev.cx-vx*18,dev.cy-vy*18];
+    const px=-vy,py=vx,wing=5;
     const left=[base[0]+px*wing,base[1]+py*wing];
     const right=[base[0]-px*wing,base[1]-py*wing];
 
@@ -1377,14 +1386,6 @@ function applyAmplifierInputDirection(devices,lineFeatures){{
       if(typeof l.setZIndex==='function')l.setZIndex(32);
       registerOverlay(l,'COAX','amp_input_arrow');
     }});
-
-    // 증폭기 방향은 입력 반대쪽, 즉 신호 진행방향으로 맞춘다.
-    // Kakao 화면좌표 기준 방향벡터를 회전각으로 환산한다.
-    const signalX=best.vx;
-    const signalY=best.vy;
-    const signalDeg=(Math.atan2(signalX,-signalY)*180/Math.PI+360)%360;
-    dev.deg=signalDeg;
-
     count++;
   }});
   return count;
@@ -1633,7 +1634,17 @@ async function loadObjects(force=false){{
     const a=g.coordinates;
     if(!Array.isArray(a)||a.length<2||a[0]===null||a[1]===null||
       !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
-    try{{devices.push(drawDevice(new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p));}}
+    try{{
+      const inferred=inferAmplifierInputFromFeature(f,lineFeatures);
+      if(inferred){{
+        const attrs=p.attributes||{{}};
+        const fields=attrs.fields||attrs;
+        fields._cmb_rotation_deg=inferred.deg;
+        p.attributes=attrs;
+        p._cmb_amp_input=inferred;
+      }}
+      devices.push(drawDevice(new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p));
+    }}
     catch(e){{console.warn('Device render failed',e);}}
   }});
 
