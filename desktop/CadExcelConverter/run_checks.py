@@ -460,8 +460,8 @@ print("CMB_CODE_FIRST_SYMBOL_MAPPING_OK")
 
 # L3 동축은 주요기기 간 trunk만 표시하고 TAP 접속 케이블은 숨긴다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-assert "function coaxCableOverlayKind(coords,devices)" in online_source
-assert "return touchesTap?'coax_tap_cable':'coax_main_cable';" in online_source
+assert "function coaxCableOverlayKind(feature,devices)" in online_source
+assert "if(connected.includes(cableHandle))return 'coax_tap_cable';" in online_source
 assert "'coax_main_cable'" in online_source
 assert "'coax_tap_cable'" in online_source
 assert "if(mapLevel===3)" in online_source
@@ -492,3 +492,12 @@ l3_block = online_source[l3_start:l3_end]
 assert "'coax_main_cable'" in l3_block
 assert "'tap_input_arrow'" not in l3_block
 print("L3_TAP_HANDLE_FILTER_FIX_OK")
+
+# 입력 화살표는 케이블 색상을 그대로 쓰고, 기기 주변의 작은 화살표만 표시한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "color:originalCableColor(lp,'COAX')" in online_source
+assert "strokeColor:String(inferred.color||'#334155')" in online_source
+assert "const base=[dev.cx-vx*12,dev.cy-vy*12];" in online_source
+assert "const px=-vy,py=vx,wing=3;" in online_source
+assert "strokeWeight:2" in online_source
+print("INPUT_ARROW_COMPACT_CABLE_COLOR_OK")
