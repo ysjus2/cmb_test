@@ -519,3 +519,19 @@ assert "layer.startsWith('CN_C_CONNECTOR')" in online_source
 assert "block.startsWith('CONNECTOR')" in online_source
 assert "if(isConnectorFeature(f))return false;" in online_source
 print("CONNECTOR_VIEWER_EXCLUSION_OK")
+
+# 기기 심벌은 줌 레벨에 따라 크기가 변하고, 줌 변경은 API 없이 메모리 재렌더한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function deviceScaleForLevel(level)" in online_source
+assert "if(lv<=1)return 1.35;" in online_source
+assert "if(lv===2)return 1.00;" in online_source
+assert "return 0.72;" in online_source
+assert "function redrawDevicesFromMemory()" in online_source
+assert "currentPointFeatures=pointFeatures.slice();" in online_source
+assert "currentLineFeatures=lineFeatures.slice();" in online_source
+assert "if(level<=3)redrawDevicesFromMemory();" in online_source
+zoom_start = online_source.index("kakao.maps.event.addListener(map,'zoom_changed'")
+zoom_end = online_source.index("centerMyLocation(false);", zoom_start)
+zoom_block = online_source[zoom_start:zoom_end]
+assert "apiCall('objects'" not in zoom_block
+print("ZOOM_RESPONSIVE_DEVICE_SCALE_OK")
