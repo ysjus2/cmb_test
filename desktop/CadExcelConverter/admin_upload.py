@@ -519,6 +519,24 @@ class AdminUploadWindow(tk.Toplevel):
             anchor="w",
         ).pack(fill="x")
 
+        # 장시간 업로드가 멈춘 것처럼 보이지 않도록 별도 진행 표시를 유지한다.
+        self.upload_progress = ttk.Progressbar(
+            root,
+            mode="indeterminate",
+            maximum=100,
+        )
+        self.upload_progress.pack(fill="x", pady=(8, 3))
+        self.upload_progress.pack_forget()
+
+        self.upload_detail = tk.StringVar(value="")
+        self.upload_detail_label = ttk.Label(
+            root,
+            textvariable=self.upload_detail,
+            anchor="w",
+        )
+        self.upload_detail_label.pack(fill="x")
+        self.upload_detail_label.pack_forget()
+
         if self.current_user:
             self.after(0, self._apply_existing_session)
         else:
@@ -668,10 +686,92 @@ class AdminUploadWindow(tk.Toplevel):
             return
         self.destroy()
 
+    @staticmethod
+    def _format_elapsed(seconds):
+        seconds = max(0, int(seconds))
+        hours, remain = divmod(seconds, 3600)
+        minutes, secs = divmod(remain, 60)
+        if hours:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _show_upload_progress(self, phase, group, object_count=0, package_mb=None):
+        try:
+            if not self.upload_progress.winfo_manager():
+                self.upload_progress.pack(fill="x", pady=(8, 3))
+            if not self.upload_detail_label.winfo_manager():
+                self.upload_detail_label.pack(fill="x")
+            self.upload_progress.start(12)
+        except Exception:
+            pass
+        size_text = f" · 패키지 {package_mb:.1f} MB" if package_mb is not None else ""
+        self.upload_detail.set(
+            f"{Path(self.source_path).name} · {group} · 대상 {int(object_count):,}개"
+            f"{size_text} · {phase}"
+        )
+        self.update_idletasks()
+
+    def _hide_upload_progress(self):
+        try:
+            self.upload_progress.stop()
+            self.upload_progress.pack_forget()
+            self.upload_detail_label.pack_forget()
+        except Exception:
+            pass
+
+    def _run_background_task(self, func, phase, group, object_count=0, package_mb=None):
+        """Run long work off the Tk thread while keeping visible progress alive."""
+        state = {"done": False, "result": None, "error": None}
+        started = time.monotonic()
+
+        def worker():
+            try:
+                state["result"] = func()
+            except Exception as exc:
+                state["error"] = exc
+            finally:
+                state["done"] = True
+
+        self._show_upload_progress(
+            phase,
+            group,
+            object_count=object_count,
+            package_mb=package_mb,
+        )
+        threading.Thread(target=worker, daemon=True).start()
+
+        while not state["done"]:
+            elapsed = self._format_elapsed(time.monotonic() - started)
+            size_text = f" · 패키지 {package_mb:.1f} MB" if package_mb is not None else ""
+            self.upload_detail.set(
+                f"{Path(self.source_path).name} · {group} · 대상 {int(object_count):,}개"
+                f"{size_text} · {phase} · 경과 {elapsed} · 세션 유지중"
+            )
+            try:
+                self.update()
+            except tk.TclError:
+                break
+            time.sleep(0.10)
+
+        elapsed = self._format_elapsed(time.monotonic() - started)
+        self.upload_detail.set(
+            f"{Path(self.source_path).name} · {group} · {phase} 완료 · 경과 {elapsed}"
+        )
+        self.update_idletasks()
+
+        if state["error"] is not None:
+            raise state["error"]
+        return state["result"]
+
     def _begin_busy(self):
         self.session_busy = True
         self._busy_generation += 1
         generation = self._busy_generation
+        try:
+            self.upload_one_btn.configure(state="disabled")
+            self.upload_all_btn.configure(state="disabled")
+        except Exception:
+            pass
 
         # 업로드는 Tk 메인 스레드를 오래 점유할 수 있으므로
         # 로컬 idle guard가 사용자 입력 없음으로 로그아웃시키지 않게 일시정지한다.
@@ -705,73 +805,116 @@ class AdminUploadWindow(tk.Toplevel):
                 guard.resume()
         except Exception:
             pass
+        try:
+            # canonical 지역이 정상 연결된 경우에만 다시 활성화한다.
+            self._selected_region_code()
+            self.upload_one_btn.configure(state="normal")
+            self.upload_all_btn.configure(state="normal")
+        except Exception:
+            pass
+        self._hide_upload_progress()
 
     def _upload(self, group, allow_empty=False):
         self._require_admin()
-
         region_code = self._selected_region_code()
         self._begin_busy()
 
-        payload = build_payload(
-            self.scene,
-            self.source_path,
-            group,
-            self.epsg,
-            region_code,
-            self.memo_var.get(),
-        )
-
-        if payload["object_count"] <= 0 and not allow_empty:
-            raise RuntimeError(
-                f"{group} 그룹에 업로드 가능한 객체가 없습니다."
+        try:
+            preview_count = int((self.group_counts or {}).get(group, 0))
+            self.status.set(f"{group} · 업로드 패키지 생성 중")
+            payload = self._run_background_task(
+                lambda: build_payload(
+                    self.scene,
+                    self.source_path,
+                    group,
+                    self.epsg,
+                    region_code,
+                    self.memo_var.get(),
+                ),
+                "패키지 생성 중",
+                group,
+                object_count=preview_count,
             )
 
-        self.status.set(
-            f"{group} · {payload['object_count']:,}개 업로드 중..."
-        )
-        self.update_idletasks()
+            if payload["object_count"] <= 0 and not allow_empty:
+                raise RuntimeError(
+                    f"{group} 그룹에 업로드 가능한 객체가 없습니다."
+                )
 
-        try:
-            result = self.client.upload_group(payload)
+            package_bytes = len(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            package_mb = package_bytes / (1024.0 * 1024.0)
+            object_count = int(payload.get("object_count") or 0)
+
+            self.status.set(
+                f"{group} · {object_count:,}개 · {package_mb:.1f} MB · 서버 전송/DB 저장 중"
+            )
+            result = self._run_background_task(
+                lambda: self.client.upload_group(payload),
+                "서버 전송/DB 저장 중",
+                group,
+                object_count=object_count,
+                package_mb=package_mb,
+            )
+
+            self.status.set(
+                f"{group} 업로드 완료 · "
+                f"revision {result.get('revision')} · "
+                f"{result.get('object_count')}개 · {package_mb:.1f} MB"
+            )
+            return result
         finally:
             self._end_busy()
-
-        self.status.set(
-            f"{group} 업로드 완료 · "
-            f"revision {result.get('revision')} · "
-            f"{result.get('object_count')}개"
-        )
-
-        return result
 
     def _upload_symbol(self, allow_empty=False):
         self._require_admin()
         region_code = self._selected_region_code()
-        payload = build_symbol_payload(
-            self.scene,
-            self.source_path,
-            region_code,
-            self.memo_var.get(),
-        )
-        if payload["symbol_count"] <= 0 and not allow_empty:
-            raise RuntimeError("업로드 가능한 심볼 정의가 없습니다.")
-
         self._begin_busy()
-        self.status.set(
-            f"SYMBOL · {payload['symbol_count']:,}개 업로드 중..."
-        )
-        self.update_idletasks()
         try:
-            result = self.client.upload_symbols(region_code, payload)
+            preview_count = int((self.group_counts or {}).get("SYMBOL", 0))
+            payload = self._run_background_task(
+                lambda: build_symbol_payload(
+                    self.scene,
+                    self.source_path,
+                    region_code,
+                    self.memo_var.get(),
+                ),
+                "심볼 패키지 생성 중",
+                "SYMBOL",
+                object_count=preview_count,
+            )
+            if payload["symbol_count"] <= 0 and not allow_empty:
+                raise RuntimeError("업로드 가능한 심볼 정의가 없습니다.")
+
+            package_bytes = len(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            )
+            package_mb = package_bytes / (1024.0 * 1024.0)
+            symbol_count = int(payload.get("symbol_count") or 0)
+
+            self.status.set(
+                f"SYMBOL · {symbol_count:,}개 · {package_mb:.1f} MB · 서버 전송/DB 저장 중"
+            )
+            result = self._run_background_task(
+                lambda: self.client.upload_symbols(region_code, payload),
+                "서버 전송/DB 저장 중",
+                "SYMBOL",
+                object_count=symbol_count,
+                package_mb=package_mb,
+            )
+            self.status.set(
+                "SYMBOL 업로드 완료 · "
+                f"revision {result.get('revision')} · "
+                f"{result.get('symbol_count', symbol_count)}개 · {package_mb:.1f} MB"
+            )
+            return result
         finally:
             self._end_busy()
-
-        self.status.set(
-            "SYMBOL 업로드 완료 · "
-            f"revision {result.get('revision')} · "
-            f"{result.get('symbol_count', payload['symbol_count'])}개"
-        )
-        return result
 
     def upload_selected(self):
         selected = self.tree.selection()
