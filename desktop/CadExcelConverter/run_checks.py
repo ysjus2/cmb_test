@@ -428,3 +428,13 @@ assert "return 'DC';" in online_source
 assert "return '3';" in online_source
 assert "return '2';" in online_source
 print("SPLITTER_PI_SYMBOL_MAPPING_OK")
+
+# 실제 현장 블록 CN_C_Passive + 2SP-B/3SP-B는 저장된 generic/pi보다 우선해 원형 splitter로 렌더한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert '"2SP", "3SP"' in admin_upload_source
+assert "s.includes('2SP')||s.includes('3SP')" in online_source
+assert "실제 CAD 블록명이 저장된 과거 symbol_kind보다 우선한다." in online_source
+assert "if(s.includes('3SP')" in online_source
+assert "if(s.includes('2SP')" in online_source
+print("SP_PASSIVE_SPLITTER_OVERRIDE_OK")
