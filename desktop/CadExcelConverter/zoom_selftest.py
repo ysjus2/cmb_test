@@ -37,7 +37,8 @@ def main():
             assert 2 in shown, (level, shown)
         assert previous <= shown, (level, previous, shown)
         previous = shown
-        assert bool(viewer.canvas.find_withtag('annotation')) == (level == MAX_LEVEL)
+        # 기본 추출 Viewer 정책: ID/전주번호/지번 등 CAD 텍스트는 모든 줌에서 숨김.
+        assert not bool(viewer.canvas.find_withtag('annotation'))
     order = viewer.canvas.find_all()
     cables = viewer.canvas.find_withtag('cable')
     fills = viewer.canvas.find_withtag('area_fill')
@@ -47,7 +48,7 @@ def main():
     assert detail_level(viewer.scale, viewer.lod_reference_scale) == 0
     assert {i for i, ids in viewer.entity_items.items() if ids} == {0, 1}
     root.destroy()
-    print('ZOOM SELFTEST OK: initial overview, 15 levels, cumulative cables, labels, crossing viewport, stacking, reset')
+    print('ZOOM SELFTEST OK: initial overview, 15 levels, cumulative cables, hidden labels, crossing viewport, stacking, reset')
 
 if __name__ == '__main__':
     main()
