@@ -14,6 +14,7 @@ from server_client_windows import CMBServerClient, ServerError
 APP_DATA_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer"
 CFG = APP_DATA_DIR / "online.json"
 CACHE_DIR = APP_DATA_DIR / "online_cache"
+FIBER_CACHE_SCHEMA = 2
 SESSION_ENDED_EXIT_CODE = 41
 
 
@@ -65,21 +66,41 @@ class Api:
     @staticmethod
     def _feature_key(feature):
         props = feature.get("properties") or {}
+        attrs = props.get("attributes") or {}
+        fields = attrs.get("fields") if isinstance(attrs, dict) else None
+        if not isinstance(fields, dict):
+            fields = attrs if isinstance(attrs, dict) else {}
+
         group = str(props.get("group_id") or "").upper()
-        ident = str(
+        source_handle = str(props.get("source_handle") or "").strip()
+        regional_id = str(
             props.get("regional_object_id")
             or props.get("entity_id")
             or props.get("object_id")
-            or props.get("source_handle")
             or ""
-        )
-        if not ident:
+        ).strip()
+        part_index = str(
+            fields.get("_cmb_geometry_part_index")
+            or (attrs.get("_cmb_geometry_part_index") if isinstance(attrs, dict) else "")
+            or ""
+        ).strip()
+
+        if source_handle:
+            ident = source_handle
+            if part_index:
+                ident = f"{ident}|part={part_index}"
+        elif regional_id:
+            ident = regional_id
+            if part_index:
+                ident = f"{ident}|part={part_index}"
+        else:
             ident = json.dumps(
                 feature.get("geometry") or {},
                 sort_keys=True,
                 ensure_ascii=False,
             )
         return f"{group}|{ident}"
+
 
     @staticmethod
     def _geometry_bounds(geometry):
@@ -129,6 +150,9 @@ class Api:
         try:
             with gzip.open(path, "rt", encoding="utf-8") as fh:
                 raw = json.load(fh)
+            if int(raw.get("schema") or 0) != FIBER_CACHE_SCHEMA:
+                self.fiber_cache = {"version": "", "features": []}
+                return
             self.fiber_cache = {
                 "version": str(raw.get("version") or ""),
                 "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
@@ -144,7 +168,16 @@ class Api:
             path = self._fiber_cache_path()
             tmp = path.with_suffix(path.suffix + ".tmp")
             with gzip.open(tmp, "wt", encoding="utf-8") as fh:
-                json.dump(self.fiber_cache, fh, ensure_ascii=False, separators=(",", ":"))
+                json.dump(
+                    {
+                        "schema": FIBER_CACHE_SCHEMA,
+                        "version": self.fiber_cache.get("version") or "",
+                        "features": self.fiber_cache.get("features") or [],
+                    },
+                    fh,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
             os.replace(tmp, path)
         except Exception:
             pass
@@ -201,30 +234,70 @@ class Api:
         }
 
     def _fetch_all_region_features(self):
-        limit = 2000
-        max_depth = 7
+        info = self.c.online_layers(self.region) or {}
+        bounds = info.get("bounds") or {}
+
+        try:
+            west = float(bounds.get("west"))
+            south = float(bounds.get("south"))
+            east = float(bounds.get("east"))
+            north = float(bounds.get("north"))
+        except Exception:
+            west, south, east, north = 124.0, 33.0, 132.0, 39.5
+
+        if not (
+            -180 <= west <= 180 and -180 <= east <= 180
+            and -90 <= south <= 90 and -90 <= north <= 90
+            and west < east and south < north
+        ):
+            raise RuntimeError(
+                f"잘못된 지역 bounds: {west},{south},{east},{north}"
+            )
+
+        margin_x = max((east - west) * 0.002, 0.00005)
+        margin_y = max((north - south) * 0.002, 0.00005)
+        west -= margin_x
+        east += margin_x
+        south -= margin_y
+        north += margin_y
+
+        limit = 5000
+        max_depth = 10
 
         def fetch_cell(w, s, e, n, depth=0):
-            raw = self.c.online_objects(self.region, f"{w},{s},{e},{n}", limit=limit) or {}
+            raw = self.c.online_objects(
+                self.region,
+                f"{w},{s},{e},{n}",
+                limit=limit,
+            ) or {}
             features = list(raw.get("features") or [])
             if len(features) < limit:
                 return features
             if depth >= max_depth:
                 raise RuntimeError(
-                    f"FIBER 전체수집 제한 도달: depth={depth}, cell_count={len(features)}, limit={limit}"
+                    "FIBER 전체수집 제한 도달: "
+                    f"depth={depth}, cell_count={len(features)}, limit={limit}, "
+                    f"bbox={w},{s},{e},{n}"
                 )
+
             mx = (w + e) / 2.0
             my = (s + n) / 2.0
             merged = {}
-            for cell in ((w,s,mx,my),(mx,s,e,my),(w,my,mx,n),(mx,my,e,n)):
+            for cell in (
+                (w, s, mx, my),
+                (mx, s, e, my),
+                (w, my, mx, n),
+                (mx, my, e, n),
+            ):
                 for feature in fetch_cell(*cell, depth + 1):
                     merged[self._feature_key(feature)] = feature
             return list(merged.values())
 
         merged = {}
-        for feature in fetch_cell(-180.0, -90.0, 180.0, 90.0):
+        for feature in fetch_cell(west, south, east, north):
             merged[self._feature_key(feature)] = feature
         return list(merged.values())
+
 
     def ensure_fiber_all(self, force=False):
         if not self.region:
@@ -269,6 +342,7 @@ class Api:
         ]
 
         received_count = len(fiber_features)
+        unique_key_count = len({self._feature_key(f) for f in fiber_features})
         if expected_count is not None and expected_count > 0 and received_count != expected_count:
             # 일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다.
             return {
@@ -281,6 +355,7 @@ class Api:
                 "version": str(self.fiber_cache.get("version") or ""),
                 "expected_count": expected_count,
                 "received_count": received_count,
+                "unique_key_count": unique_key_count,
             }
 
         self.fiber_cache = {"version": fiber_version, "features": fiber_features}
@@ -292,6 +367,7 @@ class Api:
             "version": fiber_version,
             "expected_count": expected_count,
             "received_count": received_count,
+            "unique_key_count": unique_key_count,
         }
 
     def _load_cache(self):
@@ -804,7 +880,7 @@ let lastActivity=Date.now();
 let idleTimer=null;
 let authenticated=false;
 let lastServerTouch=0;
-let fiberDiag={{server:0,received:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
+let fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
 let distanceMode=false;
 let distancePoints=[];
 let activeDistanceLine=null;
@@ -820,6 +896,7 @@ function fiberDiagText(){{
   if(!d.server&&!d.received&&!d.cache&&!d.renderParts)return '';
   return ' · 광[서버 '+String(d.server||'?')+
     '/수신 '+String(d.received||0)+
+    '/고유 '+String(d.unique||0)+
     '/캐시 '+String(d.cache||0)+
     '/선객체 '+String(d.lineObjects||0)+
     '/광기기 '+String(d.deviceObjects||0)+
@@ -2188,6 +2265,7 @@ function bindUi(){{
     const cachedCount=renderFiberFeatures(cachedFeatures);
     fiberDiag.cache=cachedFeatures.length;
     fiberDiag.received=0;
+    fiberDiag.unique=0;
     fiberDiag.server=0;
     setStatus(cachedCount>0
       ? '광 캐시 즉시 표시'+fiberDiagText()
@@ -2205,6 +2283,7 @@ function bindUi(){{
       const expected=Number(fiber.expected_count||0);
       fiberDiag.server=expected;
       fiberDiag.received=Number(fiber.received_count||fiberCount);
+      fiberDiag.unique=Number(fiber.unique_key_count||fiber.received_count||fiberCount);
       if(fiber.cache!=='hit' || cachedCount===0){{
         renderFiberFeatures(fiberFeatures);
         fiberDiag.cache=fiberFeatures.length;
