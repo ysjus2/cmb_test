@@ -564,23 +564,37 @@ assert 'part_attrs["_cmb_original_handle"] = original_handle' in admin_upload_so
 assert '"source_handle": source_handle' in admin_upload_source
 print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
 
-# FIBER 전체수집은 실제 지역 bounds만 사용하고 multipart part를 dedupe하지 않는다.
+# Windows 1.0 Rev1: 광은 전체 지역 완료를 기다리지 않고 현재 화면 bbox부터 스트리밍한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "FIBER_CACHE_SCHEMA = 2" in online_source
+assert "def fiber_bbox(self, west, south, east, north, force=False):" in online_source
+assert "def _fetch_fiber_bbox_network(self, west, south, east, north):" in online_source
 assert "limit = 5000" in online_source
-assert "max_depth = 10" in online_source
+assert "max_depth = 14" in online_source
+assert "layers=layer_filter" in online_source
+assert "def _merge_fiber_bbox_cache(self, features):" in online_source
+assert "function loadFiberViewport(force=false)" in online_source
+assert "loadFiberViewport(false);" in online_source
+assert "refresh_pending" in online_source
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
-assert "/고유 " in online_source
-assert "fetch_cell(-180.0, -90.0, 180.0, 90.0)" in online_source
-assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
-print("FIBER_REGION_COLLECTION_AND_PART_KEYS_OK")
+print("FIBER_VIEWPORT_STREAMING_AND_PART_KEYS_OK")
 
-# 광은 기존 캐시를 먼저 유지하고 새 수집이 완전할 때만 교체한다.
-online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+# 기존 광 캐시는 즉시 사용하고 현재 화면 새 수신분을 누적 병합한다.
 assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
-assert "일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다." in online_source
-assert 'self.fiber_cache = {"version": fiber_version, "features": fiber_features}' in online_source
+assert "existing = {self._feature_key(f): f for f in self._fiber_features()}" in online_source
+assert "existing[self._feature_key(feature)] = feature" in online_source
+assert '"cache": "stale"' in online_source
+print("FIBER_INCREMENTAL_CACHE_OK")
+
+# 지역 선택 UI는 숨기고 지도 중심 bounds에 따라 권한 지역을 자동 전환한다.
+assert "authorizedRegions=[]" in online_source
+assert "function boundsContainsLatLng(bounds,latlng)" in online_source
+assert "async function autoRegionForMapCenter()" in online_source
+assert "async function activateRegion(region)" in online_source
+assert "style='display:none'" in online_source
+assert "지도 위치에 따라 자동 연결" in online_source
+print("AUTO_REGION_BY_MAP_POSITION_OK")
 
 # 케이블 선택 시 기기 위로 올려 강조하고 다른 선택/해제 시 원상복구한다.
 assert "function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5)" in online_source
