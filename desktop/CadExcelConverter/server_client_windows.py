@@ -441,6 +441,18 @@ class CMBServerClient:
                 path += "&layers=" + urllib.parse.quote(layers, safe=",")
         return self._request("GET", path, timeout=15)
 
+    def online_grid_objects(self, region, grid_id, limit=20000, layers=None):
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        g = urllib.parse.quote(str(grid_id).strip().upper(), safe="")
+        path = f"/online/{q}/grid/{g}/objects?limit={int(limit)}"
+        if layers:
+            if isinstance(layers, (list, tuple, set)):
+                layers = ",".join(str(x).strip() for x in layers if str(x).strip())
+            layers = str(layers or "").strip()
+            if layers:
+                path += "&layers=" + urllib.parse.quote(layers, safe=",")
+        return self._request("GET", path, timeout=15)
+
     def online_polemap(self, region, west, south, east, north):
         q = urllib.parse.quote(str(region).strip(), safe="")
         query = urllib.parse.urlencode({
