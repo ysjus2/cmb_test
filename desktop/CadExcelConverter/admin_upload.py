@@ -324,12 +324,62 @@ def _upload_pole_refs(e):
     return refs
 
 
+def _build_pole_location_lookup(scene, transformer):
+    """Build authoritative pole_no -> stored location map from actual POLE INSERTs."""
+    lookup = {}
+    for e in scene.entities:
+        if classify_entity(e) != "POLE":
+            continue
+        refs = _upload_pole_refs(e)
+        if not refs:
+            continue
+        anchor = _entity_anchor_xy(e)
+        if not anchor:
+            continue
+        try:
+            cad_x, cad_y = float(anchor[0]), float(anchor[1])
+            lon, lat = transformer.transform(cad_x, cad_y)
+        except Exception:
+            continue
+        if not all(math.isfinite(v) for v in (cad_x, cad_y, lon, lat)):
+            continue
+        for ref in refs:
+            pole_no = str(ref.get("pole_no") or "").upper()
+            if not pole_no:
+                continue
+            lookup[pole_no] = {
+                "pole_no": pole_no,
+                "grid_id": str(ref.get("grid_id") or pole_no[:5]).upper(),
+                "cad_x": cad_x,
+                "cad_y": cad_y,
+                "lon": float(lon),
+                "lat": float(lat),
+            }
+    return lookup
+
+
+def _resolved_pole_refs(e, pole_lookup):
+    refs = []
+    for ref in _upload_pole_refs(e):
+        pole_no = str(ref.get("pole_no") or "").upper()
+        stored = dict(pole_lookup.get(pole_no) or {})
+        if stored:
+            refs.append(stored)
+        else:
+            refs.append({
+                "pole_no": pole_no,
+                "grid_id": str(ref.get("grid_id") or pole_no[:5]).upper(),
+            })
+    return refs
+
+
 def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     transformer = Transformer.from_crs(
         f"EPSG:{int(epsg)}",
         "EPSG:4326",
         always_xy=True,
     )
+    pole_lookup = _build_pole_location_lookup(scene, transformer)
 
     region_code = str(region_code or "").strip()
     if not region_code:
@@ -432,17 +482,58 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         # 원본 CAD가 가진 한전주 위치값을 직접 보존한다.
         # 좌표 근접/최근접 전주 연산은 하지 않는다.
         pole_info = dict(getattr(e, "pole_info", {}) or {})
-        pole_refs = _upload_pole_refs(e)
+        pole_refs = _resolved_pole_refs(e, pole_lookup)
         if pole_info:
             attrs["_cmb_pole_info"] = pole_info
         if pole_refs:
             attrs["_cmb_pole_refs"] = pole_refs
+            attrs["_cmb_grid_ids"] = sorted({
+                str(ref.get("grid_id") or "").upper()
+                for ref in pole_refs
+                if str(ref.get("grid_id") or "").strip()
+            })
             # 단일 전주 참조 객체는 조회/검색 편의를 위해 대표값도 평탄화한다.
             if len(pole_refs) == 1:
                 attrs["_cmb_pole_no"] = pole_refs[0]["pole_no"]
                 attrs["_cmb_grid_id"] = pole_refs[0]["grid_id"]
+            missing_positions = [
+                ref.get("pole_no") for ref in pole_refs
+                if ref.get("lon") is None or ref.get("lat") is None
+            ]
+            if missing_positions:
+                attrs["_cmb_pole_position_missing"] = missing_positions
+
+        # 서버의 기기 Point 위치는 CAD 삽입점이 아니라 해당 한전주 저장 좌표를 사용한다.
+        # Viewer가 실행 중에 최근접 전주/거리 연산을 하지 않도록 업로드 시점에 위치를 확정한다.
+        if geometry_type == "Point" and pole_refs:
+            primary = next(
+                (
+                    ref for ref in pole_refs
+                    if ref.get("lon") is not None and ref.get("lat") is not None
+                ),
+                None,
+            )
+            if primary is not None:
+                original_point = (
+                    geometries[0].get("coordinates")
+                    if geometries and geometries[0].get("type") == "Point"
+                    else None
+                )
+                if original_point:
+                    attrs["_cmb_original_point"] = list(original_point)
+                geometries = [{
+                    "type": "Point",
+                    "coordinates": [float(primary["lon"]), float(primary["lat"])],
+                }]
+                attrs["_cmb_position_source"] = "POLE"
+                attrs["_cmb_pole_position"] = {
+                    "pole_no": primary["pole_no"],
+                    "grid_id": primary["grid_id"],
+                    "lon": float(primary["lon"]),
+                    "lat": float(primary["lat"]),
+                }
             else:
-                attrs["_cmb_grid_ids"] = sorted({ref["grid_id"] for ref in pole_refs})
+                attrs["_cmb_position_source"] = "LEGACY_GEOMETRY"
 
         part_count = len(geometries)
         for part_index, geometry in enumerate(geometries, start=1):
