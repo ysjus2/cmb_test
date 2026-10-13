@@ -1422,7 +1422,7 @@ let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
-const FIBER_QUERY_RADIUS_METERS=10000;
+const FIBER_QUERY_RADIUS_METERS=20000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
@@ -2913,7 +2913,7 @@ async function loadFiberViewport(force=false){{
   const cLat=Number(center.getLat()),cLng=Number(center.getLng());
 
   // 광은 일반 객체의 500m 조회반경과 완전히 분리한다.
-  // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 10km를 Polemap 조회 범위로 사용한다.
+  // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 20km를 Polemap 조회 범위로 사용한다.
   const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;
   const fiberLngScale=Math.max(0.2,Math.cos(cLat*Math.PI/180));
   const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);
@@ -2980,7 +2980,7 @@ async function loadFiberViewport(force=false){{
     return rendered;
   }}
 
-  // Polemap 미등록 지역도 광은 동일하게 중심 반경 10km bbox를 사용한다.
+  // Polemap 미등록 지역도 광은 동일하게 중심 반경 20km bbox를 사용한다.
   const west=query.west;
   const south=query.south;
   const east=query.east;
