@@ -5,7 +5,7 @@ SERVICE="${CMB_SERVICE_NAME:-cmb-cad-api}"
 APP_DIR="${CMB_APP_DIR:-/home/ysjus/cmb-server}"
 PYTHON="${APP_DIR}/.venv/bin/python"
 OVERRIDE_DIR="/etc/systemd/system/${SERVICE}.service.d"
-OVERRIDE_FILE="${OVERRIDE_DIR}/20-api-workers.conf"
+OVERRIDE_FILE="${OVERRIDE_DIR}/99-api-workers.conf"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_DIR="/home/ysjus/cmb-server-backups"
 
@@ -24,7 +24,7 @@ echo "============================================================"
 mkdir -p "${BACKUP_DIR}" "${OVERRIDE_DIR}"
 
 if [[ -f "${OVERRIDE_FILE}" ]]; then
-  cp -a "${OVERRIDE_FILE}" "${BACKUP_DIR}/20-api-workers.conf.${STAMP}.bak"
+  cp -a "${OVERRIDE_FILE}" "${BACKUP_DIR}/99-api-workers.conf.${STAMP}.bak"
 fi
 
 MAIN_PID="$(systemctl show -p MainPID --value "${SERVICE}")"
