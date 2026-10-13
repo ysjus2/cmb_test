@@ -1871,7 +1871,7 @@ function applyZoomVisibility(mapLevel){{
     }}else if(group==='COAX' && kind==='cell_boundary'){{
       visible=groupEnabled.COAX===true && mapLevel<=5;
     }}else if(group==='COAX' && kind==='cell_number'){{
-      visible=groupEnabled.COAX===true && mapLevel<=3;
+      visible=groupEnabled.COAX===true && mapLevel<=4;
     }}else if(mapLevel>3){{
       visible=false;
     }}else if(kind){{
@@ -2101,7 +2101,7 @@ async function loadObjects(force=false){{
 
     if(group==='COAX' && groupEnabled.COAX===true){{
       if(isCellBoundaryFeature(f))return mapLevel<=5;
-      if(isCellNumberFeature(f))return mapLevel<=3;
+      if(isCellNumberFeature(f))return mapLevel<=4;
     }}
     return isMaxDetail && groupEnabled[group]===true;
   }});
@@ -2240,7 +2240,7 @@ async function loadObjects(force=false){{
   }});
 
   let cellNumberCount=0;
-  if(mapLevel<=3 && groupEnabled.COAX){{
+  if(mapLevel<=4 && groupEnabled.COAX){{
     allFeatures.filter(isCellNumberFeature).forEach(f=>{{
       if(renderCellNumberFeature(f))cellNumberCount++;
     }});
