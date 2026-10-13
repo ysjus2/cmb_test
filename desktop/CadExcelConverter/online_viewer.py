@@ -1056,6 +1056,7 @@ let lastActivity=Date.now();
 let idleTimer=null;
 let authorizedRegions=[];
 let regionSwitching=false;
+let fiberViewportGeneration=0;
 let authenticated=false;
 let lastServerTouch=0;
 let fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
@@ -2498,29 +2499,64 @@ function renderFiberFeatures(features){{
 async function loadFiberViewport(force=false){{
   const region=document.getElementById('region').value;
   if(!region||!map)return 0;
+
+  const generation=++fiberViewportGeneration;
   const bounds=map.getBounds();
   const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
-  const latPad=(ne.getLat()-sw.getLat())*0.12;
-  const lngPad=(ne.getLng()-sw.getLng())*0.12;
-  const west=sw.getLng()-lngPad;
-  const south=sw.getLat()-latPad;
-  const east=ne.getLng()+lngPad;
-  const north=ne.getLat()+latPad;
+  const center=map.getCenter();
+  const fullHalfLat=Math.max(0.000001,(ne.getLat()-sw.getLat())/2);
+  const fullHalfLng=Math.max(0.000001,(ne.getLng()-sw.getLng())/2);
 
-  const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
-  if(!r||r.ok===false){{
-    if(r&&r.error)setStatus(r.error+' · 기존 광 캐시 유지');
-    return 0;
+  // 화면 중앙부터 먼저 그리고 점차 바깥쪽으로 확장한다.
+  // 광 선로는 지도 레벨과 무관하게 항상 우선 수집/표시한다.
+  const stages=[
+    {name:'중앙',scale:0.30,pad:0.00},
+    {name:'주변',scale:0.62,pad:0.04},
+    {name:'화면',scale:1.00,pad:0.12}
+  ];
+
+  let rendered=0;
+  for(let i=0;i<stages.length;i++){{
+    if(generation!==fiberViewportGeneration)return rendered;
+    if(region!==document.getElementById('region').value)return rendered;
+
+    const stage=stages[i];
+    const halfLat=fullHalfLat*(stage.scale+stage.pad);
+    const halfLng=fullHalfLng*(stage.scale+stage.pad);
+    const west=Number(center.getLng())-halfLng;
+    const south=Number(center.getLat())-halfLat;
+    const east=Number(center.getLng())+halfLng;
+    const north=Number(center.getLat())+halfLat;
+
+    if(i===0)setStatus('광 중앙 영역 우선 표시 중...');
+    const r=await apiCall('fiber_bbox',{{
+      west,south,east,north,
+      force:force && i===0
+    }});
+    if(generation!==fiberViewportGeneration)return rendered;
+    if(!r||r.ok===false){{
+      if(r&&r.error)setStatus(r.error+' · 기존 광 캐시 유지');
+      continue;
+    }}
+
+    const features=r.features||[];
+    if(features.length){{
+      rendered=renderFiberFeatures(features);
+      fiberDiag.cache=features.length;
+      setStatus(
+        'L'+map.getLevel()+' · 광 '+stage.name+' '+features.length+'개 표시'+fiberDiagText()
+      );
+    }}
+
+    if(r.refresh_pending && i===0){{
+      setTimeout(()=>{{
+        if(generation===fiberViewportGeneration)loadFiberViewport(true);
+      }},500);
+    }}
+
+    if(i<stages.length-1)await new Promise(resolve=>setTimeout(resolve,60));
   }}
-  const features=r.features||[];
-  if(features.length){{
-    renderFiberFeatures(features);
-    fiberDiag.cache=features.length;
-  }}
-  if(r.refresh_pending){{
-    setTimeout(()=>loadFiberViewport(true),700);
-  }}
-  return features.length;
+  return rendered;
 }}
 
 async function loadObjects(force=false){{
