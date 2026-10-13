@@ -25,8 +25,15 @@ with tempfile.TemporaryDirectory() as temporary:
     next((root / 'cache').glob('*.json.gz')).write_bytes(b'corrupt')
     open_drawing(source, cache_dir=root / 'cache', builder=builder)
     assert len(calls) == 3
+    # 강제 다시 읽기는 정상 캐시가 있어도 builder를 다시 호출하고,
+    # 성공한 새 결과를 캐시에 원자적으로 교체한다.
+    open_drawing(source, cache_dir=root / 'cache', builder=builder, force_refresh=True)
+    assert len(calls) == 4
+    open_drawing(source, cache_dir=root / 'cache', builder=builder)
+    assert len(calls) == 4
+
     blocked = root / 'blocked'
     blocked.write_text('not a directory')
     _, fallback = open_drawing(source, cache_dir=blocked, builder=builder)
-    assert fallback.entities and len(calls) == 4
-print('CACHE TEST OK: reuse, empty layers, changed-content invalidation, corruption recovery, unwritable cache fallback')
+    assert fallback.entities and len(calls) == 5
+print('CACHE TEST OK: reuse, empty layers, changed-content invalidation, corruption recovery, force refresh, unwritable cache fallback')
