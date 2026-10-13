@@ -1357,7 +1357,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         ttk.Label(
             root,
-            text=f"{region} · 그룹별 현재본 + 최근 백업 2개",
+            text=f"{region} · 광 → 동축 → 관로 → 전주 → USER",
             font=("Malgun Gothic", 14, "bold"),
         ).pack(anchor="w")
 
@@ -1398,8 +1398,12 @@ class AdminUploadWindow(tk.Toplevel):
                 rows = rows.get("items") or rows.get("revisions") or []
 
             order = {g: i for i, g in enumerate(MANAGED_ITEMS)}
+            rows = [
+                r for r in list(rows)
+                if str((r or {}).get("group_id") or "").upper() in order
+            ]
             rows = sorted(
-                list(rows),
+                rows,
                 key=lambda r: (
                     order.get(str(r.get("group_id") or "").upper(), 999),
                     0 if r.get("active") else 1,
