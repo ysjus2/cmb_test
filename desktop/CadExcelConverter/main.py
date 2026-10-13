@@ -26,7 +26,7 @@ SESSION_ENDED_EXIT_CODE = 41
 
 
 class App(NetworkExtractionMixin, tk.Tk):
-    def __init__(self, session_user=None, session_client=None):
+    def __init__(self, session_user=None, session_client=None, local_map_mode=False):
         super().__init__()
         self.title(APP_NAME)
         self.geometry("1450x900")
@@ -34,11 +34,14 @@ class App(NetworkExtractionMixin, tk.Tk):
 
         self.session_user = dict(session_user or {})
         self.session_client = session_client
+        self.local_map_mode = bool(local_map_mode)
         try:
             self.user_level = int(self.session_user.get("level", 5))
         except Exception:
             self.user_level = 5
-        self.can_extract = self.user_level <= 3
+        # 로컬 맵추출 Viewer의 DXF/추출/Excel 기능은 서버 계정 상태와 무관하다.
+        self.can_extract = True if self.local_map_mode else self.user_level <= 3
+        # 서버 관리 기능은 전달된 로그인 정보가 1등급일 때만 노출한다.
         self.is_admin = self.user_level == 1
         self.session_ended = False
 
@@ -862,30 +865,22 @@ if __name__ == "__main__":
         raise SystemExit(run_online_viewer())
 
     if "--map-viewer" in sys.argv:
-        session_client = CMBServerClient()
-        session_client.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-        session_client.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
-
+        # 맵추출 Viewer는 완전 로컬로 시작한다.
+        # 서버 /me, /health, /regions 등 어떤 API도 최초 실행 시 호출하지 않는다.
         try:
-            if not session_client.access_token:
-                raise RuntimeError("세션 없음")
-            verified_user = session_client.me()
+            local_user = json.loads(os.getenv("CMB_AUTH_USER", "") or "{}")
+            if not isinstance(local_user, dict):
+                local_user = {}
         except Exception:
-            raise SystemExit(SESSION_ENDED_EXIT_CODE)
+            local_user = {}
 
         app = App(
-            session_user=verified_user,
-            session_client=session_client,
-        )
-
-        app.session_guard = TkIdleSessionGuard(
-            app,
-            app._expire_session,
-            client=session_client,
-            busy_predicate=app._session_busy,
+            session_user=local_user,
+            session_client=None,
+            local_map_mode=True,
         )
         app.mainloop()
-        raise SystemExit(SESSION_ENDED_EXIT_CODE if app.session_ended else 0)
+        raise SystemExit(0)
 
     import socket
     from launcher import (
