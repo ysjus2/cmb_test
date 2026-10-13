@@ -1937,23 +1937,6 @@ function renderCellNumberFeature(f){{
   return o;
 }}
 
-function isFiberDeviceCode(p){{
-  const layer=String((p||{{}}).layer||'').trim().toUpperCase();
-  const block=String((p||{{}}).block_name||'').trim().toUpperCase();
-  const text=layer+' '+block;
-  return (
-    layer.startsWith('CN_F_CLOSURE') ||
-    layer.startsWith('CN_F_CENTER') ||
-    layer.startsWith('CN_F_TERMINAL') ||
-    layer.startsWith('CN_F_FOSC') ||
-    layer.startsWith('CN_F_FDF') ||
-    text.includes('CLOSURE') ||
-    text.includes('TERMINAL') ||
-    text.includes('FOSC') ||
-    text.includes('FDF')
-  );
-}}
-
 function renderFiberPointFallback(features){{
   if(!map||map.getLevel()>3||!groupEnabled.FIBER)return 0;
   let count=0;
@@ -1961,22 +1944,16 @@ function renderFiberPointFallback(features){{
   (features||[]).forEach(f=>{{
     if((f.geometry||{{}}).type!=='Point')return;
     const p=f.properties||{{}};
-    const fiberCode=isFiberDeviceCode(p);
-    const group=String(p.group_id||'').toUpperCase();
-
-    // 실제 CMB 광기기 CAD code가 우선이다.
-    // 구버전 group/device flag가 잘못되어도 광기기 코드는 L3에 표시한다.
-    if(group!=='FIBER' && !fiberCode)return;
-    if(isConnectorFeature(f))return;
-    if(!fiberCode && isInfoPointFeature(f))return;
+    if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
+    if(isInfoPointFeature(f)||isConnectorFeature(f))return;
 
     const a=p.attributes||{{}},fields=a.fields||a;
-    if(!fiberCode && fields._cmb_is_device===false)return;
+    if(fields._cmb_is_device===false)return;
 
-    const kind=fiberCode?'closure':symbolKind(p);
+    const kind=symbolKind(p);
     const entityType=String(p.entity_type||'').toUpperCase();
     const explicitDevice=(fields._cmb_is_device===true);
-    if(!fiberCode && kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
+    if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
     const xy=(f.geometry||{{}}).coordinates||[];
     if(!Array.isArray(xy)||xy.length<2)return;
     const key=kind+'|'+Number(xy[0]).toFixed(6)+'|'+Number(xy[1]).toFixed(6);
@@ -2035,18 +2012,16 @@ function renderFiberFeatures(features){{
   (features||[]).forEach(f=>{{
     if((f.geometry||{{}}).type!=='Point')return;
     const p=f.properties||{{}};
-    const fiberCode=isFiberDeviceCode(p);
-    const group=String(p.group_id||'').toUpperCase();
-    if(group!=='FIBER' && !fiberCode)return;
-    if(!fiberCode && isInfoPointFeature(f))return;
+    if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
+    if(isInfoPointFeature(f))return;
 
     const a=p.attributes||{{}},fields=a.fields||a;
-    if(!fiberCode && fields._cmb_is_device===false)return;
+    if(fields._cmb_is_device===false)return;
 
-    const kind=fiberCode?'closure':symbolKind(p);
+    const kind=symbolKind(p);
     const entityType=String(p.entity_type||'').toUpperCase();
     const explicitDevice=(fields._cmb_is_device===true);
-    if(!fiberCode && kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
+    if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
 
     const g=f.geometry||{{}},xy=g.coordinates||[];
     if(!Array.isArray(xy)||xy.length<2||
@@ -2311,7 +2286,6 @@ async function loadObjects(force=false){{
     ' · 표시 '+features.length+
     ' · 심볼 '+devices.length+
     ' · 광기기보강 '+fiberFallbackDevices+
-    ' · 광코드 '+allFeatures.filter(f=>((f.geometry||{{}}).type==='Point'&&isFiberDeviceCode(f.properties||{{}}))).length+
     ' · 셀번호 '+cellNumberCount+
     ' · 입력화살표 '+directionalInputArrows+
     ' · 렌더선 '+renderedLines+
