@@ -1,9 +1,9 @@
 {
-  "version": "4.26_FINAL",
+  "version": "4.27_FINAL",
   "release_date": "2026-10-13",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v4.26_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v4.27_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v4.26_FINAL",
+  "release_tag": "v4.27_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -65,7 +65,7 @@
   "roadview_policy": "로드뷰 button opens nearest Kakao Roadview within 100m of current map center; button changes to 지도보기; base-map toggle disabled while Roadview is active",
   "cable_device_connection_policy": "logical/topology connection remains device-center based; rendered cable endpoint snaps to symbol boundary plus 3px inward overlap beneath opaque symbol to prevent visible gaps",
   "fiber_terminal_policy": "square terminal; no common direction line; pink L2/L3 centered inside and rotated with device",
-  "fiber_net_policy": "NETOFD/NETFDF centered inside device at compact text size, rotated with device; no common direction line",
+  "fiber_net_policy": "NETOFD renders OFD and NETFDF renders FDF, centered inside device, about 3x previous text size, rotated with device, no common direction line",
   "fiber_rn_policy": "no triangle; render only 4RN/8RN as horizontal label above device/closure position for readability",
   "connection_point_policy": "FO_VCONN and FO_VOCONN are cable connection points, not devices; keep topology/cable connectivity but render no enclosure/device symbol"
 }
