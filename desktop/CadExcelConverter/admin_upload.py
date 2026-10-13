@@ -324,14 +324,81 @@ def _upload_pole_refs(e):
     return refs
 
 
+_UPLOAD_GRID_CODE_RE = re.compile(
+    r"(?<![0-9A-Za-z])(\d{4}[A-Za-z])(?![0-9A-Za-z])"
+)
+_UPLOAD_LOCAL_POLE_ID_RE = re.compile(r"^\(?\s*(\d{1,3})\s*\)?$")
+
+
+def _actual_pole_numbers(e):
+    """Return full KEPCO pole numbers for an actual POLE INSERT.
+
+    Some drawings store the 5-char Polemap grid id and the local 1~3 digit
+    pole id in separate XDATA/ATTRIB fields. Combine them deterministically.
+    """
+    direct = [ref["pole_no"] for ref in _upload_pole_refs(e)]
+    if direct:
+        return direct
+
+    blobs = []
+    local_candidates = []
+
+    for key, value in (getattr(e, "attributes", {}) or {}).items():
+        k = str(key or "").upper()
+        v = str(value or "").strip()
+        blobs.extend((k, v))
+        m = _UPLOAD_LOCAL_POLE_ID_RE.match(v)
+        if m and any(token in k for token in ("ID", "NO", "POLE", "전주", "번호")):
+            local_candidates.append(m.group(1))
+
+    for appid, values in (getattr(e, "xdata", []) or []):
+        blobs.append(str(appid or ""))
+        for value in (values or []):
+            blobs.append(str(value or ""))
+
+    for key, value in (getattr(e, "dxf_data", {}) or {}).items():
+        blobs.extend((str(key or ""), str(value or "")))
+
+    pole_info = getattr(e, "pole_info", {}) or {}
+    if isinstance(pole_info, dict):
+        for key, value in pole_info.items():
+            blobs.extend((str(key or ""), str(value or "")))
+
+    grids = []
+    for blob in blobs:
+        for raw in _UPLOAD_GRID_CODE_RE.findall(str(blob or "")):
+            grid = raw.upper()
+            if grid not in grids:
+                grids.append(grid)
+
+    # ATTRIB tag names vary by drawing; if keyword-based detection missed it,
+    # accept a unique 1~3 digit attribute value on the actual POLE INSERT.
+    if not local_candidates:
+        numeric = []
+        for value in (getattr(e, "attributes", {}) or {}).values():
+            m = _UPLOAD_LOCAL_POLE_ID_RE.match(str(value or "").strip())
+            if m and m.group(1) not in numeric:
+                numeric.append(m.group(1))
+        if len(numeric) == 1:
+            local_candidates = numeric
+
+    out = []
+    for grid in grids:
+        for local in local_candidates:
+            pole_no = grid + str(local).zfill(3)
+            if pole_no not in out:
+                out.append(pole_no)
+    return out
+
+
 def _build_pole_location_lookup(scene, transformer):
     """Build authoritative pole_no -> stored location map from actual POLE INSERTs."""
     lookup = {}
     for e in scene.entities:
         if classify_entity(e) != "POLE":
             continue
-        refs = _upload_pole_refs(e)
-        if not refs:
+        pole_numbers = _actual_pole_numbers(e)
+        if not pole_numbers:
             continue
         anchor = _entity_anchor_xy(e)
         if not anchor:
@@ -343,13 +410,13 @@ def _build_pole_location_lookup(scene, transformer):
             continue
         if not all(math.isfinite(v) for v in (cad_x, cad_y, lon, lat)):
             continue
-        for ref in refs:
-            pole_no = str(ref.get("pole_no") or "").upper()
+        for pole_no in pole_numbers:
+            pole_no = str(pole_no or "").upper()
             if not pole_no:
                 continue
             lookup[pole_no] = {
                 "pole_no": pole_no,
-                "grid_id": str(ref.get("grid_id") or pole_no[:5]).upper(),
+                "grid_id": pole_no[:5],
                 "cad_x": cad_x,
                 "cad_y": cad_y,
                 "lon": float(lon),
