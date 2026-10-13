@@ -1,9 +1,9 @@
 {
-  "version": "Windows_1.0",
+  "version": "Windows_1.0_Rev1",
   "release_date": "2026-10-13",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_Windows_1.0.exe",
+  "filename": "CMB_DXF_Viewer_Windows_1.0_Rev1.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "windows-v1.0",
+  "release_tag": "windows-v1.0-rev1",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -68,5 +68,10 @@
   "fiber_net_policy": "NETOFD renders OFD and NETFDF renders FDF, centered inside device, about 3x previous text size, rotated with device, no common direction line",
   "fiber_rn_policy": "no triangle; render only 4RN/8RN as horizontal label above device/closure position for readability",
   "connection_point_policy": "FO_VCONN and FO_VOCONN are cable connection points, not devices; keep topology/cable connectivity but render no enclosure/device symbol",
-  "release_name": "CMB DXF Viewer Windows 1.0"
+  "release_name": "CMB DXF Viewer Windows 1.0 Rev1",
+  "revision_label": "1차 수정",
+  "region_selection_policy": "no manual region selection; automatically activate authorized region by current map-center bounds and switch only when crossing into another authorized region",
+  "fiber_loading_policy": "viewport-first streaming; render existing/current bbox FIBER immediately, merge new bbox results into persistent cache, and expand cache incrementally as map moves",
+  "fiber_query_policy": "query FIBER layers only with visible viewport bbox plus margin; do not wait for full-region FIBER collection before rendering",
+  "cache_prefetch_policy": "current viewport first, then adjacent/next viewport data accumulates in persistent regional cache"
 }
