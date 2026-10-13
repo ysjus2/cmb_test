@@ -806,7 +806,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
       <b>CMB 온라인 Viewer</b>
       <select id='region' title='로그인 계정에 배정된 도면'><option value=''>권한 도면 선택</option></select>
       <button class='layerBtn on' data-group='FIBER'>광</button>
-      <button class='layerBtn' data-group='COAX'>동축</button>
+      <button class='layerBtn on' data-group='COAX'>동축</button>
       <button class='layerBtn' data-group='POLE'>전주</button>
       <button class='layerBtn' data-group='CONDUIT'>관로</button>
       <button id='myLocation'>내 위치</button>
@@ -883,7 +883,7 @@ function fiberDiagText(){{
 const MAX_LEVEL=14;
 const ZOOM_STEP=1.35;
 const MIN_NETWORK_LEVEL=8;
-const groupEnabled={{FIBER:true,COAX:false,POLE:false,CONDUIT:false,USER:false}};
+const groupEnabled={{FIBER:true,COAX:true,POLE:false,CONDUIT:false,USER:false}};
 
 function layerLevel(layer){{
   const name=String(layer||'').trim().toUpperCase();
