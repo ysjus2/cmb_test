@@ -183,6 +183,10 @@ assert 'if not self.c.refresh_token:' in online_source
 assert 'self.c._sync_from_shared_state()' in online_source
 assert "self.object_cell_refreshing = set()" in online_source
 assert "def _start_object_cell_refresh" in online_source
+admin_upload_source = Path(__file__).resolve().with_name("admin_upload.py").read_text(encoding="utf-8")
+assert "def _object_grid_ids(e):" in admin_upload_source
+assert 'attrs["_cmb_grid_ids"] = object_grid_ids' in admin_upload_source
+assert 'if len(object_grid_ids) == 1:' in admin_upload_source
 assert "if started >= 2:" in online_source
 assert '"pending_cells": len(missing_cells)' in online_source
 assert "cached_features = [" in online_source
