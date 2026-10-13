@@ -129,7 +129,7 @@ public class MapActivity extends Activity {
         });
 
         TextView title = new TextView(this);
-        title.setText("CAD 서버 지도 · 설정 ▼");header=title;
+        title.setText("CMB 온라인 지도");header=title;
         title.setTextSize(14);
         title.setTextColor(Color.WHITE);
         title.setBackgroundColor(Color.rgb(15, 23, 42));
@@ -208,7 +208,7 @@ public class MapActivity extends Activity {
         currentButton.setOnClickListener(v->{centerOnFix=true;requestLocation();});
         quickBar.addView(currentButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
 
-        Button settingsQuick=new Button(this);settingsQuick.setText("설정");settingsQuick.setTextSize(11);settingsQuick.setMinHeight(dp(36));
+        Button settingsQuick=new Button(this);settingsQuick.setText("메뉴");settingsQuick.setTextSize(11);settingsQuick.setMinHeight(dp(36));
         settingsQuick.setOnClickListener(v->toggleSettingsPanel());
         quickBar.addView(settingsQuick,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
 
@@ -238,28 +238,8 @@ public class MapActivity extends Activity {
         regionStatus.setTextSize(11);
         regionStatus.setPadding(dp(12),dp(2),dp(12),dp(2));
         root.addView(regionStatus);
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        LinearLayout toggles = new LinearLayout(this);
-        String[] names = LayerGroups.NAMES;
-        for (int i=0;i<names.length;i++) {
-            final int index=i;
-            CheckBox check = new CheckBox(this);
-            check.setText(names[i]); check.setTextSize(12);
-            layers[i]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("group_"+categories[i],i<2);
-            check.setChecked(layers[i]);
-            check.setOnCheckedChangeListener((button,checked) -> {
-                layers[index]=checked;
-                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putBoolean("group_"+categories[index],checked).apply();
-                if(index<quickLayerButtons.size())updateLayerButtonStyle(quickLayerButtons.get(index),checked);
-                loadMarkers();
-            });
-            toggles.addView(check);
-        }
-        scroll.addView(toggles); menu.addView(scroll);
-        Button settings = new Button(this);
-        settings.setText("설정 · 레이어 편집");
-        settings.setOnClickListener(v -> showLayerSettings());
-        menu.addView(settings);
+        // Windows 1.0 parity: display layers are controlled only by the compact top toolbar.
+        // Keep this panel for account/region and object actions, not duplicate layer settings.
 
         map = BuildConfig.KAKAO_NATIVE_APP_KEY.isEmpty() ? new OsmMapRenderer(this)
                 : new KakaoMapRenderer(this, BuildConfig.KAKAO_NATIVE_APP_KEY);
@@ -345,7 +325,7 @@ public class MapActivity extends Activity {
             mapScreen.addView(mapAttribution);
         }
 
-        header.setText("CAD 서버 지도 · 설정 ▼");
+        header.setText("CMB 온라인 지도");
         header.setTextSize(landscape()?12:14);
         header.setGravity(Gravity.START);
         header.setPadding(dp(8),dp(5),dp(8),dp(5));
@@ -364,7 +344,7 @@ public class MapActivity extends Activity {
         boolean opening=settingsPanel.getVisibility()!=android.view.View.VISIBLE;
         if(!landscape())settingsPanel.getLayoutParams().height=Math.min(dp(300),(int)(getResources().getDisplayMetrics().heightPixels*0.45));
         settingsPanel.setVisibility(opening?android.view.View.VISIBLE:android.view.View.GONE);
-        header.setText(landscape()?(opening?"설정\n◀":"설정\n▶"):(opening?"CAD 서버 지도 · 설정 ▲":"CAD 서버 지도 · 설정 ▼"));
+        header.setText(opening?"CMB 온라인 지도 · 메뉴":"CMB 온라인 지도");
         settingsPanel.requestLayout();
     }
 
@@ -448,58 +428,6 @@ public class MapActivity extends Activity {
         for(int i=0;i<categories.length;i++) if(categories[i].equals(group))
             return layers[i] && layerPrefs().getBoolean("sublayer_"+LayerGroups.key(r),true);
         return false;
-    }
-
-    private void showLayerSettings() {
-        new AlertDialog.Builder(this).setTitle("설정 · 레이어 편집")
-            .setItems(LayerGroups.NAMES,(dialog,which)->editGroupLayers(categories[which],LayerGroups.NAMES[which]))
-            .setNegativeButton("닫기",null).show();
-    }
-
-    private void editGroupLayers(String selectedGroup,String title) {
-        TreeMap<String,CadRecord> representatives=new TreeMap<>();
-        Map<String,Integer> counts=new HashMap<>();
-        for(CadRecord r:allRecords) {
-            if(!selectedGroup.equals(group(r)))continue;
-            String key=LayerGroups.key(r); representatives.put(key,r);
-            counts.put(key,counts.containsKey(key)?counts.get(key)+1:1);
-        }
-        if(server!=null){
-            representatives.clear();counts.clear();
-            for(int i=0;i<serverLayers.length();i++){
-                org.json.JSONObject info=serverLayers.optJSONObject(i);if(info==null)continue;
-                CadRecord r=new CadRecord();r.layer=info.optString("layer");
-                String sourceGroup=info.optString("group_id");r.category=sourceGroup.equals("POLE")?"FACILITY":sourceGroup;
-                if(selectedGroup.equals(group(r))){representatives.put(r.layer,r);counts.put(r.layer,info.optInt("object_count"));}
-            }
-        }
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);
-        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(12),dp(8),dp(12),dp(8));scroll.addView(body);
-        TextView help=new TextView(this);
-        help.setText("체크한 레이어만 표시합니다. 그룹을 껐다 켜도 선택 상태가 유지됩니다. 아래 목록에서 소속 그룹을 변경할 수 있습니다.");
-        body.addView(help);
-        if(representatives.isEmpty()){TextView empty=new TextView(this);empty.setText("불러온 레이어가 없습니다.");body.addView(empty);}
-        for(Map.Entry<String,CadRecord> entry:representatives.entrySet()) {
-            String key=entry.getKey();
-            CheckBox check=new CheckBox(this);check.setText(key+" · "+counts.get(key)+"행");
-            check.setChecked(layerPrefs().getBoolean("sublayer_"+key,true));
-            check.setOnCheckedChangeListener((button,checked)->layerPrefs().edit().putBoolean("sublayer_"+key,checked).apply());
-            body.addView(check);
-            android.widget.Spinner assignment=new android.widget.Spinner(this);
-            assignment.setAdapter(new android.widget.ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,LayerGroups.NAMES));
-            int initial=Arrays.asList(categories).indexOf(selectedGroup);assignment.setSelection(initial);
-            assignment.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-                public void onItemSelected(android.widget.AdapterView<?> parent,android.view.View view,int position,long id){
-                    layerPrefs().edit().putString("assignment_"+key,categories[position]).apply();
-                }
-                public void onNothingSelected(android.widget.AdapterView<?> parent){}
-            });
-            body.addView(assignment);
-        }
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(title+" · 레이어 편집").setView(scroll)
-            .setPositiveButton("완료",null).create();
-        dialog.setOnDismissListener(d->loadMarkers());dialog.show();
     }
 
     private void applyVisibility() {
