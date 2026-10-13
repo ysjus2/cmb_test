@@ -200,6 +200,8 @@ assert "lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='';" 
 assert "if(moved<FIBER_RECENTER_METERS)" not in online_source
 assert "if(moved<FIBER_RECENTER_METERS && hasFiberCache)" in online_source
 assert "const hasFiberCache=" in online_source
+assert "layers=None" in online_source
+assert "광 셀 조회는 /layers 메타데이터에 의존하지 않는다." in online_source
 assert "lastFiberCacheLat=null;" in online_source
 assert "const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;" in online_source
 assert "const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);" in online_source
