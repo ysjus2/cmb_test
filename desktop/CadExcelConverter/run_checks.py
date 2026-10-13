@@ -661,7 +661,7 @@ print("ONLINE_CLOSURE_INLINE_SHAPE_OK")
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 main_source = (root / "main.py").read_text(encoding="utf-8")
 layer_defaults_source = (root / "layer_defaults.py").read_text(encoding="utf-8")
-assert "function drawFiberInputArrow(path,color)" in online_source
+assert "function drawFiberInputArrow(path,color,cableOverlay,props)" in online_source
 assert "registerOverlay(l,'FIBER','fiber_input_arrow')" in online_source
 assert "if(kind==='fiber_rn')" in online_source
 assert "block.startsWith('RN-8')" in online_source and "return '8'" in online_source
