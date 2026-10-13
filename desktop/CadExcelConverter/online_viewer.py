@@ -1506,6 +1506,9 @@ function showDetail(p){{
   const f=a.fields||a;
   const dxf=f._cmb_dxf_data||{{}};
   const pole=f._cmb_pole_info||{{}};
+  const polePos=f._cmb_pole_position||{{}};
+  if(polePos.pole_no)add('전주번호',polePos.pole_no);
+  if(polePos.grid_id)add('Polemap 격자',polePos.grid_id);
   Object.keys(f).sort().forEach(k=>{{
     if(!k.startsWith('_cmb_')) add(k,f[k]);
   }});
@@ -1576,6 +1579,37 @@ const SYMBOL_LIBRARY={{
   fiber_net:{{shape:'rect',w:30,h:14,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
+
+function storedPolePosition(f){{
+  const p=(f&&f.properties)||{{}};
+  const a=p.attributes||{{}};
+  const fields=a.fields||a;
+
+  // 새 업로드 데이터는 한전주 좌표를 권위 위치로 사용한다.
+  // Viewer에서는 최근접 전주/거리/공간연산을 하지 않는다.
+  const direct=fields._cmb_pole_position||{{}};
+  const dLon=Number(direct.lon),dLat=Number(direct.lat);
+  if(Number.isFinite(dLon)&&Number.isFinite(dLat)){{
+    return [dLon,dLat];
+  }}
+
+  const refs=Array.isArray(fields._cmb_pole_refs)?fields._cmb_pole_refs:[];
+  for(const ref of refs){{
+    const lon=Number((ref||{{}}).lon),lat=Number((ref||{{}}).lat);
+    if(Number.isFinite(lon)&&Number.isFinite(lat)){{
+      return [lon,lat];
+    }}
+  }}
+
+  // 구버전 서버 데이터만 기존 저장 geometry를 사용한다.
+  const g=(f&&f.geometry)||{{}};
+  const xy=g.coordinates||[];
+  if(Array.isArray(xy)&&xy.length>=2&&
+     Number.isFinite(Number(xy[0]))&&Number.isFinite(Number(xy[1]))){{
+    return [Number(xy[0]),Number(xy[1])];
+  }}
+  return null;
+}}
 
 function isConnectorFeature(f){{
   const p=f.properties||{{}};
@@ -2054,10 +2088,9 @@ function redrawDevicesFromMemory(){{
   currentDevices=[];
 
   (currentPointFeatures||[]).forEach(f=>{{
-    const g=f.geometry||{{}},p=f.properties||{{}};
-    const a=g.coordinates;
-    if(!Array.isArray(a)||a.length<2||
-       !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
+    const p=f.properties||{{}};
+    const a=storedPolePosition(f);
+    if(!a)return;
     try{{
       const inferred=inferDirectionalInputFromFeature(f,currentLineFeatures||[]);
       if(inferred){{
@@ -2077,10 +2110,9 @@ function redrawDevicesFromMemory(){{
   // 줌 재렌더 시 일반 기기와 함께 반드시 다시 그린다.
   if(groupEnabled.FIBER){{
     (currentFiberPointFeatures||[]).forEach(f=>{{
-      const g=f.geometry||{{}},p=f.properties||{{}};
-      const a=g.coordinates;
-      if(!Array.isArray(a)||a.length<2||
-         !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
+      const p=f.properties||{{}};
+      const a=storedPolePosition(f);
+      if(!a)return;
       try{{
         currentDevices.push(drawDevice(
           new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p
@@ -2561,8 +2593,8 @@ function renderFiberPointFallback(features){{
     const entityType=String(p.entity_type||'').toUpperCase();
     const explicitDevice=(fields._cmb_is_device===true);
     if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
-    const xy=(f.geometry||{{}}).coordinates||[];
-    if(!Array.isArray(xy)||xy.length<2)return;
+    const xy=storedPolePosition(f);
+    if(!xy)return;
     const key=kind+'|'+Number(xy[0]).toFixed(6)+'|'+Number(xy[1]).toFixed(6);
     if(seen.has(key))return;
     seen.add(key);
@@ -2718,9 +2750,8 @@ function renderFiberFeatures(features){{
     const explicitDevice=(fields._cmb_is_device===true);
     if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
 
-    const g=f.geometry||{{}},xy=g.coordinates||[];
-    if(!Array.isArray(xy)||xy.length<2||
-       !Number.isFinite(Number(xy[0]))||!Number.isFinite(Number(xy[1])))return;
+    const xy=storedPolePosition(f);
+    if(!xy)return;
 
     const key=kind+'|'+Number(xy[0]).toFixed(5)+'|'+Number(xy[1]).toFixed(5);
     if(!fiberDeviceMap.has(key))fiberDeviceMap.set(key,f);
@@ -2729,7 +2760,8 @@ function renderFiberFeatures(features){{
   currentFiberPointFeatures=[...fiberDeviceMap.values()];
 
   currentFiberPointFeatures.forEach(f=>{{
-    const p=f.properties||{{}},xy=(f.geometry||{{}}).coordinates||[];
+    const p=f.properties||{{}},xy=storedPolePosition(f);
+    if(!xy)return;
     try{{
       drawDevice(new kakao.maps.LatLng(Number(xy[1]),Number(xy[0])),p);
       fiberDeviceObjects++;
@@ -2914,11 +2946,10 @@ async function loadObjects(force=false){{
   }});
   function deviceFeatureKey(f){{
     const p=f.properties||{{}};
-    const g=f.geometry||{{}},a=g.coordinates||[];
+    const a=storedPolePosition(f);
     const kind=symbolKind(p);
-    // 동일 종류의 실제 심벌과 정보용 복제 POINT는 CAD handle/ID가 달라도
-    // 거의 같은 위치에 놓이므로 위치를 우선해 하나로 합친다.
-    if(Array.isArray(a)&&a.length>=2){{
+    // 새 데이터는 저장된 한전주 좌표를 기기 위치 키로 사용한다.
+    if(a){{
       return kind+'|'+Number(a[0]).toFixed(5)+'|'+Number(a[1]).toFixed(5);
     }}
     const direct=String(
@@ -2962,10 +2993,9 @@ async function loadObjects(force=false){{
   const devices=[];
 
   pointFeatures.forEach(f=>{{
-    const g=f.geometry||{{}},p=f.properties||{{}};
-    const a=g.coordinates;
-    if(!Array.isArray(a)||a.length<2||a[0]===null||a[1]===null||
-      !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
+    const p=f.properties||{{}};
+    const a=storedPolePosition(f);
+    if(!a)return;
     try{{
       const inferred=inferDirectionalInputFromFeature(f,lineFeatures);
       if(inferred){{
