@@ -116,7 +116,7 @@ class Launcher(tk.Tk):
             self.mode_frame,
             text="맵추출 뷰어",
             command=self.open_map_viewer,
-            state="disabled",
+            state="normal",
         )
         self.map_btn.pack(fill="x", ipady=7, pady=4)
 
@@ -217,7 +217,7 @@ class Launcher(tk.Tk):
             self.login_btn.configure(state="normal")
             self.logout_btn.grid_remove()
             self.online_btn.configure(state="disabled")
-            self.map_btn.configure(state="disabled")
+            self.map_btn.configure(state="normal")
             self.admin_btn.configure(state="disabled")
 
             msg = str(exc)
@@ -297,21 +297,21 @@ class Launcher(tk.Tk):
             self.session_guard.resume()
         self._restore_launcher()
 
-    def _spawn(self, flag):
-        # 자식 프로세스에 세션을 넘기기 전에 부모의 idle touch를 먼저 멈춘다.
-        # 이전 순서는 env 스냅샷 후 pause라서 백그라운드 refresh와 경합할 수 있었다.
-        if self.session_guard is not None:
+    def _spawn(self, flag, verify_server=True):
+        # 온라인/관리자 기능은 기존처럼 서버 세션을 확인하지만,
+        # 로컬 맵추출 Viewer는 서버와 완전히 분리해 즉시 실행한다.
+        if verify_server and self.session_guard is not None:
             self.session_guard.pause()
 
         try:
-            # 현재 access token이 만료 직전이면 여기서 refresh까지 완료한 뒤
-            # 최신 access/refresh token 한 쌍을 자식에게 전달한다.
-            verified = self.client.me()
-            if isinstance(verified, dict):
-                self.user = verified
+            if verify_server:
+                # 현재 access token이 만료 직전이면 refresh까지 완료한 뒤 전달한다.
+                verified = self.client.me()
+                if isinstance(verified, dict):
+                    self.user = verified
             env = self._child_env()
         except Exception:
-            if self.session_guard is not None:
+            if verify_server and self.session_guard is not None:
                 self.session_guard.resume()
             raise
 
@@ -334,10 +334,9 @@ class Launcher(tk.Tk):
             messagebox.showerror("온라인 뷰어", str(exc), parent=self)
 
     def open_map_viewer(self):
-        if not self.user:
-            return
         try:
-            self._spawn("--map-viewer")
+            # 서버 로그인/health/me 조회 없이 로컬 DXF Viewer를 즉시 실행한다.
+            self._spawn("--map-viewer", verify_server=False)
         except Exception as exc:
             messagebox.showerror("맵추출 뷰어", str(exc), parent=self)
 
