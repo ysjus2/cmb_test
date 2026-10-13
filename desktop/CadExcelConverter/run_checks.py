@@ -619,3 +619,12 @@ assert 'or fiber_device_block' in admin_upload_source
 assert "function isFiberDeviceCode(p)" not in online_source
 assert "if(String(p.group_id||'').toUpperCase()!=='FIBER')return;" in online_source
 print("FIBER_DEVICE_UPLOAD_GROUP_OK")
+
+# 광기기 Point는 줌 재렌더에서 삭제되지 않고 persistent 메모리로 다시 그려져야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "let currentFiberPointFeatures=[];" in online_source
+assert "currentFiberPointFeatures=[...fiberDeviceMap.values()];" in online_source
+assert "(currentFiberPointFeatures||[]).forEach" in online_source
+assert "Fiber device redraw failed" in online_source
+assert "광기기메모리" in online_source
+print("FIBER_DEVICE_ZOOM_PERSISTENCE_OK")
