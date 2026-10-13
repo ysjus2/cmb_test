@@ -2864,15 +2864,16 @@ async function loadObjects(force=false){{
   }}
 
   const myGeneration=++loadGeneration;
-  const latDelta=QUERY_RADIUS_METERS/111320;
-  const lngScale=Math.max(0.2,Math.cos(queryLat*Math.PI/180));
-  const lngDelta=QUERY_RADIUS_METERS/(111320*lngScale);
-  const west=queryLng-lngDelta;
-  const east=queryLng+lngDelta;
-  const south=queryLat-latDelta;
-  const north=queryLat+latDelta;
+  const visibleBounds=map.getBounds();
+  const sw=visibleBounds.getSouthWest(),ne=visibleBounds.getNorthEast();
+  const latPad=(ne.getLat()-sw.getLat())*0.12;
+  const lngPad=(ne.getLng()-sw.getLng())*0.12;
+  const west=sw.getLng()-lngPad;
+  const south=sw.getLat()-latPad;
+  const east=ne.getLng()+lngPad;
+  const north=ne.getLat()+latPad;
 
-  setStatus('지도 중심 '+QUERY_RADIUS_METERS+'m · 불러오는 중...');
+  setStatus('현재 화면 범위 · 불러오는 중...');
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
