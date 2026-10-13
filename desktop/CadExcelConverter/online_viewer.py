@@ -866,6 +866,7 @@ let activeDistanceLabel=null;
 let distanceSessions=[];
 let distanceDeleteMenu=null;
 let currentPointFeatures=[];
+let currentFiberPointFeatures=[];
 let currentLineFeatures=[];
 let currentDevices=[];
 
@@ -1539,6 +1540,22 @@ function redrawDevicesFromMemory(){{
     }}catch(e){{console.warn('Device redraw failed',e);}}
   }});
 
+  // 광기기는 persistent FIBER cache에서 별도로 관리되므로
+  // 줌 재렌더 시 일반 기기와 함께 반드시 다시 그린다.
+  if(groupEnabled.FIBER){{
+    (currentFiberPointFeatures||[]).forEach(f=>{{
+      const g=f.geometry||{{}},p=f.properties||{{}};
+      const a=g.coordinates;
+      if(!Array.isArray(a)||a.length<2||
+         !Number.isFinite(Number(a[0]))||!Number.isFinite(Number(a[1])))return;
+      try{{
+        currentDevices.push(drawDevice(
+          new kakao.maps.LatLng(Number(a[1]),Number(a[0])),p
+        ));
+      }}catch(e){{console.warn('Fiber device redraw failed',e);}}
+    }});
+  }}
+
   applyDirectionalInputArrows(currentDevices,currentLineFeatures||[]);
   applyZoomVisibility(map.getLevel());
 }}
@@ -1970,7 +1987,10 @@ function renderFiberPointFallback(features){{
 function renderFiberFeatures(features){{
   if(!map)return 0;
   clearGroupOverlays('FIBER');
-  if(!groupEnabled.FIBER)return 0;
+  if(!groupEnabled.FIBER){{
+    currentFiberPointFeatures=[];
+    return 0;
+  }}
   let rendered=0;
   let lineObjects=0;
   (features||[]).forEach(f=>{{
@@ -2031,7 +2051,9 @@ function renderFiberFeatures(features){{
     if(!fiberDeviceMap.has(key))fiberDeviceMap.set(key,f);
   }});
 
-  fiberDeviceMap.forEach(f=>{{
+  currentFiberPointFeatures=[...fiberDeviceMap.values()];
+
+  currentFiberPointFeatures.forEach(f=>{{
     const p=f.properties||{{}},xy=(f.geometry||{{}}).coordinates||[];
     try{{
       drawDevice(new kakao.maps.LatLng(Number(xy[1]),Number(xy[0])),p);
@@ -2286,6 +2308,7 @@ async function loadObjects(force=false){{
     ' · 표시 '+features.length+
     ' · 심볼 '+devices.length+
     ' · 광기기보강 '+fiberFallbackDevices+
+    ' · 광기기메모리 '+String((currentFiberPointFeatures||[]).length)+
     ' · 셀번호 '+cellNumberCount+
     ' · 입력화살표 '+directionalInputArrows+
     ' · 렌더선 '+renderedLines+
