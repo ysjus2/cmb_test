@@ -810,6 +810,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
       <button class='layerBtn' data-group='POLE'>전주</button>
       <button class='layerBtn' data-group='CONDUIT'>관로</button>
       <button id='myLocation'>내 위치</button>
+      <button id='mapHybrid' class='layerBtn' title='일반지도 / 하이브리드 전환'>하이브리드</button>
       <button id='reload'>새로고침</button>
       <div id='measureBox'>
         <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
@@ -848,6 +849,10 @@ let loadGeneration=0;
 let selectedOverlay=null;
 let selectedCable=null;
 let selectedCableStyle=null;
+let selectedCableArrows=[];
+let selectedCableArrowStyles=[];
+const cableArrows=new Map();
+let hybridMode=false;
 let lodReferenceSpan=null;
 let idleMinutes=10;
 let myLat=null,myLng=null;
@@ -983,6 +988,7 @@ function clearOverlays(){{
     overlayKinds.delete(x);
   }});
   overlays=[];
+  cableArrows.clear();
   selectedOverlay=null;
 }}
 
@@ -1678,17 +1684,33 @@ function applyDirectionalInputArrows(devices,lineFeatures){{
 }}
 
 function restoreSelectedCable(){{
-  if(!selectedCable||!selectedCableStyle)return;
-  try{{
-    selectedCable.setOptions({{
-      strokeWeight:selectedCableStyle.strokeWeight,
-      strokeColor:selectedCableStyle.strokeColor,
-      strokeOpacity:selectedCableStyle.strokeOpacity
-    }});
-    if(typeof selectedCable.setZIndex==='function')selectedCable.setZIndex(selectedCableStyle.zIndex);
-  }}catch(e){{}}
+  if(selectedCable&&selectedCableStyle){{
+    try{{
+      selectedCable.setOptions({{
+        strokeWeight:selectedCableStyle.strokeWeight,
+        strokeColor:selectedCableStyle.strokeColor,
+        strokeOpacity:selectedCableStyle.strokeOpacity
+      }});
+      if(typeof selectedCable.setZIndex==='function')selectedCable.setZIndex(selectedCableStyle.zIndex);
+    }}catch(e){{}}
+  }}
+  (selectedCableArrows||[]).forEach((arrow,index)=>{{
+    const style=(selectedCableArrowStyles||[])[index]||{{}};
+    try{{
+      arrow.setOptions({{
+        strokeWeight:Number(style.strokeWeight||1),
+        strokeColor:String(style.strokeColor||'#1e88e5'),
+        strokeOpacity:Number(style.strokeOpacity??1),
+        fillColor:String(style.fillColor||'#1e88e5'),
+        fillOpacity:Number(style.fillOpacity??1)
+      }});
+      if(typeof arrow.setZIndex==='function')arrow.setZIndex(Number(style.zIndex||7));
+    }}catch(e){{}}
+  }});
   selectedCable=null;
   selectedCableStyle=null;
+  selectedCableArrows=[];
+  selectedCableArrowStyles=[];
 }}
 
 function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5){{
@@ -1715,6 +1737,31 @@ function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5){{
     }});
     if(typeof overlay.setZIndex==='function')overlay.setZIndex(60);
   }}catch(e){{}}
+
+  selectedCableArrows=(cableArrows.get(overlay)||[]).slice();
+  selectedCableArrowStyles=selectedCableArrows.map(arrow=>{{
+    const base=arrow.__cmbBaseStyle||{{}};
+    return {{
+      strokeWeight:Number(base.strokeWeight||1),
+      strokeColor:String(base.strokeColor||baseColor||'#1e88e5'),
+      strokeOpacity:Number(base.strokeOpacity??1),
+      fillColor:String(base.fillColor||baseColor||'#1e88e5'),
+      fillOpacity:Number(base.fillOpacity??1),
+      zIndex:Number(base.zIndex||7)
+    }};
+  }});
+  selectedCableArrows.forEach(arrow=>{{
+    try{{
+      arrow.setOptions({{
+        strokeWeight:2,
+        strokeColor:highlight,
+        strokeOpacity:1,
+        fillColor:highlight,
+        fillOpacity:1
+      }});
+      if(typeof arrow.setZIndex==='function')arrow.setZIndex(61);
+    }}catch(e){{}}
+  }});
   showDetail(props||{{}});
 }}
 
@@ -2022,37 +2069,54 @@ function renderFiberPointFallback(features){{
   return count;
 }}
 
-function drawFiberInputArrow(path,color){{
-  if(!map||typeof map.getProjection!=='function'||!Array.isArray(path)||path.length<2)return 0;
+function drawFiberInputArrow(path,color,cableOverlay,props){{
+  if(!map||typeof map.getProjection!=='function'||!Array.isArray(path)||path.length<2)return null;
   const tipLatLng=path[path.length-1];
   const prevLatLng=path[path.length-2];
   const tipPx=latLngToPx(tipLatLng);
   const prevPx=latLngToPx(prevLatLng);
   let vx=tipPx.x-prevPx.x,vy=tipPx.y-prevPx.y;
   const len=Math.hypot(vx,vy);
-  if(!Number.isFinite(len)||len<2)return 0;
+  if(!Number.isFinite(len)||len<2)return null;
   vx/=len;vy/=len;
 
-  // 마지막 좌표가 광케이블의 IN 방향이다. 기기에 가리지 않도록 끝점보다 조금 앞에 V 화살표를 둔다.
-  const tip=[tipPx.x-vx*5,tipPx.y-vy*5];
-  const base=[tipPx.x-vx*15,tipPx.y-vy*15];
-  const px=-vy,py=vx,wing=3.5;
-  const left=[base[0]+px*wing,base[1]+py*wing];
-  const right=[base[0]-px*wing,base[1]-py*wing];
+  // 광케이블 입력방향은 채워진 삼각형 화살촉으로 표시한다.
+  const tip=[tipPx.x-vx*4,tipPx.y-vy*4];
+  const baseCenter=[tipPx.x-vx*17,tipPx.y-vy*17];
+  const px=-vy,py=vx,wing=5.5;
+  const left=[baseCenter[0]+px*wing,baseCenter[1]+py*wing];
+  const right=[baseCenter[0]-px*wing,baseCenter[1]-py*wing];
 
-  [[left,tip],[right,tip]].forEach(seg=>{{
-    const l=new kakao.maps.Polyline({{
-      path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
-      strokeWeight:2,
-      strokeColor:String(color||'#1e88e5'),
-      strokeOpacity:1,
-      strokeStyle:'solid'
-    }});
-    l.setMap(map);
-    if(typeof l.setZIndex==='function')l.setZIndex(7);
-    registerOverlay(l,'FIBER','fiber_input_arrow');
+  const c=String(color||'#1e88e5');
+  const arrow=new kakao.maps.Polygon({{
+    path:[
+      pxToLatLng(tip[0],tip[1]),
+      pxToLatLng(left[0],left[1]),
+      pxToLatLng(right[0],right[1])
+    ],
+    strokeWeight:1,
+    strokeColor:c,
+    strokeOpacity:1,
+    fillColor:c,
+    fillOpacity:1
   }});
-  return 1;
+  arrow.__cmbBaseStyle={{
+    strokeWeight:1,strokeColor:c,strokeOpacity:1,
+    fillColor:c,fillOpacity:1,zIndex:7
+  }};
+  arrow.setMap(map);
+  if(typeof arrow.setZIndex==='function')arrow.setZIndex(7);
+  registerOverlay(arrow,'FIBER','fiber_input_arrow');
+
+  if(cableOverlay){{
+    const items=cableArrows.get(cableOverlay)||[];
+    items.push(arrow);
+    cableArrows.set(cableOverlay,items);
+    kakao.maps.event.addListener(arrow,'click',()=>{{
+      selectCable(cableOverlay,props||{{}},c,4,5);
+    }});
+  }}
+  return arrow;
 }}
 
 function renderFiberFeatures(features){{
@@ -2092,7 +2156,7 @@ function renderFiberFeatures(features){{
       if(typeof l.setZIndex==='function')l.setZIndex(5);
       registerOverlay(l,'FIBER');
       bindCableClick(l,p,c,4,5);
-      drawFiberInputArrow(path,c);
+      drawFiberInputArrow(path,c,l,p);
       rendered++;
     }});
   }});
@@ -2448,6 +2512,13 @@ async function bootstrapAuth(){{
 function bindUi(){{
   document.getElementById('reload').onclick=()=>loadObjects(true);
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
+  document.getElementById('mapHybrid').onclick=()=>{{
+    if(!map)return;
+    hybridMode=!hybridMode;
+    map.setMapTypeId(hybridMode?kakao.maps.MapTypeId.HYBRID:kakao.maps.MapTypeId.ROADMAP);
+    document.getElementById('mapHybrid').classList.toggle('on',hybridMode);
+    setStatus(hybridMode?'하이브리드 지도':'일반 지도');
+  }};
   document.getElementById('measureDistance').onclick=()=>setDistanceMode(!distanceMode);
   document.getElementById('clearDistance').onclick=()=>clearAllDistanceMeasurements();
 
