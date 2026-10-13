@@ -571,7 +571,17 @@ class Api:
                     continue
                 seen.add(key)
                 name = str(row.get("name") or region_id).strip()
-                items.append({"id": region_id, "name": name or region_id})
+                bounds = None
+                try:
+                    meta = self.c.online_layers(region_id) or {}
+                    raw_bounds = meta.get("bounds") if isinstance(meta, dict) else None
+                    if isinstance(raw_bounds, dict):
+                        keys = ("west", "south", "east", "north")
+                        if all(raw_bounds.get(k) is not None for k in keys):
+                            bounds = {k: float(raw_bounds.get(k)) for k in keys}
+                except Exception:
+                    bounds = None
+                items.append({"id": region_id, "name": name or region_id, "bounds": bounds})
 
             return {
                 "ok": True,
@@ -807,7 +817,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
   <div class='card' id='tools'>
     <div id='toolButtons'>
       <b>CMB 온라인 Viewer</b>
-      <select id='region' title='로그인 계정에 배정된 도면'><option value=''>권한 도면 선택</option></select>
+      <select id='region' style='display:none' aria-hidden='true'><option value=''></option></select>
       <button class='layerBtn on' data-group='FIBER'>광</button>
       <button class='layerBtn on' data-group='COAX'>동축</button>
       <button class='layerBtn' data-group='POLE'>전주</button>
@@ -868,6 +878,8 @@ let QUERY_RADIUS_METERS=500;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
+let authorizedRegions=[];
+let regionSwitching=false;
 let authenticated=false;
 let lastServerTouch=0;
 let fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
@@ -2566,18 +2578,109 @@ async function loadRegions(){{
   if(!r.ok){{setStatus('지역 조회 실패 · '+(r.error||'서버 오류'));return}}
   const sel=document.getElementById('region');
   const items=(r.items||[]).filter(x=>x&&x.id);
-  sel.innerHTML='<option value="">권한 지역 선택</option>';
-  items.forEach(x=>{{
+  authorizedRegions=items.map(x=>({{
+    id:String(x.id),
+    name:String(x.name||x.id),
+    bounds:x.bounds||null
+  }}));
+  sel.innerHTML='<option value=""></option>';
+  authorizedRegions.forEach(x=>{{
     const o=document.createElement('option');
-    o.value=String(x.id);
-    o.text=(x.name&&x.name!==x.id) ? (x.name+' ('+x.id+')') : String(x.id);
+    o.value=x.id;
+    o.text=x.name!==x.id ? (x.name+' ('+x.id+')') : x.id;
     sel.appendChild(o);
   }});
-  if(!items.length){{
+  if(!authorizedRegions.length){{
     setStatus('권한 지역 0개 · 관리자 지역 권한 설정을 확인하세요 · 등급 '+String(r.level||'?'));
     return;
   }}
-  setStatus('권한 지역 '+items.length+'개 · 등급 '+String(r.level||'?'));
+  setStatus('권한 지역 '+authorizedRegions.length+'개 · 지도 위치에 따라 자동 연결');
+}}
+
+function boundsContainsLatLng(bounds,latlng){{
+  if(!bounds||!latlng)return false;
+  const west=Number(bounds.west),south=Number(bounds.south);
+  const east=Number(bounds.east),north=Number(bounds.north);
+  if(![west,south,east,north].every(Number.isFinite))return false;
+  const lat=Number(latlng.getLat()),lng=Number(latlng.getLng());
+  return lat>=Math.min(south,north)&&lat<=Math.max(south,north)&&
+         lng>=Math.min(west,east)&&lng<=Math.max(west,east);
+}}
+
+async function activateRegion(region){{
+  region=String(region||'');
+  const sel=document.getElementById('region');
+  if(!region||regionSwitching)return false;
+  if(sel.value===region)return true;
+
+  regionSwitching=true;
+  try{{
+    clearOverlays();
+    document.getElementById('detail').style.display='none';
+    sel.value=region;
+    const info=authorizedRegions.find(x=>x.id===region);
+    const r=await apiCall('select',{{region:region}});
+    if(!r.ok){{
+      sel.value='';
+      setStatus(r.error||'지역 자동 연결 실패');
+      return false;
+    }}
+
+    let cached={{features:[],cache:'empty'}};
+    try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
+    if(region!==sel.value)return false;
+    const cachedFeatures=cached.features||[];
+    const cachedCount=renderFiberFeatures(cachedFeatures);
+    fiberDiag.cache=cachedFeatures.length;
+    fiberDiag.received=0;
+    fiberDiag.unique=0;
+    fiberDiag.server=0;
+    setStatus((info?info.name:region)+' · '+(cachedCount>0
+      ? '광 캐시 즉시 표시'+fiberDiagText()
+      : '광 캐시 없음 · 최초 다운로드 시작'));
+
+    apiCall('fiber_all',{{force:false}}).then(fiber=>{{
+      if(region!==sel.value)return;
+      if(fiber.error){{
+        setStatus(fiber.error+' · 기존 광 캐시 유지');
+        return;
+      }}
+      const fiberFeatures=fiber.features||[];
+      const fiberCount=fiberFeatures.length;
+      const expected=Number(fiber.expected_count||0);
+      fiberDiag.server=expected;
+      fiberDiag.received=Number(fiber.received_count||fiberCount);
+      fiberDiag.unique=Number(fiber.unique_key_count||fiber.received_count||fiberCount);
+      if(fiber.cache!=='hit' || cachedCount===0)renderFiberFeatures(fiberFeatures);
+      const source=(fiber.cache==='hit'?'광 캐시':'광 서버')+' '+fiberCount+'개';
+      setStatus((info?info.name:region)+' · '+source+fiberDiagText());
+    }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
+
+    await loadObjects(true);
+    return true;
+  }} finally {{
+    regionSwitching=false;
+  }}
+}}
+
+async function autoRegionForMapCenter(){{
+  if(!map||!authorizedRegions.length||regionSwitching)return false;
+  const center=map.getCenter();
+  const sel=document.getElementById('region');
+  const current=authorizedRegions.find(x=>x.id===sel.value);
+  if(current&&boundsContainsLatLng(current.bounds,center))return true;
+
+  const matched=authorizedRegions.find(x=>boundsContainsLatLng(x.bounds,center));
+  if(!matched){{
+    if(sel.value){{
+      clearOverlays();
+      await apiCall('select',{{region:''}});
+      sel.value='';
+    }}
+    setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다');
+    return false;
+  }}
+  return await activateRegion(matched.id);
 }}
 
 async function loadMapDisplaySettings(){{
@@ -2787,7 +2890,10 @@ function initMap(){{
         center:new kakao.maps.LatLng(35.1595,126.8526),
         level:3
       }});
-      kakao.maps.event.addListener(map,'idle',()=>loadObjects());
+      kakao.maps.event.addListener(map,'idle',async()=>{{
+        const ok=await autoRegionForMapCenter();
+        if(ok)loadObjects();
+      }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
         if(distanceMode)addDistancePoint(e.latLng);
@@ -2812,12 +2918,10 @@ function initMap(){{
         );
       }});
       centerMyLocation(false);
-      const sel=document.getElementById('region');
-      if(sel&&sel.value){{
-        sel.dispatchEvent(new Event('change'));
-      }} else {{
-        setStatus('현재 위치 확인 후 지역을 선택하세요');
-      }}
+      setTimeout(async()=>{{
+        const ok=await autoRegionForMapCenter();
+        if(ok)loadObjects(true);
+      }},250);
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
