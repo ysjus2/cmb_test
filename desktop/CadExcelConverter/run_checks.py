@@ -648,6 +648,19 @@ assert "def online_polemap(" in client_source
 assert "def group_status_v2(" in client_source
 print("POLEMAP_LIGHTWEIGHT_UPLOAD_OK")
 
+# 모든 업로드 객체는 원본 CAD의 한전주 위치코드를 직접 보존해야 한다.
+assert '_UPLOAD_POLE_CODE_RE = re.compile(' in admin_upload_source
+assert r'\d{4}[A-Za-z]\d{3}' in admin_upload_source
+assert 'def _upload_pole_refs(e):' in admin_upload_source
+assert 'attrs["_cmb_pole_refs"] = pole_refs' in admin_upload_source
+assert 'attrs["_cmb_pole_no"] = pole_refs[0]["pole_no"]' in admin_upload_source
+assert 'attrs["_cmb_grid_id"] = pole_refs[0]["grid_id"]' in admin_upload_source
+assert 'attrs["_cmb_grid_ids"] = sorted({ref["grid_id"] for ref in pole_refs})' in admin_upload_source
+assert 'No nearest-pole/geometric inference is performed here.' in admin_upload_source
+viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
+assert r'\d{4}[A-Za-z]\d{3}' in viewer_source
+print("SOURCE_POLE_REFERENCE_PRESERVATION_OK")
+
 # 온라인 Viewer LOD: L5 셀경계, L4 셀번호, L3 광기기.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "kind==='cell_boundary'" in online_source
