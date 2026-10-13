@@ -676,6 +676,12 @@ assert "const refs=Array.isArray(fields._cmb_pole_refs)?fields._cmb_pole_refs:[]
 assert "const a=storedPolePosition(f);" in online_source
 assert "Viewer에서는 최근접 전주/거리/공간연산을 하지 않는다." in online_source
 print("DIRECT_STORED_POLE_POSITION_RENDER_OK")
+client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+assert "def online_grid_objects(self, region, grid_id" in client_source
+assert 'f"/online/{q}/grid/{g}/objects?limit={int(limit)}"' in client_source
+assert "self.c.online_grid_objects(" in online_source
+assert "grid_id," in online_source
+print("DIRECT_GRID_ID_SERVER_LOOKUP_OK")
 
 # 온라인 Viewer LOD: L5 셀경계, L4 셀번호, L3 광기기.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
