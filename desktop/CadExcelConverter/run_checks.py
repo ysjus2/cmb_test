@@ -585,3 +585,15 @@ assert 'FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT")' in admin_upload_source
 full_line = [line for line in admin_upload_source.splitlines() if line.startswith("FULL_UPLOAD_ITEMS =")][0]
 assert '"USER"' not in full_line
 print("FULL_UPLOAD_EXCLUDES_USER_OK")
+
+# 온라인 Viewer LOD: L5 셀경계, L4 셀번호, L3 광기기.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "kind==='cell_boundary'" in online_source
+assert "mapLevel<=5" in online_source
+assert "kind==='cell_number'" in online_source
+assert "mapLevel<=4" in online_source
+assert "function renderFiberPointFallback(features)" in online_source
+assert "if(!map||map.getLevel()>3||!groupEnabled.FIBER)return 0;" in online_source
+assert "광기기보강" in online_source
+assert "셀번호" in online_source
+print("FIBER_DEVICE_CELL_LOD_OK")
