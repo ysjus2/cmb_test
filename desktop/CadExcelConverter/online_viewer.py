@@ -775,7 +775,8 @@ def html(k, local_token):
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <style>
-html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans-serif}}
+html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans-serif}}
+#roadview{{position:absolute;inset:0;display:none;background:#111}}
 #top{{position:absolute;z-index:10;top:10px;left:10px;right:10px;display:flex;gap:8px;align-items:center;pointer-events:none}}
 .card{{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:7px 9px;box-shadow:0 2px 8px rgba(0,0,0,.16);pointer-events:auto}}
 #tools{{display:flex;gap:6px;align-items:center;min-width:0;width:100%}}
@@ -799,6 +800,7 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
 </head>
 <body>
 <div id='map'></div>
+<div id='roadview'></div>
 
 <div id='top'>
   <div class='card' id='tools'>
@@ -810,7 +812,8 @@ html,body,#map{{width:100%;height:100%;margin:0;font-family:'Malgun Gothic',sans
       <button class='layerBtn' data-group='POLE'>전주</button>
       <button class='layerBtn' data-group='CONDUIT'>관로</button>
       <button id='myLocation'>내 위치</button>
-      <button id='mapHybrid' class='layerBtn' title='일반지도 / 하이브리드 전환'>하이브리드</button>
+      <button id='mapHybrid' title='일반지도 / 위성지도 전환'>위성지도</button>
+      <button id='roadviewBtn' title='현재 지도 중심의 로드뷰 열기'>로드뷰</button>
       <button id='reload'>새로고침</button>
       <div id='measureBox'>
         <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
@@ -853,6 +856,9 @@ let selectedCableArrows=[];
 let selectedCableArrowStyles=[];
 const cableArrows=new Map();
 let hybridMode=false;
+let roadview=null;
+let roadviewClient=null;
+let roadviewMode=false;
 let lodReferenceSpan=null;
 let idleMinutes=10;
 let myLat=null,myLng=null;
@@ -2517,16 +2523,59 @@ function bindUi(){{
   document.getElementById('reload').onclick=()=>loadObjects(true);
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
   document.getElementById('mapHybrid').onclick=()=>{{
-    if(!map)return;
+    if(!map||roadviewMode)return;
     hybridMode=!hybridMode;
     map.setMapTypeId(hybridMode?kakao.maps.MapTypeId.HYBRID:kakao.maps.MapTypeId.ROADMAP);
-    document.getElementById('mapHybrid').classList.toggle('on',hybridMode);
-    setStatus(hybridMode?'하이브리드 지도':'일반 지도');
+    const btn=document.getElementById('mapHybrid');
+    btn.textContent=hybridMode?'일반지도':'위성지도';
+    btn.title=hybridMode?'일반지도로 전환':'위성지도로 전환';
+    setStatus(hybridMode?'위성지도':'일반지도');
+  }};
+
+  document.getElementById('roadviewBtn').onclick=()=>{{
+    if(!map)return;
+    const rvBtn=document.getElementById('roadviewBtn');
+    const mapEl=document.getElementById('map');
+    const rvEl=document.getElementById('roadview');
+    const baseBtn=document.getElementById('mapHybrid');
+
+    if(roadviewMode){{
+      roadviewMode=false;
+      rvEl.style.display='none';
+      mapEl.style.display='block';
+      rvBtn.textContent='로드뷰';
+      rvBtn.title='현재 지도 중심의 로드뷰 열기';
+      baseBtn.disabled=false;
+      if(typeof map.relayout==='function')map.relayout();
+      setStatus(hybridMode?'위성지도':'일반지도');
+      return;
+    }}
+
+    const center=map.getCenter();
+    if(!roadviewClient)roadviewClient=new kakao.maps.RoadviewClient();
+    if(!roadview)roadview=new kakao.maps.Roadview(rvEl);
+
+    setStatus('현재 위치 주변 로드뷰 찾는 중...');
+    roadviewClient.getNearestPanoId(center,100,function(panoId){{
+      if(panoId===null||panoId===undefined){{
+        setStatus('현재 지도 중심 100m 이내에 로드뷰가 없습니다.');
+        return;
+      }}
+      roadviewMode=true;
+      mapEl.style.display='none';
+      rvEl.style.display='block';
+      rvBtn.textContent='지도보기';
+      rvBtn.title='지도로 돌아가기';
+      baseBtn.disabled=true;
+      roadview.setPanoId(panoId,center);
+      if(typeof roadview.relayout==='function')roadview.relayout();
+      setStatus('로드뷰');
+    }});
   }};
   document.getElementById('measureDistance').onclick=()=>setDistanceMode(!distanceMode);
   document.getElementById('clearDistance').onclick=()=>clearAllDistanceMeasurements();
 
-  document.querySelectorAll('.layerBtn').forEach(btn=>{{
+  document.querySelectorAll('.layerBtn[data-group]').forEach(btn=>{{
     btn.onclick=()=>{{
       const g=String(btn.dataset.group||'').toUpperCase();
       groupEnabled[g]=!groupEnabled[g];
