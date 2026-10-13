@@ -9,12 +9,12 @@ final class DrawingLevel {
     }
     static boolean groupVisible(String level,String group){
         return "FIBER".equals(group)||(!"overview".equals(level)&&"COAX".equals(group))
-            ||("facilities".equals(level)&&"POLE".equals(group));
+            ||("facilities".equals(level)&&("POLE".equals(group)||"CONDUIT".equals(group)));
     }
     static boolean recordVisible(String level,CadRecord r){
         return "facilities".equals(level)||"FIBER".equals(r.category)||"COAX".equals(r.category);
     }
     static String label(String level){
-        return "overview".equals(level)?"광케이블":"network".equals(level)?"광 + 동축케이블":"광 + 동축 + 시설";
+        return "overview".equals(level)?"광":"network".equals(level)?"광 + 동축":"광 + 동축 + 전주 + 관로";
     }
 }
