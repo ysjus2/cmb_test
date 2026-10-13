@@ -517,6 +517,8 @@ online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "function isConnectorFeature(f)" in online_source
 assert "layer.startsWith('CN_C_CONNECTOR')" in online_source
 assert "block.startsWith('CONNECTOR')" in online_source
+assert "block.startsWith('FO_VCONN')" in online_source
+assert "block.startsWith('FO_VOCONN')" in online_source
 assert "if(isConnectorFeature(f))return false;" in online_source
 print("CONNECTOR_VIEWER_EXCLUSION_OK")
 
