@@ -1234,16 +1234,8 @@ class DXFViewer(ttk.Frame):
             color = "#22a7ff" if selected else ent.color
             width = 3 if selected else 1
             ids = []
-            symbol_kind = _viewer_symbol_kind(ent)
-            symbol_center = _viewer_symbol_center(ent) if symbol_kind else None
-            if symbol_kind and symbol_center:
-                sx, sy = self.world_to_screen(*symbol_center)
-                ids.extend(_draw_cmb_viewer_symbol(c, symbol_kind, sx, sy, ent, selected))
-                for item in ids:
-                    self.item_to_entity[item] = ent.index
-                self.entity_items[ent.index] = ids
-                continue
-
+            # 추출/로컬 DXF Viewer는 기기를 온라인용 단순 심벌로 치환하지 않는다.
+            # INSERT의 virtual entities를 포함한 원본 CAD primitives를 그대로 표시한다.
             arrow_primitive = _optical_arrow_primitive(ent.primitives) if _is_optical_cable_layer(ent.layer) else None
             for primitive_index, (kind, data) in enumerate(ent.primitives):
                 if kind == "text" and (lod < MAX_LEVEL or getattr(self, "hide_extraction_text", False)):
