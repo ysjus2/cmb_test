@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import threading
 import time
 from pathlib import Path
@@ -15,10 +16,10 @@ from drawing_identity import drawing_code
 from server_client_windows import CMBServerClient
 from backup_v2 import enrich_payload_v2
 
-GROUPS = ("FIBER", "COAX", "POLE", "CONDUIT", "USER")
-MANAGED_ITEMS = GROUPS + ("SYMBOL",)
-# 전체 업로드는 운용에 필요한 도면 데이터만 교체한다.
-# POLE, USER, SYMBOL은 전체 업로드에서 제외하고 선택 업로드에서만 처리한다.
+GROUPS = ("FIBER", "COAX", "CONDUIT", "POLE", "USER")
+MANAGED_ITEMS = GROUPS
+# 전체 버튼은 광 + 동축 + 관로만 업로드한다.
+# POLE/USER는 선택 업로드로 유지한다. SYMBOL은 더 이상 업로드 UI에서 사용하지 않는다.
 FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT")
 
 
@@ -35,6 +36,7 @@ def classify_entity(e):
         or layer == "TL_SCCO_SIG"
         or "ANNO" in layer
         or "ANNO" in block
+        or layer.startswith("CN_L_POLEMAP_")
     ):
         return None
 
@@ -73,12 +75,20 @@ def classify_entity(e):
     ):
         return "CONDUIT"
 
-    # 실제 전주만 POLE 그룹으로 분류한다.
-    if (
+    # 실제 전주 INSERT만 POLE 그룹으로 분류한다.
+    # Polemap/ID/Class/Approval/SEQEND 같은 보조 객체는 서버 POLE 객체로 올리지 않는다.
+    entity_type = str(e.entity_type or "").strip().upper()
+    actual_pole_layer = (
         layer == "CN_L_POLE"
         or layer.startswith("CN_L_POLE_POLE")
-        or any(k in text for k in ("POLE", "전주", "POLE_CATV", "POLE-CATV"))
-    ):
+    )
+    actual_pole_block = (
+        block.startswith("POLE")
+        or "POLE-JOINT" in block
+        or "POLE_CATV" in block
+        or "POLE-CATV" in block
+    )
+    if entity_type == "INSERT" and (actual_pole_layer or actual_pole_block):
         return "POLE"
 
     # 동축선로 / 동축장비
@@ -452,6 +462,123 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     return payload
 
 
+
+_POLEMAP_GRID_RE = re.compile(r"(?<![0-9A-Za-z])(\d{4}[A-Za-z])(?![0-9A-Za-z])")
+
+
+def _polemap_grid_id(e):
+    values = [str(getattr(e, "text", "") or "")]
+    values.extend(str(v) for v in (getattr(e, "attributes", {}) or {}).values())
+    for appid, items in (getattr(e, "xdata", []) or []):
+        values.append(str(appid or ""))
+        values.extend(str(v) for v in (items or []))
+    values.extend(str(v) for v in (getattr(e, "dxf_data", {}) or {}).values())
+    for value in values:
+        m = _POLEMAP_GRID_RE.search(value)
+        if m:
+            return m.group(1).upper()
+    return ""
+
+
+def _entity_anchor_xy(e):
+    for kind, data in (getattr(e, "primitives", []) or []):
+        if kind in {"text", "point", "insert"} and len(data) >= 2:
+            try:
+                return float(data[0]), float(data[1])
+            except Exception:
+                pass
+    box = getattr(e, "bbox", None)
+    if box:
+        return (float(box[0]) + float(box[2])) / 2.0, (float(box[1]) + float(box[3])) / 2.0
+    return None
+
+
+def build_polemap_payload(scene, source_path, epsg, region_code):
+    """Extract only Polemap grid boundaries/IDs as lightweight server metadata."""
+    region_code = str(region_code or "").strip()
+    if not region_code:
+        raise RuntimeError("서버 지역코드를 선택해주세요.")
+
+    transformer = Transformer.from_crs(
+        f"EPSG:{int(epsg)}",
+        "EPSG:4326",
+        always_xy=True,
+    )
+
+    idx_points = []
+    for e in scene.entities:
+        if str(e.layer or "").strip().upper() != "CN_L_POLEMAP_IDXMAIN":
+            continue
+        grid_id = _polemap_grid_id(e)
+        anchor = _entity_anchor_xy(e)
+        if grid_id and anchor:
+            idx_points.append((grid_id, anchor[0], anchor[1]))
+
+    cells = []
+    seen = set()
+    for e in scene.entities:
+        if str(e.layer or "").strip().upper() != "CN_L_POLEMAP_BOUND":
+            continue
+
+        paths = []
+        for kind, data in (getattr(e, "primitives", []) or []):
+            if kind in {"line", "polyline", "polygon"} and len(data) >= 3:
+                try:
+                    path = [(float(x), float(y)) for x, y in data]
+                except Exception:
+                    continue
+                if len(path) >= 3:
+                    paths.append(path)
+        if not paths:
+            continue
+
+        grid_id = _polemap_grid_id(e)
+        if not grid_id and getattr(e, "bbox", None):
+            x1, y1, x2, y2 = e.bbox
+            matches = [
+                (gid, x, y)
+                for gid, x, y in idx_points
+                if x1 <= x <= x2 and y1 <= y <= y2
+            ]
+            if matches:
+                cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+                matches.sort(key=lambda row: (row[1]-cx)**2 + (row[2]-cy)**2)
+                grid_id = matches[0][0]
+
+        if not grid_id or grid_id in seen:
+            continue
+
+        # Polemap_Bound는 사각 폐합 polyline이므로 가장 긴 경계를 대표 polygon으로 사용한다.
+        path = max(paths, key=len)
+        if path[0] != path[-1]:
+            path = path + [path[0]]
+
+        polygon = []
+        for x, y in path:
+            lon, lat = transformer.transform(x, y)
+            if math.isfinite(lon) and math.isfinite(lat):
+                polygon.append([lon, lat])
+        if len(polygon) < 4:
+            continue
+        if polygon[0] != polygon[-1]:
+            polygon.append(list(polygon[0]))
+
+        seen.add(grid_id)
+        cells.append({
+            "grid_id": grid_id,
+            "polygon": polygon,
+            "source_layer": "CN_L_Polemap_Bound",
+        })
+
+    p = Path(source_path)
+    return {
+        "region_code": region_code,
+        "source_file": p.name,
+        "source_sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+        "cells": cells,
+    }
+
+
 def build_symbol_payload(scene, source_path, region_code, memo=""):
     region_code = str(region_code or "").strip()
     if not region_code:
@@ -575,10 +702,9 @@ class AdminUploadWindow(tk.Toplevel):
         desc = {
             "FIBER": "광케이블 + 광 관련 기기",
             "COAX": "동축케이블 + ONU/AMP/TAP/PASSIVE/POWER/CONNECTOR 등 동축기기",
-            "POLE": "전주 + CATV/자가주",
             "CONDUIT": "관로 + 맨홀 + 핸드홀",
+            "POLE": "실제 전주 INSERT + 전주 속성",
             "USER": "사용자 작성 건물/지형/관리구역",
-            "SYMBOL": "기기 심볼 정의 · 도면 객체와 별도 관리",
         }
 
         counts = {g: 0 for g in GROUPS}
@@ -588,12 +714,6 @@ class AdminUploadWindow(tk.Toplevel):
             if g:
                 counts[g] += 1
 
-        symbol_payload = build_symbol_payload(
-            scene,
-            source_path,
-            "PREVIEW",
-        )
-        counts["SYMBOL"] = int(symbol_payload.get("symbol_count") or 0)
         self.group_counts = counts
 
         for g in MANAGED_ITEMS:
@@ -637,7 +757,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         self.upload_all_btn = ttk.Button(
             row,
-            text="현재 도면 전체 업로드",
+            text="광 + 동축 + 관로 업로드",
             command=self.upload_all,
             state="disabled",
         )
@@ -1007,6 +1127,16 @@ class AdminUploadWindow(tk.Toplevel):
         self._begin_busy()
 
         try:
+            if group == "POLE":
+                polemap = build_polemap_payload(
+                    self.scene,
+                    self.source_path,
+                    self.epsg,
+                    region_code,
+                )
+                if polemap.get("cells"):
+                    self.client.replace_polemap(region_code, polemap)
+
             preview_count = int((self.group_counts or {}).get(group, 0))
             self.status.set(f"{group} · 업로드 패키지 생성 중")
             payload = self._run_background_task(
@@ -1132,10 +1262,7 @@ class AdminUploadWindow(tk.Toplevel):
             return
         item = selected[0]
         try:
-            if item == "SYMBOL":
-                self._upload_symbol()
-            else:
-                self._upload(item)
+            self._upload(item)
         except Exception as exc:
             messagebox.showerror(
                 "업로드 오류",
@@ -1150,15 +1277,22 @@ class AdminUploadWindow(tk.Toplevel):
             uploaded = []
             failed = []
 
-            # 전체 업로드는 FIBER/COAX/CONDUIT/USER만 순차 교체한다.
-            # POLE과 SYMBOL은 선택 업로드에서만 처리한다.
-            # 한 항목 실패가 다른 항목의 성공본을 되돌리지 않는다.
+            # 광 + 동축 + 관로만 순차 교체한다.
+            # POLE/USER는 선택 업로드로 유지한다.
+            # Polemap 격자는 성능용 경량 메타데이터이므로 함께 갱신한다.
+            try:
+                polemap = build_polemap_payload(
+                    self.scene, self.source_path, self.epsg,
+                    self._selected_region_code(),
+                )
+                if polemap.get("cells"):
+                    self.client.replace_polemap(self._selected_region_code(), polemap)
+            except Exception as exc:
+                failed.append(f"POLEMAP: {exc}")
+
             for item in FULL_UPLOAD_ITEMS:
                 try:
-                    if item == "SYMBOL":
-                        self._upload_symbol(allow_empty=True)
-                    else:
-                        self._upload(item, allow_empty=True)
+                    self._upload(item, allow_empty=True)
                     uploaded.append(item)
                 except Exception as exc:
                     failed.append(f"{item}: {exc}")
