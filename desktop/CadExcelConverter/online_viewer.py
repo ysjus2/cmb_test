@@ -1148,6 +1148,8 @@ function isConnectorFeature(f){{
   const text=(layer+' '+block).toUpperCase();
   return layer.startsWith('CN_C_CONNECTOR') ||
          block.startsWith('CONNECTOR') ||
+         block.startsWith('FO_VCONN') ||
+         block.startsWith('FO_VOCONN') ||
          text.includes(' CONNECTOR');
 }}
 
@@ -1252,7 +1254,6 @@ function symbolKind(p){{
   if(
     layer.startsWith('CN_F_CLOSURE') ||
     block.startsWith('SPL-') ||
-    block.startsWith('FO_VCONN') ||
     s.includes('CLOSURE')
   )return 'closure';
   // Center는 Closure와 같은 것으로 강제하지 않는다.
