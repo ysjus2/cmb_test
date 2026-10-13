@@ -654,6 +654,9 @@ assert "fiber_rn" in online_source
 assert "fiber_net" in online_source
 assert "block.startsWith('NETOFD')" in online_source
 assert "block.startsWith('NETFDF')" in online_source
+assert "return 'OFD';" in online_source
+assert "return 'FDF';" in online_source
+assert "const baseFont=(kind==='fiber_net')?6.6" in online_source
 assert "block.startsWith('RN-')" in online_source
 assert "block.startsWith('SPL-')" in online_source
 assert "font:700 22px Malgun Gothic;color:#d00000" in online_source
