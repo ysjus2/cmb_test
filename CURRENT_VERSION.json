@@ -1,9 +1,9 @@
 {
-  "version": "4.23_FINAL",
+  "version": "4.24_FINAL",
   "release_date": "2026-10-13",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v4.23_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v4.24_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v4.23_FINAL",
+  "release_tag": "v4.24_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -55,13 +55,14 @@
   "fiber_device_render_policy": "persist FIBER point-device feature memory and redraw it after zoom/LOD device clear operations",
   "extraction_viewer_policy": "render original CAD primitives for equipment; do not replace INSERT/POINT devices with simplified online symbols",
   "online_fiber_symbol_policy": "NETOFD/NETFDF outlined labeled rectangle; RN-* small hollow triangle; Terminal/OIM separate icon; SPL-*/FO_VCONN Closure; cell number red 2x; ONU 1.2x",
-  "closure_symbol_policy": "lower-profile inline splice enclosure with left/right cable stubs; no direction pointer",
+  "closure_symbol_policy": "short 24x12 enclosure box with clipped corners; no cable-like left/right tails; no direction marker",
   "fiber_direction_policy": "show V arrow toward last coordinate of each FIBER cable part",
   "rn_symbol_policy": "RN-8W/RN-4W hollow triangle labeled 8/4 without generic direction line",
   "extraction_default_hidden_policy": "CN_*_ID, jibun, address, info and annotation/text layers start disabled and are excluded from initial render",
   "map_base_mode_policy": "Kakao ROADMAP/HYBRID toggle; button always shows destination mode (위성지도/일반지도) without reloading network overlays",
-  "fiber_arrow_policy": "filled triangular FIBER input arrowhead; zoom-scaled L1=0.85x/L2=0.72x/L3=0.60x/L4+=0.50x; arrows rerender on zoom and stay grouped with cable selection",
+  "fiber_arrow_policy": "filled triangular FIBER input arrowhead; zoom-scaled L1=1.00x/L2=0.85x/L3=0.72x/L4+=0.60x; rerender on zoom and stay grouped with cable selection",
   "drawing_force_reload_policy": "bypass valid drawing cache, reparse source DXF, atomically replace cache only after successful rebuild",
   "roadview_policy": "로드뷰 button opens nearest Kakao Roadview within 100m of current map center; button changes to 지도보기; base-map toggle disabled while Roadview is active",
-  "cable_device_connection_policy": "logical/topology connection remains device-center based; rendered cable endpoint snaps to symbol boundary plus 3px inward overlap beneath opaque symbol to prevent visible gaps"
+  "cable_device_connection_policy": "logical/topology connection remains device-center based; rendered cable endpoint snaps to symbol boundary plus 3px inward overlap beneath opaque symbol to prevent visible gaps",
+  "fiber_terminal_policy": "keep square terminal symbol; detect L2/L3 from layer/block/attributes and render only pink L2 or L3 text inside"
 }
