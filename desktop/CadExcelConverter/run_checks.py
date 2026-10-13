@@ -628,3 +628,10 @@ assert "(currentFiberPointFeatures||[]).forEach" in online_source
 assert "Fiber device redraw failed" in online_source
 assert "광기기메모리" in online_source
 print("FIBER_DEVICE_ZOOM_PERSISTENCE_OK")
+
+# 추출/로컬 DXF Viewer는 온라인용 단순 심벌로 치환하지 않고 원본 CAD primitive를 표시한다.
+viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
+assert "기기를 온라인용 단순 심벌로 치환하지 않는다" in viewer_source
+assert "symbol_kind = _viewer_symbol_kind(ent)" not in viewer_source
+assert "for primitive_index, (kind, data) in enumerate(ent.primitives):" in viewer_source
+print("EXTRACTION_VIEWER_ORIGINAL_GEOMETRY_OK")
