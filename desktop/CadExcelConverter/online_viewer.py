@@ -1423,6 +1423,7 @@ let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
 const FIBER_QUERY_RADIUS_METERS=20000;
+const FIBER_RECENTER_METERS=10000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
@@ -1430,6 +1431,7 @@ let nonFiberLoadTimer=null;
 let authorizedRegions=[];
 let regionSwitching=false;
 let fiberViewportGeneration=0;
+let lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='';
 let authenticated=false;
 let lastServerTouch=0;
 let fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
@@ -2908,9 +2910,25 @@ async function loadFiberViewport(force=false){{
   const region=document.getElementById('region').value;
   if(!region||!map||!groupEnabled.FIBER)return 0;
 
-  const generation=++fiberViewportGeneration;
   const center=map.getCenter();
   const cLat=Number(center.getLat()),cLng=Number(center.getLng());
+
+  // 광은 20km 범위를 한 번 캐시한 뒤, 중심이 10km 이상 이동할 때만
+  // 다음 20km 범위를 추가 조회한다. 작은 지도 이동은 기존 광 오버레이/캐시를 그대로 쓴다.
+  if(
+    !force &&
+    lastFiberCacheRegion===region &&
+    Number.isFinite(lastFiberCacheLat) &&
+    Number.isFinite(lastFiberCacheLng)
+  ){{
+    const moved=distanceMeters(lastFiberCacheLat,lastFiberCacheLng,cLat,cLng);
+    if(moved<FIBER_RECENTER_METERS){{
+      applyZoomVisibility(map.getLevel());
+      return Number(fiberDiag.renderParts||0);
+    }}
+  }}
+
+  const generation=++fiberViewportGeneration;
 
   // 광은 일반 객체의 500m 조회반경과 완전히 분리한다.
   // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 20km를 Polemap 조회 범위로 사용한다.
@@ -2977,6 +2995,9 @@ async function loadFiberViewport(force=false){{
       // 중앙 셀을 브라우저가 먼저 그린 뒤 주변 셀을 순차 추가한다.
       if(i<cells.length-1)await new Promise(resolve=>setTimeout(resolve,i===0?70:20));
     }}
+    lastFiberCacheLat=cLat;
+    lastFiberCacheLng=cLng;
+    lastFiberCacheRegion=region;
     return rendered;
   }}
 
@@ -2995,8 +3016,14 @@ async function loadFiberViewport(force=false){{
   if(features.length){{
     const rendered=renderFiberFeatures(features);
     fiberDiag.cache=features.length;
+    lastFiberCacheLat=cLat;
+    lastFiberCacheLng=cLng;
+    lastFiberCacheRegion=region;
     return rendered;
   }}
+  lastFiberCacheLat=cLat;
+  lastFiberCacheLng=cLng;
+  lastFiberCacheRegion=region;
   return 0;
 }}
 
