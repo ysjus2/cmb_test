@@ -9,6 +9,8 @@ import com.kakao.vectormap.KakaoMapSdk;
 import com.kakao.vectormap.LatLng;
 import com.kakao.vectormap.MapLifeCycleCallback;
 import com.kakao.vectormap.MapView;
+import com.kakao.vectormap.MapType;
+import com.kakao.vectormap.MapOverlay;
 import com.kakao.vectormap.camera.CameraUpdateFactory;
 import com.kakao.vectormap.label.CompetitionType;
 import com.kakao.vectormap.label.Label;
@@ -69,6 +71,17 @@ final class KakaoMapRenderer implements MapRenderer {
     }
     KakaoMap getKakaoMap() { return map; }
     public String getName() { return "카카오맵"; }
+    @Override public boolean supportsHybridMap(){ return true; }
+    @Override public void setHybridMap(boolean hybrid){
+        if(map==null)return;
+        if(hybrid){
+            map.changeMapType(MapType.SKYVIEW);
+            map.showOverlay(MapOverlay.SKYVIEW_HYBRID);
+        }else{
+            map.hideOverlay(MapOverlay.SKYVIEW_HYBRID);
+            map.changeMapType(MapType.NORMAL);
+        }
+    }
     private LatLng point(MapPoint p) { return LatLng.from(p.getLatitude(), p.getLongitude()); }
 
     public void start(Runnable onReady, ErrorCallback onError) {
