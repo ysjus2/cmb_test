@@ -646,15 +646,10 @@ class Api:
         try:
             # 지역 전환은 즉시 끝낸다.
             # Polemap 셀 캐시는 화면에 필요한 셀만 읽으므로 지역 전체 fiber.json.gz를 여기서 열지 않는다.
-            self._load_cache()
+            self.cache_state = {"versions": {}, "features": {}, "coverage": []}
             self.fiber_cache = {"version": "", "features": []}
 
             group_counts = {}
-            for feature in (self.cache_state.get("features") or {}).values():
-                group = str(((feature.get("properties") or {}).get("group_id") or "")).upper()
-                if group:
-                    group_counts[group] = group_counts.get(group, 0) + 1
-
             fiber_count = 0
 
             group_summary = [
@@ -965,6 +960,75 @@ class Api:
             return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
 
 
+    def _object_cell_dir(self):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(self.region or "")
+        )
+        return CACHE_DIR / "object_cells" / safe
+
+    def _object_cell_path(self, grid_id):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(grid_id or "")
+        )
+        return self._object_cell_dir() / f"{safe}.json.gz"
+
+    def _read_object_cell_cache(self, grid_id):
+        path = self._object_cell_path(grid_id)
+        if not path.exists():
+            return None
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            return {
+                "version": str(raw.get("version") or ""),
+                "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
+            }
+        except Exception:
+            return None
+
+    def _write_object_cell_cache(self, grid_id, version, features):
+        try:
+            path = self._object_cell_path(grid_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "schema": 1,
+                        "grid_id": str(grid_id or ""),
+                        "version": str(version or ""),
+                        "features": list(features or []),
+                    },
+                    fh,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            os.replace(tmp, path)
+        except Exception:
+            pass
+
+    def _cell_object_features(self, cell, version_signature):
+        grid_id = str(cell.get("grid_id") or "")
+        west = float(cell.get("west"))
+        south = float(cell.get("south"))
+        east = float(cell.get("east"))
+        north = float(cell.get("north"))
+
+        cached = self._read_object_cell_cache(grid_id)
+        if cached and cached.get("features") and (
+            not version_signature or cached.get("version") == version_signature
+        ):
+            return cached.get("features") or [], "hit"
+
+        features = [
+            feature for feature in self._fetch_bbox_network(west, south, east, north)
+            if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+        ]
+        self._write_object_cell_cache(grid_id, version_signature, features)
+        return features, "network"
+
     def _fetch_bbox_network(self, west, south, east, north):
         limit = 2000
         max_depth = 5
@@ -1071,7 +1135,39 @@ class Api:
             east = float(east)
             north = float(north)
 
-            # 1) 최신 coverage가 있으면 순수 캐시 hit.
+            # Polemap이 등록된 지역은 지역 전체 캐시를 열지 않고 현재 화면 셀만 읽는다.
+            polemap = self.polemap(west, south, east, north)
+            cells = list((polemap or {}).get("cells") or [])
+            if cells:
+                self._refresh_versions_if_due()
+                version_signature = self._version_signature()
+                cx = (west + east) / 2.0
+                cy = (south + north) / 2.0
+                cells.sort(key=lambda c: (
+                    ((float(c.get("west")) + float(c.get("east"))) / 2.0 - cx) ** 2
+                    + ((float(c.get("south")) + float(c.get("north"))) / 2.0 - cy) ** 2
+                ))
+
+                merged = {}
+                cache_kinds = set()
+                for cell in cells:
+                    features, cache_kind = self._cell_object_features(cell, version_signature)
+                    cache_kinds.add(cache_kind)
+                    for feature in features:
+                        if self._feature_intersects(feature, west, south, east, north):
+                            merged[self._feature_key(feature)] = feature
+
+                return {
+                    "features": list(merged.values()),
+                    "cache": "hit" if cache_kinds == {"hit"} else "network",
+                    "refresh_pending": False,
+                    "polemap_cells": len(cells),
+                }
+
+            # Polemap이 없는 구형 지역만 기존 지역 캐시 방식으로 폴백한다.
+            if not (self.cache_state.get("features") or self.cache_state.get("coverage")):
+                self._load_cache()
+
             if self._cache_covers(west, south, east, north):
                 nearby = [
                     feature for feature in self._cached_features(west, south, east, north)
@@ -1079,8 +1175,6 @@ class Api:
                 ]
                 return {"features": nearby, "cache": "hit", "refresh_pending": False}
 
-            # 2) coverage가 오래됐더라도 기존 캐시가 있으면 먼저 즉시 반환한다.
-            # 서버 revision 확인/새 데이터 수신/저장은 백그라운드에서 수행한다.
             stale_nearby = [
                 feature for feature in self._cached_features(west, south, east, north)
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
@@ -1093,7 +1187,6 @@ class Api:
                     "refresh_pending": True,
                 }
 
-            # 3) 이 범위에 캐시가 전혀 없을 때만 최초 서버 수신을 기다린다.
             self._refresh_versions_if_due()
             features = self._fetch_bbox_network(west, south, east, north)
             self._commit_bbox_cache(features, west, south, east, north)
@@ -1105,6 +1198,7 @@ class Api:
         except Exception as exc:
             handled = self._handle_error(exc, {"features": []})
             return handled
+
 
 
 def html(k, local_token):
