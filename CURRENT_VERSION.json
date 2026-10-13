@@ -1,9 +1,9 @@
 {
-  "version": "4.12_FINAL",
+  "version": "4.13_FINAL",
   "release_date": "2026-10-13",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v4.12_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v4.13_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v4.12_FINAL",
+  "release_tag": "v4.13_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -50,5 +50,6 @@
   "fiber_view_policy": "keep visible old fiber cache until complete replacement is verified; multipart-safe cache keys; diagnostics show server/received/unique/cache/line/render counts",
   "cable_selection_policy": "selected fiber/coax/conduit cable is raised above devices, shown thicker with contrasting highlight color, and previous selection restores original style",
   "full_upload_policy": "full upload includes FIBER/COAX/CONDUIT only; POLE/USER/SYMBOL require selected/manual upload",
-  "lod_policy": "L5 coax cell boundary; L4 coax cell number labels; L3 fiber connected devices plus existing detailed coax devices"
+  "lod_policy": "L5 coax cell boundary; L4 coax cell number labels; L3 fiber connected devices plus existing detailed coax devices",
+  "default_layer_policy": "online viewer starts with FIBER and COAX enabled; POLE and CONDUIT remain disabled; LOD controls actual visibility"
 }
