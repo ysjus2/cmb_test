@@ -59,6 +59,13 @@ final class KakaoMapRenderer implements MapRenderer {
     }
 
     public View getView() { return view; }
+    @Override public int windowsMapLevel(){
+        if(map==null)return 6;
+        // Kakao Android zoom grows when zooming in; Web level used by Windows 1.0 shrinks.
+        // Android zoom 17/16/15 correspond to Windows L3/L4/L5 for the same detail gates.
+        int level=20-map.getZoomLevel();
+        return Math.max(1,Math.min(14,level));
+    }
     public MapViewport viewport(){
         if(map==null||view.getWidth()==0||view.getHeight()==0)return null;
         double west=180,south=90,east=-180,north=-90;
