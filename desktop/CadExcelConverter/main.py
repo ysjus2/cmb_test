@@ -702,8 +702,9 @@ class App(NetworkExtractionMixin, tk.Tk):
             iid = f"L{i}"
             self.layer_names[iid] = layer.name
             self.layer_rows[iid] = (layer.name, scene_counts.get(layer.name, 0), ", ".join(sorted(scene_types.get(layer.name, set()))))
-            # 지번은 첫 화면 가독성을 위해 기본 OFF.
-            if True:  # Zoom controls detail; ID layers must remain available at close range.
+            # 지번/주소/CN_*_ID 등 정보성 레이어는 기본 OFF.
+            # 필요하면 레이어 패널에서 사용자가 다시 켤 수 있다.
+            if not is_default_hidden(layer.name):
                 self.visible_layers.add(layer.name)
                 self.checked_layers.add(layer.name)
             self.tree.insert("", "end", iid=iid, values=self._row_values(iid))
@@ -749,6 +750,9 @@ class App(NetworkExtractionMixin, tk.Tk):
                     self._populate_layers(layers, scene)
                     self.viewer.set_source_epsg(self.epsg_var.get())
                     self.viewer.load_scene(scene)
+                    # load_scene()은 내부적으로 전체 레이어를 ON으로 초기화하므로
+                    # 기본 비활성 레이어 집합을 로딩 직후 다시 적용한다.
+                    self.viewer.set_visible_layers(self.visible_layers)
                     self.busy = False
                     self._update_status()
                     self._set_progress(100, f"DXF Viewer 준비 완료 · 객체 {len(scene.entities):,}개")
