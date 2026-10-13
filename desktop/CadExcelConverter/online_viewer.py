@@ -234,18 +234,54 @@ class Api:
         }
 
     def _fetch_all_region_features(self):
-        # 기존 검증된 전체 bbox 수집 방식을 유지한다.
-        # multipart-safe _feature_key와 더 높은 limit/depth로 part 누락만 방지한다.
+        # FIBER 전체 캐시는 해당 지역의 실제 bounds + FIBER 레이어만 수집한다.
+        # 과거처럼 전체 그룹을 전국 bbox에서 받은 뒤 FIBER만 거르면
+        # COAX/시설 밀도가 높은 지역에서 5,000개 제한을 불필요하게 소진한다.
         limit = 5000
-        max_depth = 10
+        max_depth = 14
+
+        meta = self.c.online_layers(self.region) or {}
+        layer_rows = meta.get("layers") or meta.get("items") or []
+        fiber_layers = []
+        for row in layer_rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("group_id") or "").strip().upper() != "FIBER":
+                continue
+            layer = str(row.get("layer") or "").strip()
+            if layer:
+                fiber_layers.append(layer)
+
+        if not fiber_layers:
+            return []
+
+        bounds = meta.get("bounds") if isinstance(meta, dict) else None
+        try:
+            west = float((bounds or {}).get("west"))
+            south = float((bounds or {}).get("south"))
+            east = float((bounds or {}).get("east"))
+            north = float((bounds or {}).get("north"))
+            if not (-180 <= west <= 180 and -180 <= east <= 180 and
+                    -90 <= south <= 90 and -90 <= north <= 90 and
+                    west < east and south < north):
+                raise ValueError("invalid region bounds")
+        except Exception:
+            # 메타 bounds가 없는 구형 서버만 기존 전역 bbox로 폴백한다.
+            west, south, east, north = -180.0, -90.0, 180.0, 90.0
+
+        layer_filter = ",".join(sorted(set(fiber_layers)))
 
         def fetch_cell(w, s, e, n, depth=0):
             raw = self.c.online_objects(
                 self.region,
                 f"{w},{s},{e},{n}",
                 limit=limit,
+                layers=layer_filter,
             ) or {}
-            features = list(raw.get("features") or [])
+            features = [
+                feature for feature in (raw.get("features") or [])
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
+            ]
 
             if len(features) < limit:
                 return features
@@ -271,7 +307,7 @@ class Api:
             return list(merged.values())
 
         merged = {}
-        for feature in fetch_cell(-180.0, -90.0, 180.0, 90.0):
+        for feature in fetch_cell(west, south, east, north):
             merged[self._feature_key(feature)] = feature
         return list(merged.values())
 
