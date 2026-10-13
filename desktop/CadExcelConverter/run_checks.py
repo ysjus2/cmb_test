@@ -181,6 +181,10 @@ assert "def expire_session(self):" in online_source
 assert 'if not self.c.access_token:' in online_source
 assert 'if not self.c.refresh_token:' in online_source
 assert 'self.c._sync_from_shared_state()' in online_source
+assert "self.object_cell_refreshing = set()" in online_source
+assert "def _start_object_cell_refresh" in online_source
+assert "if started >= 2:" in online_source
+assert '"pending_cells": len(missing_cells)' in online_source
 print("CROSS_PROCESS_SESSION_STATE_OK")
 
 
