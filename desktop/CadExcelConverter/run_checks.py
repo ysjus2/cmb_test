@@ -27,8 +27,8 @@ print('ONLINE_VIEWER_LOCAL_API_OK')
 from types import SimpleNamespace
 from admin_upload import classify_entity, _geometry_parts
 
-def _e(layer, block=""):
-    return SimpleNamespace(layer=layer, block_name=block)
+def _e(layer, block="", entity_type="INSERT"):
+    return SimpleNamespace(layer=layer, block_name=block, entity_type=entity_type)
 
 assert classify_entity(_e("TS_BASEMAP")) is None
 assert classify_entity(_e("TL_SCCO_SIG")) is None
@@ -39,6 +39,8 @@ assert classify_entity(_e("CN_C_AMP")) == "COAX"
 assert classify_entity(_e("CN_F_CABLE")) == "FIBER"
 assert classify_entity(_e("CONDUIT_MAIN")) == "CONDUIT"
 assert classify_entity(_e("CN_L_POLE")) == "POLE"
+assert classify_entity(_e("CN_L_POLEMAP_BOUND", entity_type="LWPOLYLINE")) is None
+assert classify_entity(_e("CN_L_POLE_ID", entity_type="ATTRIB")) is None
 assert classify_entity(_e("CN_M_USER_TEST")) == "USER"
 print("UPLOAD_CLASSIFICATION_OK")
 
@@ -175,15 +177,18 @@ assert 'layer.startswith("CN_L_POLE_LINE_")' in admin_upload_source
 assert admin_upload_source.index('return "CONDUIT"') < admin_upload_source.index('return "POLE"')
 print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
-# 지역 선택 자체는 서버를 기다리지 않고 로컬 캐시를 즉시 읽어야 한다.
+# 지역 전환은 지역 전체 광 gzip를 읽지 않고 Polemap 셀 캐시만 현재 화면부터 읽어야 한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-select_block = online_source.split("    def select(self, region):", 1)[1].split("    def objects(", 1)[0]
+select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fiber_cell_dir", 1)[0]
 assert "self._load_cache()" in select_block
-assert "self._load_fiber_cache()" in select_block
-assert "self.c.online_versions(self.region)" not in select_block
-assert "def cached_fiber(self):" in online_source
-assert 'name == "fiber_cached"' in online_source
-print("FAST_CACHE_VERSION_CHECK_OK")
+assert "self._load_fiber_cache()" not in select_block
+assert "self.fiber_cache = {\"version\": \"\", \"features\": []}" in select_block
+assert "def _fiber_cell_dir(self):" in online_source
+assert "def fiber_cell(self, grid_id, west, south, east, north, force=False):" in online_source
+assert "def polemap(self, west, south, east, north):" in online_source
+assert 'name == "fiber_cell"' in online_source
+assert 'name == "polemap"' in online_source
+print("FAST_POLEMAP_CELL_CACHE_OK")
 
 
 # 서버 버전이 달라져도 기존 화면 캐시는 유지하고 coverage만 무효화해야 한다.
@@ -575,6 +580,10 @@ assert "layers=layer_filter" in online_source
 assert "def _merge_fiber_bbox_cache(self, features):" in online_source
 assert "function loadFiberViewport(force=false)" in online_source
 assert "loadFiberViewport(false);" in online_source
+assert "apiCall('polemap',query)" in online_source
+assert "apiCall('fiber_cell'" in online_source
+assert "cells.sort((a,b)" in online_source
+assert "광 중앙 격자 " in online_source
 assert "refresh_pending" in online_source
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
@@ -611,6 +620,22 @@ full_line = [line for line in admin_upload_source.splitlines() if line.startswit
 assert '"USER"' not in full_line
 print("FULL_UPLOAD_EXCLUDES_USER_OK")
 
+# 업로드 UI/POLE/Polemap 경량화 정책.
+assert 'GROUPS = ("FIBER", "COAX", "CONDUIT", "POLE", "USER")' in admin_upload_source
+assert 'MANAGED_ITEMS = GROUPS' in admin_upload_source
+assert 'text="광 + 동축 + 관로 업로드"' in admin_upload_source
+assert 'or layer.startswith("CN_L_POLEMAP_")' in admin_upload_source
+assert 'entity_type == "INSERT" and (actual_pole_layer or actual_pole_block)' in admin_upload_source
+assert "def build_polemap_payload(" in admin_upload_source
+assert '"CN_L_POLEMAP_BOUND"' in admin_upload_source
+assert '"CN_L_POLEMAP_IDXMAIN"' in admin_upload_source
+assert "self.client.replace_polemap" in admin_upload_source
+client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+assert "def replace_polemap(" in client_source
+assert "def online_polemap(" in client_source
+assert "def group_status_v2(" in client_source
+print("POLEMAP_LIGHTWEIGHT_UPLOAD_OK")
+
 # 온라인 Viewer LOD: L5 셀경계, L4 셀번호, L3 광기기.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "kind==='cell_boundary'" in online_source
@@ -622,13 +647,25 @@ assert "if(!map||map.getLevel()>3||!groupEnabled.FIBER)return 0;" in online_sour
 assert "광기기보강" in online_source
 assert "셀번호" in online_source
 print("FIBER_DEVICE_CELL_LOD_OK")
+assert "strokeColor:isCellBoundary?'#f3a6bd':c" in online_source
+assert "strokeStyle:isCellBoundary?'dash':'solid'" in online_source
+viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
+assert 'optical_arrow_visible = lod >= layer_level("CN_F_CLOSURE")' in viewer_source
+assert "primitive_index == arrow_primitive and optical_arrow_visible" in viewer_source
+print("CELL_BOUNDARY_STYLE_AND_FIBER_ARROW_LOD_OK")
 
 # 온라인 Viewer 초기 레이어는 광+동축을 동시에 활성화한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "const groupEnabled={{FIBER:true,COAX:true,POLE:false,CONDUIT:false,USER:false}};" in online_source
 assert "<button class='layerBtn on' data-group='FIBER'>광</button>" in online_source
 assert "<button class='layerBtn on' data-group='COAX'>동축</button>" in online_source
-print("DEFAULT_FIBER_COAX_ENABLED_OK")
+fiber_btn = online_source.index("data-group='FIBER'")
+coax_btn = online_source.index("data-group='COAX'")
+conduit_btn = online_source.index("data-group='CONDUIT'")
+pole_btn = online_source.index("data-group='POLE'")
+user_btn = online_source.index("data-group='USER'")
+assert fiber_btn < coax_btn < conduit_btn < pole_btn < user_btn
+print("DEFAULT_LAYER_ORDER_AND_USER_BUTTON_OK")
 
 
 # 광기기는 Viewer 우회가 아니라 업로드 단계에서 실제 FIBER 그룹에 포함되어야 한다.
