@@ -1134,9 +1134,9 @@ const SYMBOL_LIBRARY={{
   manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
   power:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
   power_ps:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
-  closure:{{shape:'closure_box',w:24,h:12,fill:'#ffffff',stroke:'#0d47a1'}},
+  closure:{{shape:'closure_box',w:24,h:15,fill:'#DCEBFF',stroke:'#1F4E79'}},
   fiber_terminal:{{shape:'rect',w:18,h:18,fill:'#ffffff',stroke:'#1565c0',labelColor:'#ff1493'}},
-  fiber_rn:{{shape:'triangle',w:13,h:13,fill:'#ffffff',stroke:'#424242'}},
+  fiber_rn:{{shape:'text_only',w:0,h:0,fill:'#ffffff',stroke:'#424242',labelColor:'#424242'}},
   fiber_net:{{shape:'rect',w:30,h:14,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
@@ -1294,8 +1294,8 @@ function deviceLabel(p,kind){{
     if(block.startsWith('NETFDF'))return 'NETFDF';
   }}
   if(kind==='fiber_rn'){{
-    if(block.startsWith('RN-8'))return '8';
-    if(block.startsWith('RN-4'))return '4';
+    if(block.startsWith('RN-8'))return '8RN';
+    if(block.startsWith('RN-4'))return '4RN';
   }}
   if(kind==='fiber_terminal'){{
     // 터미널 외형은 동일한 사각형을 사용하고 도면의 block/layer/속성에 있는 L2/L3만 표기한다.
@@ -1332,10 +1332,10 @@ function deviceScaleForLevel(level){{
 function fiberArrowScaleForLevel(level){{
   const lv=Number(level||3);
   // 화살표는 기기보다 작게 유지하되 줌 레벨에 따라 단계적으로 조정한다.
-  if(lv<=1)return 1.00;
-  if(lv===2)return 0.85;
-  if(lv===3)return 0.72;
-  return 0.60;
+  if(lv<=1)return 1.70;
+  if(lv===2)return 1.45;
+  if(lv===3)return 1.20;
+  return 1.00;
 }}
 
 function scaledSymbolSpec(kind){{
@@ -1401,7 +1401,9 @@ function boundaryPoint(kind,cx,cy,tx,ty,deg=0){{
   const len=Math.hypot(dx,dy)||1;
   dx/=len;dy/=len;
   const d=scaledSymbolSpec(kind);
-  if(d.shape==='circle'||d.shape==='circle_x'||d.shape==='double_circle'){{
+  if(kind==='fiber_rn'){{
+    // RN은 도형을 그리지 않고 위쪽 텍스트만 표시한다.
+  }} else if(d.shape==='circle'||d.shape==='circle_x'||d.shape==='double_circle'){{
     return [cx+dx*d.r,cy+dy*d.r];
   }}
   const pts=polygonPoints(kind,cx,cy,deg);
@@ -1532,10 +1534,32 @@ function drawDevice(center,props){{
     }}
   }}
 
-  // Closure는 자체 함체 심벌만 표시한다. 케이블처럼 보이는 좌/우 꼬리와 방향선은 추가하지 않는다.
+  // Closure: 좌우 좁은 면 안쪽에 작은 연결 포트 3개씩(총 6개)을 표시한다.
   if(kind==='closure'){{
-    // no extra tails / direction marker
-  }} else if(kind!=='fiber_rn') {{
+    const halfW=(Number(d.w)||24)/2;
+    const halfH=(Number(d.h)||15)/2;
+    const portR=Math.max(0.70,0.82*(d._scale||1));
+    const portInset=Math.max(1.35,1.55*(d._scale||1));
+    const portX=[-halfW+portInset,halfW-portInset];
+    const portY=[-halfH*.46,0,halfH*.46];
+    portX.forEach(dx=>portY.forEach(dy=>{{
+      const rp=rotatePoint(cx+dx,cy+dy,cx,cy,deg);
+      const path=[];
+      for(let i=0;i<14;i++){{
+        const a=Math.PI*2*i/14;
+        path.push(pxToLatLng(rp[0]+Math.cos(a)*portR,rp[1]+Math.sin(a)*portR));
+      }}
+      const port=new kakao.maps.Polygon({{
+        path:path,strokeWeight:1,strokeColor:'#1F4E79',strokeOpacity:1,
+        fillColor:'#ffffff',fillOpacity:1
+      }});
+      port.setMap(map);
+      if(typeof port.setZIndex==='function')port.setZIndex(31);
+      registerOverlay(port,props.group_id,kind);
+      parts.push(port);
+      bindClick(port,props);
+    }}));
+  }} else if(kind!=='fiber_rn' && kind!=='fiber_terminal' && kind!=='fiber_net') {{
     const a=deg*Math.PI/180;
     const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
     const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
@@ -1545,12 +1569,21 @@ function drawDevice(center,props){{
 
   const labelText=deviceLabel(props,kind);
   if(labelText){{
+    const isRn=(kind==='fiber_rn');
+    const isRotatingLabel=(kind==='fiber_terminal'||kind==='fiber_net');
+    const baseFont=(kind==='fiber_net')?2.2:(isRn?9:10);
+    const fontPx=Math.max(kind==='fiber_net'?5:8,Math.round(baseFont*(d._scale||1)));
+    const transform=isRn
+      ? 'translate(-50%,-180%)'
+      : ('translate(-50%,-50%)'+(isRotatingLabel?' rotate('+deg+'deg)':''));
     const label=new kakao.maps.CustomOverlay({{
       position:center,
-      content:'<div style="font:700 '+Math.max(8,Math.round(10*(d._scale||1)))+'px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:translate(-50%,-50%);pointer-events:none">'+esc(labelText)+'</div>',
+      content:'<div style="white-space:nowrap;font:700 '+fontPx+'px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:'+transform+';transform-origin:center center;pointer-events:none">'+esc(labelText)+'</div>',
       yAnchor:.5,xAnchor:.5
     }});
-    label.setMap(map);registerOverlay(label,props.group_id,kind);parts.push(label);
+    label.setMap(map);
+    registerOverlay(label,props.group_id,kind);
+    parts.push(label);
   }}
 
   return {{kind,center,cx,cy,props,parts,deg}};
