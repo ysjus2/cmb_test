@@ -1291,8 +1291,8 @@ function deviceLabel(p,kind){{
     if(layer.startsWith('CN_C_DC')||block.startsWith('DC')||padded.includes(' DC ')||s.includes('DIRECTIONAL COUPLER'))return 'DC';
   }}
   if(kind==='fiber_net'){{
-    if(block.startsWith('NETOFD'))return 'NETOFD';
-    if(block.startsWith('NETFDF'))return 'NETFDF';
+    if(block.startsWith('NETOFD'))return 'OFD';
+    if(block.startsWith('NETFDF'))return 'FDF';
   }}
   if(kind==='fiber_rn'){{
     if(block.startsWith('RN-8'))return '8RN';
@@ -1572,7 +1572,7 @@ function drawDevice(center,props){{
   if(labelText){{
     const isRn=(kind==='fiber_rn');
     const isRotatingLabel=(kind==='fiber_terminal'||kind==='fiber_net');
-    const baseFont=(kind==='fiber_net')?2.2:(isRn?9:10);
+    const baseFont=(kind==='fiber_net')?6.6:(isRn?9:10);
     const fontPx=Math.max(kind==='fiber_net'?5:8,Math.round(baseFont*(d._scale||1)));
     const transform=isRn
       ? 'translate(-50%,-180%)'
