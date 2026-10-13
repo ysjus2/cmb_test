@@ -523,13 +523,22 @@ print("CONNECTOR_VIEWER_EXCLUSION_OK")
 # 기기 심벌은 줌 레벨에 따라 크기가 변하고, 줌 변경은 API 없이 메모리 재렌더한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "function deviceScaleForLevel(level)" in online_source
-assert "if(lv<=1)return 1.35;" in online_source
-assert "if(lv===2)return 1.00;" in online_source
-assert "return 0.72;" in online_source
+assert "if(lv<=1)return 1.65;" in online_source
+assert "if(lv===2)return 1.35;" in online_source
+assert "if(lv===3)return 1.12;" in online_source
+assert "return 0.90;" in online_source
+assert "function fiberArrowScaleForLevel(level)" in online_source
+assert "if(lv<=1)return 0.85;" in online_source
+assert "if(lv===2)return 0.72;" in online_source
+assert "if(lv===3)return 0.60;" in online_source
+assert "return 0.50;" in online_source
 assert "function redrawDevicesFromMemory()" in online_source
+assert "function redrawFiberArrowsForZoom()" in online_source
 assert "currentPointFeatures=pointFeatures.slice();" in online_source
 assert "currentLineFeatures=lineFeatures.slice();" in online_source
-assert "if(level<=3)redrawDevicesFromMemory();" in online_source
+assert "redrawDevicesFromMemory();" in online_source
+assert "redrawFiberArrowsForZoom();" in online_source
+assert "const edge=boundaryPoint(" in online_source
 zoom_start = online_source.index("kakao.maps.event.addListener(map,'zoom_changed'")
 zoom_end = online_source.index("centerMyLocation(false);", zoom_start)
 zoom_block = online_source[zoom_start:zoom_end]
