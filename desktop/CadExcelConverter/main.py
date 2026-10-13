@@ -477,7 +477,16 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.title(f"{APP_NAME} - {Path(p).name}")
         self._scan()
 
-    def _scan(self):
+    def _force_reload_drawing(self):
+        if self.busy:
+            return
+        if not self.input_path or not os.path.isfile(self.input_path):
+            messagebox.showinfo(APP_NAME, "먼저 DXF 파일을 열어주세요.")
+            return
+        self.status_var.set("원본 DXF 강제 다시 읽기...")
+        self._scan(force_refresh=True)
+
+    def _scan(self, force_refresh=False):
         inp = self.input_path
         if not inp or not os.path.isfile(inp):
             messagebox.showerror(APP_NAME, "먼저 파일 > 열기에서 DXF 파일을 선택해주세요.")
@@ -489,7 +498,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.busy = True
         self.status_var.set("DXF 분석 중...")
         self._show_progress()
-        self._set_progress(0, "DXF 분석 준비")
+        self._set_progress(0, "원본 DXF 다시 읽기" if force_refresh else "DXF 분석 준비")
         if self.tree is not None:
             self.tree.delete(*self.tree.get_children())
         self.layer_names.clear()
@@ -505,6 +514,7 @@ class App(NetworkExtractionMixin, tk.Tk):
                     inp,
                     log=lambda m: self.q.put(("log", m)),
                     progress=lambda p, t: self.q.put(("progress", (p, t))),
+                    force_refresh=bool(force_refresh),
                 )
                 self.q.put(("loaded", (layers, scene)))
             except Exception as e:
