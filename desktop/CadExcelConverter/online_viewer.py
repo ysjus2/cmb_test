@@ -2864,14 +2864,25 @@ async function loadObjects(force=false){{
   }}
 
   const myGeneration=++loadGeneration;
-  const visibleBounds=map.getBounds();
-  const sw=visibleBounds.getSouthWest(),ne=visibleBounds.getNorthEast();
-  const latPad=(ne.getLat()-sw.getLat())*0.12;
-  const lngPad=(ne.getLng()-sw.getLng())*0.12;
-  const west=sw.getLng()-lngPad;
-  const south=sw.getLat()-latPad;
-  const east=ne.getLng()+lngPad;
-  const north=ne.getLat()+latPad;
+  let west,east,south,north;
+  if(map&&typeof map.getBounds==='function'){{
+    const visibleBounds=map.getBounds();
+    const sw=visibleBounds.getSouthWest(),ne=visibleBounds.getNorthEast();
+    const latPad=(ne.getLat()-sw.getLat())*0.12;
+    const lngPad=(ne.getLng()-sw.getLng())*0.12;
+    west=sw.getLng()-lngPad;
+    south=sw.getLat()-latPad;
+    east=ne.getLng()+lngPad;
+    north=ne.getLat()+latPad;
+  }}else{{
+    const latDelta=QUERY_RADIUS_METERS/111320;
+    const lngScale=Math.max(0.2,Math.cos(queryLat*Math.PI/180));
+    const lngDelta=QUERY_RADIUS_METERS/(111320*lngScale);
+    west=queryLng-lngDelta;
+    east=queryLng+lngDelta;
+    south=queryLat-latDelta;
+    north=queryLat+latDelta;
+  }}
 
   setStatus('현재 화면 범위 · 불러오는 중...');
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
