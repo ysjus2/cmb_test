@@ -512,7 +512,7 @@ _POLE_KEYWORDS = (
     "pole", "pole_no", "poleno", "poleid", "pole_id"
 )
 
-_POLE_CODE_RE = re.compile(r"(?<![0-9A-Za-z])\d{4}[Xx]\d{3}(?![0-9A-Za-z])")
+_POLE_CODE_RE = re.compile(r"(?<![0-9A-Za-z])\d{4}[A-Za-z]\d{3}(?![0-9A-Za-z])")
 _ADDRESS_KEYWORDS = (
     "주소", "도로명", "지번", "address", "addr", "road", "jibun",
 )
@@ -566,7 +566,7 @@ def _extract_pole_info(attributes, xdata, dxf_data, text="", block_name=""):
     if block_name:
         check_pair("BLOCK", block_name)
 
-    # 현장 전주번호가 0000X000 형태로만 저장된 경우 키워드가 없어도 직접 인식한다.
+    # 현장 전주번호(예: 7887D812)가 키워드 없이 저장된 경우도 직접 인식한다.
     blobs = []
     blobs.extend(str(v) for v in (attributes or {}).values())
     for appid, values in (xdata or []):
