@@ -661,6 +661,21 @@ viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
 assert r'\d{4}[A-Za-z]\d{3}' in viewer_source
 print("SOURCE_POLE_REFERENCE_PRESERVATION_OK")
 
+# 업로드 단계에서 실제 POLE 좌표를 확정하고, 온라인 Viewer는 저장된 전주좌표를 직접 사용한다.
+assert "def _build_pole_location_lookup(scene, transformer):" in admin_upload_source
+assert "def _resolved_pole_refs(e, pole_lookup):" in admin_upload_source
+assert 'attrs["_cmb_pole_position"] = {' in admin_upload_source
+assert 'attrs["_cmb_position_source"] = "POLE"' in admin_upload_source
+assert '"coordinates": [float(primary["lon"]), float(primary["lat"])]' in admin_upload_source
+assert 'attrs["_cmb_original_point"] = list(original_point)' in admin_upload_source
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function storedPolePosition(f)" in online_source
+assert "const direct=fields._cmb_pole_position||{{}};" in online_source
+assert "const refs=Array.isArray(fields._cmb_pole_refs)?fields._cmb_pole_refs:[];" in online_source
+assert "const a=storedPolePosition(f);" in online_source
+assert "Viewer에서는 최근접 전주/거리/공간연산을 하지 않는다." in online_source
+print("DIRECT_STORED_POLE_POSITION_RENDER_OK")
+
 # 온라인 Viewer LOD: L5 셀경계, L4 셀번호, L3 광기기.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "kind==='cell_boundary'" in online_source
