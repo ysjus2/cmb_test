@@ -596,6 +596,10 @@ assert 'polemap_cells": len(cells)' in online_source
 assert 'self._read_object_cell_cache(grid_id)' in online_source
 assert 'self._write_object_cell_cache(grid_id, version_signature, features)' in online_source
 print("ALL_GROUP_POLEMAP_CELL_CACHE_OK")
+assert "const visibleBounds=map.getBounds();" in online_source
+assert "const latPad=(ne.getLat()-sw.getLat())*0.12;" in online_source
+assert "setStatus('현재 화면 범위 · 불러오는 중...')" in online_source
+print("VISIBLE_VIEWPORT_OBJECT_QUERY_OK")
 
 # 기존 광 캐시는 즉시 사용하고 현재 화면 새 수신분을 누적 병합한다.
 assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
