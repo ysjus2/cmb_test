@@ -597,3 +597,10 @@ assert "if(!map||map.getLevel()>3||!groupEnabled.FIBER)return 0;" in online_sour
 assert "광기기보강" in online_source
 assert "셀번호" in online_source
 print("FIBER_DEVICE_CELL_LOD_OK")
+
+# 온라인 Viewer 초기 레이어는 광+동축을 동시에 활성화한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "const groupEnabled={{FIBER:true,COAX:true,POLE:false,CONDUIT:false,USER:false}};" in online_source
+assert "<button class='layerBtn on' data-group='FIBER'>광</button>" in online_source
+assert "<button class='layerBtn on' data-group='COAX'>동축</button>" in online_source
+print("DEFAULT_FIBER_COAX_ENABLED_OK")
