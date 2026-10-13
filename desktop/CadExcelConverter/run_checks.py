@@ -648,3 +648,11 @@ assert "block.startsWith('SPL-')" in online_source
 assert "font:700 22px Malgun Gothic;color:#d00000" in online_source
 assert "onu:{{shape:'rect',w:38.4,h:19.2" in online_source
 print("ONLINE_FIBER_SYMBOL_DIFFERENTIATION_OK")
+
+# Closure는 태그형 방향선이 아니라 인라인 함체 + 좌우 연결부로 표시한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "closure:{{shape:'flat_capsule',w:32,h:11" in online_source
+assert "Closure는 방향 표시선이 아니라 실제 인라인 함체처럼 좌/우 케이블 연결부를 표시한다." in online_source
+assert "leftA=rotatePoint" in online_source
+assert "rightB=rotatePoint" in online_source
+print("ONLINE_CLOSURE_INLINE_SHAPE_OK")
