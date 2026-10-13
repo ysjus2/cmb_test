@@ -44,8 +44,18 @@ def classify_entity(e):
         return "COAX"
 
     # 광선로 / 광장비
+    # 광기기는 레이어가 일반명이어도 실제 block명이 CLOSURE/TERMINAL/
+    # CENTER/FOSC/FDF이면 반드시 FIBER 그룹으로 저장한다.
+    fiber_device_block = (
+        block.startswith("CLOSURE")
+        or block.startswith("TERMINAL")
+        or block.startswith("CENTER")
+        or block.startswith("FOSC")
+        or block.startswith("FDF")
+    )
     if (
         layer.startswith("CN_F_")
+        or fiber_device_block
         or "F_CABLE" in text
         or "FIBER" in text
         or "FOC" in text
