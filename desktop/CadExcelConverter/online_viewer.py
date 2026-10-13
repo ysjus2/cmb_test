@@ -754,9 +754,24 @@ class Api:
                 if region != self.region:
                     return
                 version = self._fiber_version()
-                features = self._fetch_fiber_bbox_network(
-                    float(west), float(south), float(east), float(north)
-                )
+                try:
+                    layers = self._fiber_layers()
+                    raw = self.c.online_grid_objects(
+                        self.region,
+                        grid_id,
+                        limit=20000,
+                        layers=",".join(layers) if layers else None,
+                    ) or {}
+                    features = [
+                        feature for feature in (raw.get("features") or [])
+                        if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
+                    ]
+                except ServerError as exc:
+                    if exc.status != 404:
+                        raise
+                    features = self._fetch_fiber_bbox_network(
+                        float(west), float(south), float(east), float(north)
+                    )
                 if region != self.region:
                     return
                 self._write_fiber_cell_cache(grid_id, version, features)
@@ -798,7 +813,22 @@ class Api:
                     "refresh_pending": True,
                 }
 
-            fresh = self._fetch_fiber_bbox_network(west, south, east, north)
+            try:
+                layers = self._fiber_layers()
+                raw = self.c.online_grid_objects(
+                    self.region,
+                    grid_id,
+                    limit=20000,
+                    layers=",".join(layers) if layers else None,
+                ) or {}
+                fresh = [
+                    feature for feature in (raw.get("features") or [])
+                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
+                ]
+            except ServerError as exc:
+                if exc.status != 404:
+                    raise
+                fresh = self._fetch_fiber_bbox_network(west, south, east, north)
             self._write_fiber_cell_cache(grid_id, version, fresh)
             return {
                 "ok": True,
@@ -1022,10 +1052,23 @@ class Api:
         ):
             return cached.get("features") or [], "hit"
 
-        features = [
-            feature for feature in self._fetch_bbox_network(west, south, east, north)
-            if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
-        ]
+        try:
+            raw = self.c.online_grid_objects(
+                self.region,
+                grid_id,
+                limit=20000,
+            ) or {}
+            features = [
+                feature for feature in (raw.get("features") or [])
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+            ]
+        except ServerError as exc:
+            if exc.status != 404:
+                raise
+            features = [
+                feature for feature in self._fetch_bbox_network(west, south, east, north)
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+            ]
         self._write_object_cell_cache(grid_id, version_signature, features)
         return features, "network"
 
