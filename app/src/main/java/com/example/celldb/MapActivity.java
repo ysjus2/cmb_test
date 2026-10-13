@@ -86,7 +86,7 @@ public class MapActivity extends Activity {
     private final android.os.Handler serverHandler=new android.os.Handler(android.os.Looper.getMainLooper());
     private int serverGeneration;
     private String viewportKey="",pendingViewportKey="";
-    private String drawingLevel="overview";
+    private String drawingLevel="L6";
     private long viewportChangedAt;
     private boolean foreground;
     private long lastServerFetch;
@@ -426,7 +426,7 @@ public class MapActivity extends Activity {
         String group=group(r);
         if(!DrawingLevel.groupVisible(drawingLevel,group)||!DrawingLevel.recordVisible(drawingLevel,r))return false;
         for(int i=0;i<categories.length;i++) if(categories[i].equals(group))
-            return layers[i] && layerPrefs().getBoolean("sublayer_"+LayerGroups.key(r),true);
+            return layers[i];
         return false;
     }
 
@@ -778,7 +778,7 @@ public class MapActivity extends Activity {
             org.json.JSONObject info=serverLayers.optJSONObject(i);if(info==null)continue;
             CadRecord r=new CadRecord();r.layer=info.optString("layer");r.category=info.optString("group_id").equals("POLE")?"FACILITY":info.optString("group_id");
             String assigned=group(r);
-            for(int j=0;j<categories.length;j++)if(categories[j].equals(assigned)&&layers[j]&&DrawingLevel.groupVisible(drawingLevel,assigned)&&layerPrefs().getBoolean("sublayer_"+LayerGroups.key(r),true))selected.add(r.layer);
+            for(int j=0;j<categories.length;j++)if(categories[j].equals(assigned)&&layers[j]&&DrawingLevel.groupVisible(drawingLevel,assigned))selected.add(r.layer);
         }
         return android.text.TextUtils.join(",",selected);
     }
@@ -866,7 +866,7 @@ public class MapActivity extends Activity {
         if(server==null||serverDataset.isEmpty()||!mapReady)return;
         MapViewport visible=map.viewport();if(visible==null)return;
 
-        String level=DrawingLevel.forViewport(visible);
+        String level=DrawingLevel.forWindowsLevel(map.windowsMapLevel());
         if(!level.equals(drawingLevel)){drawingLevel=level;renderMarkers();}
         regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel)
                 +" · 반경 "+displayRadiusMeters+"m");
