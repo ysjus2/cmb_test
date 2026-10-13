@@ -16,6 +16,7 @@ CFG = APP_DATA_DIR / "online.json"
 CACHE_DIR = APP_DATA_DIR / "online_cache"
 FIBER_CACHE_SCHEMA = 2
 SESSION_ENDED_EXIT_CODE = 41
+WINDOWS_RELEASE = "4.22_FINAL"
 
 
 def key():
