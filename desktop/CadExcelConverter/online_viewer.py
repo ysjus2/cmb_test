@@ -1425,6 +1425,7 @@ let QUERY_RADIUS_METERS=500;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
+let nonFiberLoadTimer=null;
 let authorizedRegions=[];
 let regionSwitching=false;
 let fiberViewportGeneration=0;
@@ -2998,6 +2999,17 @@ async function loadFiberViewport(force=false){{
   return 0;
 }}
 
+function queueNonFiberLoad(force=false,delay=120){{
+  if(nonFiberLoadTimer){{
+    clearTimeout(nonFiberLoadTimer);
+    nonFiberLoadTimer=null;
+  }}
+  nonFiberLoadTimer=setTimeout(()=>{{
+    nonFiberLoadTimer=null;
+    loadObjects(force);
+  }},Math.max(0,Number(delay)||0));
+}}
+
 async function loadObjects(force=false){{
   const region=document.getElementById('region').value;
   if(!region||!map)return;
@@ -3325,7 +3337,8 @@ async function activateRegion(region){{
     setStatus((info?info.name:region)+' · 현재 화면 광 격자 확인 중');
 
     await loadFiberViewport(false);
-    await loadObjects(true);
+    // 광을 먼저 실제 지도에 표시한 뒤 동축/기기는 후순위로 조회한다.
+    queueNonFiberLoad(true,140);
     return true;
   }} finally {{
     regionSwitching=false;
@@ -3385,9 +3398,9 @@ async function bootstrapAuth(){{
 }}
 
 function bindUi(){{
-  document.getElementById('reload').onclick=()=>{{
-    loadFiberViewport(true);
-    loadObjects(true);
+  document.getElementById('reload').onclick=async()=>{{
+    await loadFiberViewport(true);
+    queueNonFiberLoad(true,140);
   }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
   document.getElementById('mapHybrid').onclick=()=>{{
@@ -3454,7 +3467,11 @@ function bindUi(){{
         if(restored>0){{
           setStatus('L'+map.getLevel()+' · '+g+' 캐시 즉시 표시 · '+restored+'개');
         }}else{{
-          loadObjects(true);
+          if(g==='FIBER'){{
+            loadFiberViewport(true);
+          }}else{{
+            queueNonFiberLoad(true,0);
+          }}
         }}
       }}else{{
         const hidden=hideGroupOverlays(g);
@@ -3488,7 +3505,9 @@ function centerMyLocation(loadAfter){{
       map.setCenter(new kakao.maps.LatLng(lat,lng));
       map.setLevel(3);
       setStatus('현재 위치 · 반경 '+QUERY_RADIUS_METERS+'m');
-      if(loadAfter)loadObjects(true);
+      if(loadAfter){{
+        loadFiberViewport(true).then(()=>queueNonFiberLoad(true,140));
+      }}
     }},
     err=>{{
       setStatus('현재 위치 확인 실패');
@@ -3511,8 +3530,10 @@ function initMap(){{
       kakao.maps.event.addListener(map,'idle',async()=>{{
         const ok=await autoRegionForMapCenter();
         if(ok){{
-          loadFiberViewport(false);
-          loadObjects();
+          // 지도 이동 시 광이 항상 최우선이다.
+          // 중앙 광 셀을 표시한 다음 동축/기기는 후순위로 시작한다.
+          await loadFiberViewport(false);
+          queueNonFiberLoad(false,140);
         }}
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
@@ -3542,8 +3563,8 @@ function initMap(){{
       setTimeout(async()=>{{
         const ok=await autoRegionForMapCenter();
         if(ok){{
-          loadFiberViewport(false);
-          loadObjects(true);
+          await loadFiberViewport(false);
+          queueNonFiberLoad(true,140);
         }}
       }},250);
     }});
