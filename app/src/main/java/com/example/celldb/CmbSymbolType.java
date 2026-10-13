@@ -9,7 +9,7 @@ final class CmbSymbolType {
         String s=(layer==null?"":layer).toUpperCase(Locale.ROOT);
         String normalized=" "+s.replace('-',' ').replace('_',' ')+" ";
 
-        if(s.contains("ANNO")||s.contains("CONNECTOR"))return "HIDDEN";
+        if(s.contains("ANNO")||s.contains("CONNECTOR")||s.contains("FO_VCONN")||s.contains("FO_VOCONN"))return "HIDDEN";
 
         if(s.contains("MANHOLE")||s.contains("HANDHOLE")||s.contains("맨홀"))
             return (s.contains("RECT")||s.contains("SQUARE")||s.contains("사각"))?"MH_RECT":"MH";
@@ -27,7 +27,15 @@ final class CmbSymbolType {
 
         if(s.contains("CN_C_POWER")||s.contains("POWER")||normalized.contains(" PS "))return "PWR_PS";
 
-        if(s.contains("CN_F_CLOSURE")||s.contains("CN_F_TERMINAL")||s.contains("CLOSURE")||s.contains("TERMINAL"))return "FBR";
+        // Windows v4.27 optical symbol policy.
+        if(s.contains("NETOFD"))return "FIBER_OFD";
+        if(s.contains("NETFDF"))return "FIBER_FDF";
+        if(s.contains("RN-8")||s.contains("RN_8"))return "FIBER_RN8";
+        if(s.contains("RN-4")||s.contains("RN_4"))return "FIBER_RN4";
+        if(s.contains("OIM-L2")||s.contains("OIM_L2"))return "FIBER_L2";
+        if(s.contains("OIM-L3")||s.contains("OIM_L3"))return "FIBER_L3";
+        if(s.contains("CN_F_TERMINAL")||s.contains("TERMINAL"))return "FIBER_TERMINAL";
+        if(s.contains("CN_F_CLOSURE")||s.contains("CLOSURE")||s.contains("SPL-"))return "FIBER_CLOSURE";
         if(s.contains("CN_F_CENTER")||s.contains("CENTER")||s.contains("CABINET"))return "CAB";
 
         if(s.contains("PASSIVE")||s.contains("SPLIT"))return "SPL";
