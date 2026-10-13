@@ -772,7 +772,9 @@ public class MapActivity extends Activity {
 
     private void showCachedAround(MapPoint center){
         if(center==null)return;
-        double keepRadius=Math.max(displayRadiusMeters*1.6,displayRadiusMeters+refreshDistanceMeters);
+        MapViewport visible=mapReady?map.viewport():null;
+        int basis=visible==null?displayRadiusMeters:radiusForViewport(visible);
+        double keepRadius=Math.max(basis*1.5,basis+refreshDistanceMeters);
         allRecords=ServerMapCache.around(cacheState,center,keepRadius);
         renderMarkers();
     }
@@ -879,6 +881,21 @@ public class MapActivity extends Activity {
         });
     }
 
+    private int radiusForViewport(MapViewport v){
+        if(v==null)return displayRadiusMeters;
+        MapPoint center=new MapPoint((v.south+v.north)/2.0,(v.west+v.east)/2.0);
+        MapPoint corner=new MapPoint(v.north,v.east);
+        double halfDiagonal=center.distanceToAsDouble(corner);
+        return Math.max(displayRadiusMeters,(int)Math.ceil(halfDiagonal*1.20));
+    }
+
+    private MapViewport expandedViewport(MapViewport v){
+        if(v==null)return null;
+        double latPad=(v.north-v.south)*0.10;
+        double lonPad=(v.east-v.west)*0.10;
+        return new MapViewport(v.west-lonPad,v.south-latPad,v.east+lonPad,v.north+latPad);
+    }
+
     private MapViewport viewportAround(MapPoint center,int radiusMeters){
         double lat=center.getLatitude(),lng=center.getLongitude();
         double latDelta=radiusMeters/111320.0;
@@ -911,8 +928,8 @@ public class MapActivity extends Activity {
 
         String level=DrawingLevel.forWindowsLevel(map.windowsMapLevel());
         if(!level.equals(drawingLevel)){drawingLevel=level;renderMarkers();}
-        regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel)
-                +" · 반경 "+displayRadiusMeters+"m");
+        final int viewportRadius=radiusForViewport(visible);
+        regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));
 
         String filter=serverLayerFilter();
         if(filter.isEmpty())return;
@@ -923,7 +940,7 @@ public class MapActivity extends Activity {
         );
 
         boolean moved=lastQueryCenter==null
-                || lastQueryCenter.distanceToAsDouble(center)>=refreshDistanceMeters;
+                || lastQueryCenter.distanceToAsDouble(center)>=Math.max(25,Math.min(refreshDistanceMeters,viewportRadius/4));
         boolean modeChanged=!filter.equals(lastQueryFilter)||!drawingLevel.equals(lastQueryLevel);
         long now=android.os.SystemClock.uptimeMillis();
         String cacheVersionKey=ServerMapCache.versionKey(serverVersions,filter);
@@ -933,7 +950,7 @@ public class MapActivity extends Activity {
         if(ServerMapCache.covered(
                 cacheState,
                 center,
-                displayRadiusMeters,
+                viewportRadius,
                 filter,
                 cacheVersionKey
         )){
@@ -941,13 +958,14 @@ public class MapActivity extends Activity {
             lastQueryFilter=filter;
             lastQueryLevel=drawingLevel;
             showCachedAround(center);
-            status.setText("로컬 캐시 · 주변 "+displayRadiusMeters+"m");
+            status.setText("로컬 캐시 · 현재 화면 범위");
             return;
         }
 
         if(serverTask!=null&&!serverTask.isDone())return;
 
-        final MapViewport queryViewport=viewportAround(center,displayRadiusMeters);
+        final MapViewport queryViewport=expandedViewport(visible);
+        final int queryRadius=viewportRadius;
         final MapPoint queryCenter=center;
         final String queryFilter=filter;
         final String queryLevel=drawingLevel;
@@ -956,7 +974,7 @@ public class MapActivity extends Activity {
         final ServerApiClient client=server;
         final String dataset=serverDataset;
 
-        status.setText("주변 "+displayRadiusMeters+"m 서버 자료를 갱신하는 중…");
+        status.setText("현재 화면 범위 서버 도면을 불러오는 중…");
         serverTask=serverWorker.submit(()->{
             try{
                 ArrayList<CadRecord> rows=client.onlineObjects(dataset,queryViewport,queryFilter);
@@ -967,9 +985,18 @@ public class MapActivity extends Activity {
                     lastQueryCenter=queryCenter;
                     lastQueryFilter=queryFilter;
                     lastQueryLevel=queryLevel;
-                    mergeServerRows(rows,queryCenter,queryFilter,queryVersionKey);
-                    regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel)
-                            +" · 반경 "+displayRadiusMeters+"m");
+                    ServerMapCache.merge(
+                            cacheState,
+                            rows,
+                            queryCenter,
+                            queryRadius,
+                            queryFilter,
+                            queryVersionKey
+                    );
+                    mapCache.save(serverDataset,cacheState);
+                    allRecords=ServerMapCache.around(cacheState,queryCenter,Math.max(queryRadius*1.35,queryRadius+refreshDistanceMeters));
+                    renderMarkers();
+                    regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));
                 });
             }catch(Exception error){runOnUiThread(()->{
                 if(destroyed||generation!=serverGeneration)return;
