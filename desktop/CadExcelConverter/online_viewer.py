@@ -1276,6 +1276,10 @@ function deviceLabel(p,kind){{
     if(block.startsWith('NETOFD'))return 'NETOFD';
     if(block.startsWith('NETFDF'))return 'NETFDF';
   }}
+  if(kind==='fiber_rn'){{
+    if(block.startsWith('RN-8'))return '8';
+    if(block.startsWith('RN-4'))return '4';
+  }}
 
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
 }}
@@ -1506,7 +1510,7 @@ function drawDevice(center,props){{
       parts.push(line);
       bindClick(line,props);
     }});
-  }} else {{
+  }} else if(kind!=='fiber_rn') {{
     const a=deg*Math.PI/180;
     const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
     const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
@@ -2018,6 +2022,39 @@ function renderFiberPointFallback(features){{
   return count;
 }}
 
+function drawFiberInputArrow(path,color){{
+  if(!map||!Array.isArray(path)||path.length<2)return 0;
+  const tipLatLng=path[path.length-1];
+  const prevLatLng=path[path.length-2];
+  const tipPx=latLngToPx(tipLatLng);
+  const prevPx=latLngToPx(prevLatLng);
+  let vx=tipPx.x-prevPx.x,vy=tipPx.y-prevPx.y;
+  const len=Math.hypot(vx,vy);
+  if(!Number.isFinite(len)||len<2)return 0;
+  vx/=len;vy/=len;
+
+  // 마지막 좌표가 광케이블의 IN 방향이다. 기기에 가리지 않도록 끝점보다 조금 앞에 V 화살표를 둔다.
+  const tip=[tipPx.x-vx*5,tipPx.y-vy*5];
+  const base=[tipPx.x-vx*15,tipPx.y-vy*15];
+  const px=-vy,py=vx,wing=3.5;
+  const left=[base[0]+px*wing,base[1]+py*wing];
+  const right=[base[0]-px*wing,base[1]-py*wing];
+
+  [[left,tip],[right,tip]].forEach(seg=>{{
+    const l=new kakao.maps.Polyline({{
+      path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
+      strokeWeight:2,
+      strokeColor:String(color||'#1e88e5'),
+      strokeOpacity:1,
+      strokeStyle:'solid'
+    }});
+    l.setMap(map);
+    if(typeof l.setZIndex==='function')l.setZIndex(7);
+    registerOverlay(l,'FIBER','fiber_input_arrow');
+  }});
+  return 1;
+}}
+
 function renderFiberFeatures(features){{
   if(!map)return 0;
   clearGroupOverlays('FIBER');
@@ -2055,6 +2092,7 @@ function renderFiberFeatures(features){{
       if(typeof l.setZIndex==='function')l.setZIndex(5);
       registerOverlay(l,'FIBER');
       bindCableClick(l,p,c,4,5);
+      drawFiberInputArrow(path,c);
       rendered++;
     }});
   }});
