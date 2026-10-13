@@ -1866,8 +1866,12 @@ function applyZoomVisibility(mapLevel){{
     let visible=true;
     if(group==='FIBER'){{
       visible=groupEnabled.FIBER===true;
-      // 광 선로(kind 없음)는 항상 표시하고, 광 기기(kind 있음)는 상세 줌에서만 표시한다.
+      // 광 선로는 계속 표시하고 광 기기는 L3부터 표시한다.
       if(visible && kind)visible=(mapLevel<=3);
+    }}else if(group==='COAX' && kind==='cell_boundary'){{
+      visible=groupEnabled.COAX===true && mapLevel<=5;
+    }}else if(group==='COAX' && kind==='cell_number'){{
+      visible=groupEnabled.COAX===true && mapLevel<=3;
     }}else if(mapLevel>3){{
       visible=false;
     }}else if(kind){{
@@ -1886,6 +1890,79 @@ function applyZoomVisibility(mapLevel){{
     const g=String(overlayGroups.get(selectedCable)||'').toUpperCase();
     if(!groupEnabled[g] || (g!=='FIBER' && mapLevel>3))restoreSelectedCable();
   }}
+}}
+
+function isCellBoundaryFeature(f){{
+  const p=f.properties||{{}};
+  const layer=String(p.layer||'').trim().toUpperCase();
+  return layer.startsWith('CN_C_CELLBOUND') || layer.includes('CELLBOUND');
+}}
+
+function isCellNumberFeature(f){{
+  const p=f.properties||{{}};
+  const layer=String(p.layer||'').trim().toUpperCase();
+  return layer.startsWith('CN_C_CELLNO') || layer.includes('CELLNO');
+}}
+
+function cellNumberText(p){{
+  const a=p.attributes||{{}},f=a.fields||a,d=f._cmb_dxf_data||{{}};
+  const candidates=[
+    f.CELLNO,f.CELL_NO,f.CELLNUMBER,f.CELL_NUMBER,
+    f.NO,f.NUMBER,f.NAME,f.TEXT,f.LABEL,
+    d.text,d.TEXT,d.tag,d.TAG,
+    p.name,p.block_name
+  ];
+  for(const v of candidates){{
+    if(v!==null&&v!==undefined&&String(v).trim()!=='')return String(v).trim();
+  }}
+  return '';
+}}
+
+function renderCellNumberFeature(f){{
+  const g=f.geometry||{{}},p=f.properties||{{}};
+  if(g.type!=='Point')return null;
+  const xy=g.coordinates||[];
+  if(!Array.isArray(xy)||xy.length<2||
+     !Number.isFinite(Number(xy[0]))||!Number.isFinite(Number(xy[1])))return null;
+  const text=cellNumberText(p);
+  if(!text)return null;
+  const content='<div style="background:rgba(255,255,255,.88);border:1px solid #475569;border-radius:3px;padding:1px 4px;font:700 11px Malgun Gothic;color:#0f172a;white-space:nowrap;pointer-events:none">'+esc(text)+'</div>';
+  const o=new kakao.maps.CustomOverlay({{
+    position:new kakao.maps.LatLng(Number(xy[1]),Number(xy[0])),
+    content:content,
+    xAnchor:.5,yAnchor:.5,zIndex:24
+  }});
+  o.setMap(map);
+  registerOverlay(o,'COAX','cell_number');
+  return o;
+}}
+
+function renderFiberPointFallback(features){{
+  if(!map||map.getLevel()>3||!groupEnabled.FIBER)return 0;
+  let count=0;
+  const seen=new Set();
+  (features||[]).forEach(f=>{{
+    if((f.geometry||{{}}).type!=='Point')return;
+    const p=f.properties||{{}};
+    if(String(p.group_id||'').toUpperCase()!=='FIBER')return;
+    if(isInfoPointFeature(f)||isConnectorFeature(f))return;
+    const a=p.attributes||{{}},fields=a.fields||a;
+    if(fields._cmb_is_device===false)return;
+    const kind=symbolKind(p);
+    const entityType=String(p.entity_type||'').toUpperCase();
+    const explicitDevice=(fields._cmb_is_device===true);
+    if(kind==='generic' && entityType!=='INSERT' && !explicitDevice)return;
+    const xy=(f.geometry||{{}}).coordinates||[];
+    if(!Array.isArray(xy)||xy.length<2)return;
+    const key=kind+'|'+Number(xy[0]).toFixed(6)+'|'+Number(xy[1]).toFixed(6);
+    if(seen.has(key))return;
+    seen.add(key);
+    try{{
+      drawDevice(new kakao.maps.LatLng(Number(xy[1]),Number(xy[0])),p);
+      count++;
+    }}catch(e){{console.warn('Fiber fallback device render failed',e);}}
+  }});
+  return count;
 }}
 
 function renderFiberFeatures(features){{
@@ -1975,13 +2052,14 @@ async function loadObjects(force=false){{
   const queryLng=Number(center.getLng());
   const mapLevelNow=map.getLevel();
   const detailMode=mapLevelNow<=3;
-  // 광은 모든 줌에서 유지한다. L4 이상에서는 장비/동축/전주/관로만 제거한다.
-  if(!detailMode){{
+  const networkQueryMode=mapLevelNow<=5;
+  // L6 이상은 광 캐시만 유지한다. L4~L5는 셀경계 조회를 위해 주변 객체를 계속 읽는다.
+  if(!networkQueryMode){{
     applyZoomVisibility(mapLevelNow);
     lastQueryLat=queryLat;
     lastQueryLng=queryLng;
     lastDetailMode=false;
-    setStatus('L'+mapLevelNow+' · 광 캐시 표시 · 기기는 L3 이하에서 숨김'+fiberDiagText());
+    setStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText());
     return;
   }}
 
@@ -2003,7 +2081,6 @@ async function loadObjects(force=false){{
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
-  if(map.getLevel()>3){{applyZoomVisibility(map.getLevel());return;}}
   if(r.error){{setStatus(r.error);return}}
   lastQueryLat=queryLat;
   lastQueryLng=queryLng;
@@ -2020,9 +2097,12 @@ async function loadObjects(force=false){{
     if(layerName.startsWith('TS_')||layerName==='TL_SCCO_SIG'||isAnnoFeature(f)||isConnectorFeature(f)) return false;
 
     const group=String(p.group_id||'').toUpperCase();
-
-    // 광은 별도 영구 캐시 레이어에서 그리므로 주변 객체 갱신에서는 제외한다.
     if(group==='FIBER')return false;
+
+    if(group==='COAX' && groupEnabled.COAX===true){{
+      if(isCellBoundaryFeature(f))return mapLevel<=5;
+      if(isCellNumberFeature(f))return mapLevel<=3;
+    }}
     return isMaxDetail && groupEnabled[group]===true;
   }});
   function deviceFeatureKey(f){{
@@ -2043,6 +2123,7 @@ async function loadObjects(force=false){{
   const pointCandidates=features.filter(f=>{{
     if((f.geometry||{{}}).type!=='Point')return false;
     const p=f.properties||{{}},a=p.attributes||{{}},fields=a.fields||a;
+    if(isCellNumberFeature(f))return false;
     if(isInfoPointFeature(f))return false;
     if(isConnectorFeature(f))return false;
 
@@ -2141,7 +2222,10 @@ async function loadObjects(force=false){{
       }});
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(5);
-      const cableKind=(group==='COAX')?coaxCableOverlayKind(f,devices):'';
+      let cableKind='';
+      if(group==='COAX'){{
+        cableKind=isCellBoundaryFeature(f)?'cell_boundary':coaxCableOverlayKind(f,devices);
+      }}
       registerOverlay(l,group,cableKind);
       if(['FIBER','COAX','CONDUIT'].includes(group)){{
         bindCableClick(l,p,c,4,5);
@@ -2155,6 +2239,14 @@ async function loadObjects(force=false){{
     }});
   }});
 
+  let cellNumberCount=0;
+  if(mapLevel<=3 && groupEnabled.COAX){{
+    allFeatures.filter(isCellNumberFeature).forEach(f=>{{
+      if(renderCellNumberFeature(f))cellNumberCount++;
+    }});
+  }}
+
+  const fiberFallbackDevices=renderFiberPointFallback(allFeatures);
   const directionalInputArrows=applyDirectionalInputArrows(devices,lineFeatures);
   applyZoomVisibility(mapLevel);
 
@@ -2191,6 +2283,8 @@ async function loadObjects(force=false){{
     ' · '+cableDiag+
     ' · 표시 '+features.length+
     ' · 심볼 '+devices.length+
+    ' · 광기기보강 '+fiberFallbackDevices+
+    ' · 셀번호 '+cellNumberCount+
     ' · 입력화살표 '+directionalInputArrows+
     ' · 렌더선 '+renderedLines+
     ' [F:'+String(renderedByGroup.FIBER||0)+
