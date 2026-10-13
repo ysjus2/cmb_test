@@ -2023,7 +2023,7 @@ function renderFiberPointFallback(features){{
 }}
 
 function drawFiberInputArrow(path,color){{
-  if(!map||!Array.isArray(path)||path.length<2)return 0;
+  if(!map||typeof map.getProjection!=='function'||!Array.isArray(path)||path.length<2)return 0;
   const tipLatLng=path[path.length-1];
   const prevLatLng=path[path.length-2];
   const tipPx=latLngToPx(tipLatLng);
