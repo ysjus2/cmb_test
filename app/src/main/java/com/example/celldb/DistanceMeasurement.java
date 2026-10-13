@@ -42,6 +42,11 @@ final class DistanceMeasurement {
         for(int i=0;i<completed.size();i++)if(completed.get(i).id==id){completed.remove(i);return true;}
         return false;
     }
+    void clearAll(){
+        active=false;
+        current.clear();
+        completed.clear();
+    }
     static double distance(Point a,Point b){
         double lat=Math.toRadians(b.lat-a.lat),lon=Math.toRadians(b.lon-a.lon);
         double h=Math.sin(lat/2)*Math.sin(lat/2)+Math.cos(Math.toRadians(a.lat))*Math.cos(Math.toRadians(b.lat))*Math.sin(lon/2)*Math.sin(lon/2);
