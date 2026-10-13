@@ -1,9 +1,9 @@
 {
-  "version": "4.21_FINAL",
+  "version": "4.22_FINAL",
   "release_date": "2026-10-13",
   "platform": "Windows x64",
   "execution": "portable onefile",
-  "filename": "CMB_DXF_Viewer_v4.21_FINAL.exe",
+  "filename": "CMB_DXF_Viewer_v4.22_FINAL.exe",
   "source_directory": "desktop/CadExcelConverter",
   "server_connected": true,
   "viewer_bridge": "local_http_api",
@@ -19,7 +19,7 @@
   "legacy_region_aliases_enabled": false,
   "dxf_filename_region_detection": true,
   "dxf_upload_region_rule": "exact canonical filename stem equals server region id",
-  "release_tag": "v4.21_FINAL",
+  "release_tag": "v4.22_FINAL",
   "online_rendering": "persistent fiber cache + cache-first viewport + instant layer hide/show restore",
   "map_labels": "device IDs/pole numbers/address text hidden; details on selection only",
   "line_color_policy": "preserve CAD display_color/true_color; fallback distinguishes fiber/coax/cell-boundary/connection lines",
@@ -59,7 +59,8 @@
   "fiber_direction_policy": "show V arrow toward last coordinate of each FIBER cable part",
   "rn_symbol_policy": "RN-8W/RN-4W hollow triangle labeled 8/4 without generic direction line",
   "extraction_default_hidden_policy": "CN_*_ID, jibun, address, info and annotation/text layers start disabled and are excluded from initial render",
-  "map_base_mode_policy": "Kakao ROADMAP/HYBRID toggle without changing network overlays",
+  "map_base_mode_policy": "Kakao ROADMAP/HYBRID toggle; button always shows destination mode (위성지도/일반지도) without reloading network overlays",
   "fiber_arrow_policy": "filled triangular FIBER input arrowhead; cable and arrow select/highlight/restore as one group",
-  "drawing_force_reload_policy": "bypass valid drawing cache, reparse source DXF, atomically replace cache only after successful rebuild"
+  "drawing_force_reload_policy": "bypass valid drawing cache, reparse source DXF, atomically replace cache only after successful rebuild",
+  "roadview_policy": "로드뷰 button opens nearest Kakao Roadview within 100m of current map center; button changes to 지도보기; base-map toggle disabled while Roadview is active"
 }
