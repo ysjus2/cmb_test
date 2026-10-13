@@ -195,6 +195,9 @@ assert "await loadFiberViewport(false);" in online_source
 assert "queueNonFiberLoad(false,140);" in online_source
 assert "queueNonFiberLoad(true,140);" in online_source
 assert "const FIBER_QUERY_RADIUS_METERS=20000;" in online_source
+assert "const FIBER_RECENTER_METERS=10000;" in online_source
+assert "lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='';" in online_source
+assert "if(moved<FIBER_RECENTER_METERS)" in online_source
 assert "const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;" in online_source
 assert "const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);" in online_source
 print("CROSS_PROCESS_SESSION_STATE_OK")
