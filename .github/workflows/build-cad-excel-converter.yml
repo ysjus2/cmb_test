@@ -66,7 +66,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v4.22_FINAL
-          name: CMB DXF Viewer v4.21 FINAL
+          name: CMB DXF Viewer v4.22 FINAL
           body: |
             Windows v4.22: fix base-map toggle handler collision; normal mode button shows 위성지도 and satellite mode shows 일반지도; add Kakao Roadview / 지도보기 toggle from current map center; retain filled FIBER arrowheads, grouped cable selection, force drawing reload, RN labels, default-hidden info layers, differentiated fiber devices, red cell numbers and 1.2x ONU.
           target_commitish: ${{ github.sha }}
