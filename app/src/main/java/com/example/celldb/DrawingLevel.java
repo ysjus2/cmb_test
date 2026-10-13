@@ -10,6 +10,13 @@ final class DrawingLevel {
         return "L"+Math.max(1,Math.min(14,level));
     }
 
+    // Legacy server detail_level compatibility. Screen visibility no longer uses these names.
+    static String forViewport(MapViewport v){
+        if(v==null)return "overview";
+        double meters=(v.east-v.west)*111320*Math.cos(Math.toRadians((v.north+v.south)/2));
+        return meters>5000?"overview":meters>1000?"network":"facilities";
+    }
+
     static int number(String level){
         if(level==null)return 6;
         try{
