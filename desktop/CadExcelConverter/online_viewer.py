@@ -1300,8 +1300,8 @@ function deviceLabel(p,kind){{
   }}
   if(kind==='fiber_terminal'){{
     // 터미널 외형은 동일한 사각형을 사용하고 도면의 block/layer/속성에 있는 L2/L3만 표기한다.
-    if(/(^|[^A-Z0-9])L2([^A-Z0-9]|$)/.test(s))return 'L2';
-    if(/(^|[^A-Z0-9])L3([^A-Z0-9]|$)/.test(s))return 'L3';
+    if(block.startsWith('OIM-L2') || /(^|[^A-Z0-9])L2([^A-Z0-9]|$)/.test(s))return 'L2';
+    if(block.startsWith('OIM-L3') || /(^|[^A-Z0-9])L3([^A-Z0-9]|$)/.test(s))return 'L3';
   }}
 
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
