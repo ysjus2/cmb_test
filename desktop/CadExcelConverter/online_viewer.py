@@ -46,6 +46,7 @@ class Api:
         self.version_check_lock = threading.Lock()
         self.cache_lock = threading.RLock()
         self.bbox_refreshing = set()
+        self.fiber_bbox_refreshing = set()
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
@@ -672,6 +673,145 @@ class Api:
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def _fiber_layers(self):
+        try:
+            meta = self.c.online_layers(self.region) or {}
+            rows = meta.get("layers") or meta.get("items") or []
+            result = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("group_id") or "").strip().upper() != "FIBER":
+                    continue
+                layer = str(row.get("layer") or "").strip()
+                if layer:
+                    result.append(layer)
+            return sorted(set(result))
+        except Exception:
+            return []
+
+    def _fiber_cached_features(self, west, south, east, north):
+        return [
+            feature for feature in self._fiber_features()
+            if self._feature_intersects(feature, west, south, east, north)
+        ]
+
+    def _fetch_fiber_bbox_network(self, west, south, east, north):
+        layers = self._fiber_layers()
+        if not layers:
+            return []
+        limit = 5000
+        max_depth = 14
+        layer_filter = ",".join(layers)
+
+        def fetch_cell(cw, cs, ce, cn, depth=0):
+            raw = self.c.online_objects(
+                self.region,
+                f"{cw},{cs},{ce},{cn}",
+                limit=limit,
+                layers=layer_filter,
+            ) or {}
+            features = [
+                feature for feature in (raw.get("features") or [])
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
+            ]
+            if len(features) < limit:
+                return features
+            if depth >= max_depth:
+                raise RuntimeError(
+                    "FIBER 화면수집 제한 도달: "
+                    f"depth={depth}, cell_count={len(features)}, limit={limit}, "
+                    f"bbox={cw},{cs},{ce},{cn}"
+                )
+            mx = (cw + ce) / 2.0
+            my = (cs + cn) / 2.0
+            merged = {}
+            for cell in (
+                (cw, cs, mx, my),
+                (mx, cs, ce, my),
+                (cw, my, mx, cn),
+                (mx, my, ce, cn),
+            ):
+                for feature in fetch_cell(*cell, depth + 1):
+                    merged[self._feature_key(feature)] = feature
+            return list(merged.values())
+
+        merged = {}
+        for feature in fetch_cell(west, south, east, north):
+            merged[self._feature_key(feature)] = feature
+        return list(merged.values())
+
+    def _merge_fiber_bbox_cache(self, features):
+        with self.cache_lock:
+            existing = {self._feature_key(f): f for f in self._fiber_features()}
+            for feature in features:
+                existing[self._feature_key(feature)] = feature
+            fiber_version = str((self.cache_state.get("versions") or {}).get("FIBER") or "")
+            self.fiber_cache = {
+                "version": fiber_version or str(self.fiber_cache.get("version") or ""),
+                "features": list(existing.values()),
+            }
+            self._save_fiber_cache()
+
+    def _start_fiber_bbox_refresh(self, west, south, east, north):
+        key = (
+            round(float(west), 6), round(float(south), 6),
+            round(float(east), 6), round(float(north), 6),
+        )
+        with self.cache_lock:
+            if key in self.fiber_bbox_refreshing:
+                return False
+            self.fiber_bbox_refreshing.add(key)
+
+        region = str(self.region or "")
+
+        def worker():
+            try:
+                if region != self.region:
+                    return
+                self._refresh_versions_if_due()
+                features = self._fetch_fiber_bbox_network(west, south, east, north)
+                if region != self.region:
+                    return
+                self._merge_fiber_bbox_cache(features)
+            except Exception:
+                pass
+            finally:
+                with self.cache_lock:
+                    self.fiber_bbox_refreshing.discard(key)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    def fiber_bbox(self, west, south, east, north, force=False):
+        if not self.region:
+            return {"ok": True, "features": [], "cache": "none", "refresh_pending": False}
+        try:
+            west = float(west); south = float(south); east = float(east); north = float(north)
+            self._load_fiber_cache()
+            cached = self._fiber_cached_features(west, south, east, north)
+            if cached and not force:
+                self._start_fiber_bbox_refresh(west, south, east, north)
+                return {
+                    "ok": True,
+                    "features": cached,
+                    "cache": "stale",
+                    "refresh_pending": True,
+                }
+
+            self._refresh_versions_if_due(force=force)
+            fresh = self._fetch_fiber_bbox_network(west, south, east, north)
+            self._merge_fiber_bbox_cache(fresh)
+            return {
+                "ok": True,
+                "features": self._fiber_cached_features(west, south, east, north),
+                "cache": "network",
+                "refresh_pending": False,
+            }
+        except Exception as exc:
+            return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
+
 
     def _fetch_bbox_network(self, west, south, east, north):
         limit = 2000
@@ -2355,6 +2495,34 @@ function renderFiberFeatures(features){{
   return rendered;
 }}
 
+async function loadFiberViewport(force=false){{
+  const region=document.getElementById('region').value;
+  if(!region||!map)return 0;
+  const bounds=map.getBounds();
+  const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
+  const latPad=(ne.getLat()-sw.getLat())*0.12;
+  const lngPad=(ne.getLng()-sw.getLng())*0.12;
+  const west=sw.getLng()-lngPad;
+  const south=sw.getLat()-latPad;
+  const east=ne.getLng()+lngPad;
+  const north=ne.getLat()+latPad;
+
+  const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
+  if(!r||r.ok===false){{
+    if(r&&r.error)setStatus(r.error+' · 기존 광 캐시 유지');
+    return 0;
+  }}
+  const features=r.features||[];
+  if(features.length){{
+    renderFiberFeatures(features);
+    fiberDiag.cache=features.length;
+  }}
+  if(r.refresh_pending){{
+    setTimeout(()=>loadFiberViewport(true),700);
+  }}
+  return features.length;
+}}
+
 async function loadObjects(force=false){{
   const region=document.getElementById('region').value;
   if(!region||!map)return;
@@ -2675,23 +2843,7 @@ async function activateRegion(region){{
       ? '광 캐시 즉시 표시'+fiberDiagText()
       : '광 캐시 없음 · 최초 다운로드 시작'));
 
-    apiCall('fiber_all',{{force:false}}).then(fiber=>{{
-      if(region!==sel.value)return;
-      if(fiber.error){{
-        setStatus(fiber.error+' · 기존 광 캐시 유지');
-        return;
-      }}
-      const fiberFeatures=fiber.features||[];
-      const fiberCount=fiberFeatures.length;
-      const expected=Number(fiber.expected_count||0);
-      fiberDiag.server=expected;
-      fiberDiag.received=Number(fiber.received_count||fiberCount);
-      fiberDiag.unique=Number(fiber.unique_key_count||fiber.received_count||fiberCount);
-      if(fiber.cache!=='hit' || cachedCount===0)renderFiberFeatures(fiberFeatures);
-      const source=(fiber.cache==='hit'?'광 캐시':'광 서버')+' '+fiberCount+'개';
-      setStatus((info?info.name:region)+' · '+source+fiberDiagText());
-    }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
-
+    await loadFiberViewport(false);
     await loadObjects(true);
     return true;
   }} finally {{
@@ -2752,7 +2904,10 @@ async function bootstrapAuth(){{
 }}
 
 function bindUi(){{
-  document.getElementById('reload').onclick=()=>loadObjects(true);
+  document.getElementById('reload').onclick=()=>{{
+    loadFiberViewport(true);
+    loadObjects(true);
+  }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
   document.getElementById('mapHybrid').onclick=()=>{{
     if(!map||roadviewMode)return;
@@ -2928,7 +3083,10 @@ function initMap(){{
       }});
       kakao.maps.event.addListener(map,'idle',async()=>{{
         const ok=await autoRegionForMapCenter();
-        if(ok)loadObjects();
+        if(ok){{
+          loadFiberViewport(false);
+          loadObjects();
+        }}
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
@@ -2956,7 +3114,10 @@ function initMap(){{
       centerMyLocation(false);
       setTimeout(async()=>{{
         const ok=await autoRegionForMapCenter();
-        if(ok)loadObjects(true);
+        if(ok){{
+          loadFiberViewport(false);
+          loadObjects(true);
+        }}
       }},250);
     }});
   }}catch(err){{
@@ -3053,6 +3214,14 @@ def run_online_viewer():
                     result = api.select(data.get("region"))
                 elif name == "fiber_cached":
                     result = api.cached_fiber()
+                elif name == "fiber_bbox":
+                    result = api.fiber_bbox(
+                        data.get("west"),
+                        data.get("south"),
+                        data.get("east"),
+                        data.get("north"),
+                        force=bool(data.get("force")),
+                    )
                 elif name == "fiber_all":
                     result = api.ensure_fiber_all(
                         force=bool(data.get("force", False)),
