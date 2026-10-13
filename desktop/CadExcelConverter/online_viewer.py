@@ -1117,7 +1117,7 @@ const SYMBOL_LIBRARY={{
   manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
   power:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
   power_ps:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
-  closure:{{shape:'flat_capsule',w:28,h:14,fill:'#ffffff',stroke:'#0d47a1'}},
+  closure:{{shape:'flat_capsule',w:32,h:11,fill:'#ffffff',stroke:'#0d47a1'}},
   fiber_terminal:{{shape:'diamond',w:18,h:18,fill:'#ffffff',stroke:'#1565c0'}},
   fiber_rn:{{shape:'triangle',w:13,h:13,fill:'#ffffff',stroke:'#424242'}},
   fiber_net:{{shape:'rect',w:30,h:14,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
@@ -1487,11 +1487,32 @@ function drawDevice(center,props){{
     }}
   }}
 
-  const a=deg*Math.PI/180;
-  const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
-  const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
-  const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
-  dirLine.setMap(map);if(typeof dirLine.setZIndex==='function')dirLine.setZIndex(31);registerOverlay(dirLine,props.group_id,kind);parts.push(dirLine);
+  // Closure는 방향 표시선이 아니라 실제 인라인 함체처럼 좌/우 케이블 연결부를 표시한다.
+  if(kind==='closure'){{
+    const halfW=(Number(d.w)||32)/2;
+    const stub=7*(d._scale||1);
+    const leftA=rotatePoint(cx-halfW-stub,cy,cx,cy,deg);
+    const leftB=rotatePoint(cx-halfW,cy,cx,cy,deg);
+    const rightA=rotatePoint(cx+halfW,cy,cx,cy,deg);
+    const rightB=rotatePoint(cx+halfW+stub,cy,cx,cy,deg);
+    [[leftA,leftB],[rightA,rightB]].forEach(seg=>{{
+      const line=new kakao.maps.Polyline({{
+        path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
+        strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1
+      }});
+      line.setMap(map);
+      if(typeof line.setZIndex==='function')line.setZIndex(31);
+      registerOverlay(line,props.group_id,kind);
+      parts.push(line);
+      bindClick(line,props);
+    }});
+  }} else {{
+    const a=deg*Math.PI/180;
+    const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
+    const dirEnd=pxToLatLng(cx+Math.sin(a)*dirLen,cy-Math.cos(a)*dirLen);
+    const dirLine=new kakao.maps.Polyline({{path:[center,dirEnd],strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1}});
+    dirLine.setMap(map);if(typeof dirLine.setZIndex==='function')dirLine.setZIndex(31);registerOverlay(dirLine,props.group_id,kind);parts.push(dirLine);
+  }}
 
   const labelText=deviceLabel(props,kind);
   if(labelText){{
