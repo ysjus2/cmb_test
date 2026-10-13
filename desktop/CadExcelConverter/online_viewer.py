@@ -16,7 +16,7 @@ CFG = APP_DATA_DIR / "online.json"
 CACHE_DIR = APP_DATA_DIR / "online_cache"
 FIBER_CACHE_SCHEMA = 2
 SESSION_ENDED_EXIT_CODE = 41
-WINDOWS_RELEASE = "4.22_FINAL"
+WINDOWS_RELEASE = "Windows_1.0_Rev2_WORKING"
 
 
 def key():
@@ -47,6 +47,7 @@ class Api:
         self.cache_lock = threading.RLock()
         self.bbox_refreshing = set()
         self.fiber_bbox_refreshing = set()
+        self.fiber_cell_refreshing = set()
 
         self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
         self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
@@ -643,9 +644,10 @@ class Api:
             self.fiber_cache = {"version": "", "features": []}
             return {"ok": True, "bounds": None, "layers": []}
         try:
-            # UI 응답 우선: 지역 선택에서는 서버를 기다리지 않는다.
+            # 지역 전환은 즉시 끝낸다.
+            # Polemap 셀 캐시는 화면에 필요한 셀만 읽으므로 지역 전체 fiber.json.gz를 여기서 열지 않는다.
             self._load_cache()
-            self._load_fiber_cache()
+            self.fiber_cache = {"version": "", "features": []}
 
             group_counts = {}
             for feature in (self.cache_state.get("features") or {}).values():
@@ -653,9 +655,7 @@ class Api:
                 if group:
                     group_counts[group] = group_counts.get(group, 0) + 1
 
-            fiber_count = len(self.fiber_cache.get("features") or [])
-            if fiber_count:
-                group_counts["FIBER"] = fiber_count
+            fiber_count = 0
 
             group_summary = [
                 {"group_id": group, "count": count}
@@ -673,6 +673,158 @@ class Api:
             }
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def _fiber_cell_dir(self):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(self.region or "")
+        )
+        return CACHE_DIR / "fiber_cells" / safe
+
+    def _fiber_cell_path(self, grid_id):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(grid_id or "")
+        )
+        return self._fiber_cell_dir() / f"{safe}.json.gz"
+
+    def _read_fiber_cell_cache(self, grid_id):
+        path = self._fiber_cell_path(grid_id)
+        if not path.exists():
+            return None
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            return {
+                "version": str(raw.get("version") or ""),
+                "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
+            }
+        except Exception:
+            return None
+
+    def _write_fiber_cell_cache(self, grid_id, version, features):
+        try:
+            path = self._fiber_cell_path(grid_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+                json.dump(
+                    {
+                        "schema": 1,
+                        "grid_id": str(grid_id or ""),
+                        "version": str(version or ""),
+                        "features": list(features or []),
+                    },
+                    fh,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            os.replace(tmp, path)
+        except Exception:
+            pass
+
+    def polemap(self, west, south, east, north):
+        if not self.region:
+            return {"ok": True, "cells": [], "cell_count": 0}
+        try:
+            return self.c.online_polemap(
+                self.region,
+                float(west),
+                float(south),
+                float(east),
+                float(north),
+            )
+        except ServerError as exc:
+            if exc.status == 404:
+                return {"ok": True, "cells": [], "cell_count": 0, "legacy": True}
+            return self._handle_error(exc, {"cells": [], "cell_count": 0})
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "cells": [], "cell_count": 0}
+
+    def _fiber_version(self, force=False):
+        self._refresh_versions_if_due(force=force)
+        return str((self.cache_state.get("versions") or {}).get("FIBER") or "")
+
+    def _start_fiber_cell_refresh(self, grid_id, west, south, east, north):
+        key = (str(self.region or ""), str(grid_id or ""))
+        with self.cache_lock:
+            if key in self.fiber_cell_refreshing:
+                return False
+            self.fiber_cell_refreshing.add(key)
+
+        region = str(self.region or "")
+
+        def worker():
+            try:
+                if region != self.region:
+                    return
+                version = self._fiber_version()
+                features = self._fetch_fiber_bbox_network(
+                    float(west), float(south), float(east), float(north)
+                )
+                if region != self.region:
+                    return
+                self._write_fiber_cell_cache(grid_id, version, features)
+            except Exception:
+                pass
+            finally:
+                with self.cache_lock:
+                    self.fiber_cell_refreshing.discard(key)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    def fiber_cell(self, grid_id, west, south, east, north, force=False):
+        if not self.region:
+            return {"ok": True, "features": [], "cache": "none", "refresh_pending": False}
+        grid_id = str(grid_id or "").strip()
+        if not grid_id:
+            return {"ok": False, "error": "Polemap grid_id 없음", "features": []}
+        try:
+            west = float(west); south = float(south); east = float(east); north = float(north)
+            cached = self._read_fiber_cell_cache(grid_id)
+            version = self._fiber_version(force=force)
+
+            if cached and cached.get("features") and not force:
+                if not version or cached.get("version") == version:
+                    return {
+                        "ok": True,
+                        "grid_id": grid_id,
+                        "features": cached.get("features") or [],
+                        "cache": "hit",
+                        "refresh_pending": False,
+                    }
+                self._start_fiber_cell_refresh(grid_id, west, south, east, north)
+                return {
+                    "ok": True,
+                    "grid_id": grid_id,
+                    "features": cached.get("features") or [],
+                    "cache": "stale",
+                    "refresh_pending": True,
+                }
+
+            fresh = self._fetch_fiber_bbox_network(west, south, east, north)
+            self._write_fiber_cell_cache(grid_id, version, fresh)
+            return {
+                "ok": True,
+                "grid_id": grid_id,
+                "features": fresh,
+                "cache": "network",
+                "refresh_pending": False,
+            }
+        except Exception as exc:
+            cached = self._read_fiber_cell_cache(grid_id)
+            if cached and cached.get("features"):
+                return {
+                    "ok": True,
+                    "grid_id": grid_id,
+                    "features": cached.get("features") or [],
+                    "cache": "stale",
+                    "refresh_pending": False,
+                    "warning": str(exc),
+                }
+            return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
+
 
     def _fiber_layers(self):
         try:
@@ -996,8 +1148,9 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
       <select id='region' style='display:none' aria-hidden='true'><option value=''></option></select>
       <button class='layerBtn on' data-group='FIBER'>광</button>
       <button class='layerBtn on' data-group='COAX'>동축</button>
-      <button class='layerBtn' data-group='POLE'>전주</button>
       <button class='layerBtn' data-group='CONDUIT'>관로</button>
+      <button class='layerBtn' data-group='POLE'>전주</button>
+      <button class='layerBtn' data-group='USER'>USER</button>
       <button id='myLocation'>내 위치</button>
       <button id='mapHybrid' title='일반지도 / 위성지도 전환'>위성지도</button>
       <button id='roadviewBtn' title='현재 지도 중심의 로드뷰 열기'>로드뷰</button>
@@ -2498,65 +2651,98 @@ function renderFiberFeatures(features){{
 
 async function loadFiberViewport(force=false){{
   const region=document.getElementById('region').value;
-  if(!region||!map)return 0;
+  if(!region||!map||!groupEnabled.FIBER)return 0;
 
   const generation=++fiberViewportGeneration;
   const bounds=map.getBounds();
   const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
   const center=map.getCenter();
-  const fullHalfLat=Math.max(0.000001,(ne.getLat()-sw.getLat())/2);
-  const fullHalfLng=Math.max(0.000001,(ne.getLng()-sw.getLng())/2);
 
-  // 화면 중앙부터 먼저 그리고 점차 바깥쪽으로 확장한다.
-  // 광 선로는 지도 레벨과 무관하게 항상 우선 수집/표시한다.
-  const stages=[
-    {name:'중앙',scale:0.30,pad:0.00},
-    {name:'주변',scale:0.62,pad:0.04},
-    {name:'화면',scale:1.00,pad:0.12}
-  ];
+  // 화면보다 약간 넓게 Polemap 셀을 받아 다음 이동 방향까지 미리 캐시한다.
+  const latPad=(ne.getLat()-sw.getLat())*0.22;
+  const lngPad=(ne.getLng()-sw.getLng())*0.22;
+  const query={{
+    west:sw.getLng()-lngPad,
+    south:sw.getLat()-latPad,
+    east:ne.getLng()+lngPad,
+    north:ne.getLat()+latPad
+  }};
 
-  let rendered=0;
-  for(let i=0;i<stages.length;i++){{
-    if(generation!==fiberViewportGeneration)return rendered;
-    if(region!==document.getElementById('region').value)return rendered;
+  let polemap=null;
+  try{{polemap=await apiCall('polemap',query);}}catch(e){{polemap=null;}}
+  if(generation!==fiberViewportGeneration)return 0;
 
-    const stage=stages[i];
-    const halfLat=fullHalfLat*(stage.scale+stage.pad);
-    const halfLng=fullHalfLng*(stage.scale+stage.pad);
-    const west=Number(center.getLng())-halfLng;
-    const south=Number(center.getLat())-halfLat;
-    const east=Number(center.getLng())+halfLng;
-    const north=Number(center.getLat())+halfLat;
-
-    if(i===0)setStatus('광 중앙 영역 우선 표시 중...');
-    const r=await apiCall('fiber_bbox',{{
-      west,south,east,north,
-      force:force && i===0
+  const cells=(polemap&&polemap.cells)||[];
+  if(cells.length){{
+    const cLat=Number(center.getLat()),cLng=Number(center.getLng());
+    cells.sort((a,b)=>{{
+      const ax=(Number(a.west)+Number(a.east))/2, ay=(Number(a.south)+Number(a.north))/2;
+      const bx=(Number(b.west)+Number(b.east))/2, by=(Number(b.south)+Number(b.north))/2;
+      return ((ax-cLng)**2+(ay-cLat)**2)-((bx-cLng)**2+(by-cLat)**2);
     }});
-    if(generation!==fiberViewportGeneration)return rendered;
-    if(!r||r.ok===false){{
-      if(r&&r.error)setStatus(r.error+' · 기존 광 캐시 유지');
-      continue;
-    }}
 
-    const features=r.features||[];
-    if(features.length){{
-      rendered=renderFiberFeatures(features);
-      fiberDiag.cache=features.length;
-      setStatus(
-        'L'+map.getLevel()+' · 광 '+stage.name+' '+features.length+'개 표시'+fiberDiagText()
-      );
-    }}
+    const merged=new Map();
+    let rendered=0;
+    for(let i=0;i<cells.length;i++){{
+      if(generation!==fiberViewportGeneration)return rendered;
+      if(region!==document.getElementById('region').value)return rendered;
+      const cell=cells[i];
+      if(i===0)setStatus('광 중앙 격자 '+String(cell.grid_id||'')+' 표시 중...');
 
-    if(r.refresh_pending && i===0){{
-      setTimeout(()=>{{
-        if(generation===fiberViewportGeneration)loadFiberViewport(true);
-      }},500);
-    }}
+      let r=null;
+      try{{
+        r=await apiCall('fiber_cell',{{
+          grid_id:String(cell.grid_id||''),
+          west:Number(cell.west),south:Number(cell.south),
+          east:Number(cell.east),north:Number(cell.north),
+          force:force && i===0
+        }});
+      }}catch(e){{
+        continue;
+      }}
+      if(generation!==fiberViewportGeneration)return rendered;
 
-    if(i<stages.length-1)await new Promise(resolve=>setTimeout(resolve,60));
+      (r.features||[]).forEach(f=>{{
+        const p=f.properties||{{}};
+        const a=p.attributes||{{}}, fields=a.fields||a;
+        const part=String(fields._cmb_geometry_part_index||'');
+        const k=String(p.source_handle||p.regional_object_id||p.entity_id||p.object_id||JSON.stringify(f.geometry||{{}}))+'|'+part;
+        merged.set(k,f);
+      }});
+
+      if(merged.size){{
+        rendered=renderFiberFeatures([...merged.values()]);
+        fiberDiag.cache=merged.size;
+        setStatus(
+          'L'+map.getLevel()+' · 광 '+String(cell.grid_id||'')+
+          ' · '+String(i+1)+'/'+String(cells.length)+' 셀 · '+String(merged.size)+'개'
+        );
+      }}
+
+      // 중앙 셀을 브라우저가 먼저 그린 뒤 주변 셀을 순차 추가한다.
+      if(i<cells.length-1)await new Promise(resolve=>setTimeout(resolve,i===0?70:20));
+    }}
+    return rendered;
   }}
-  return rendered;
+
+  // Polemap 미등록 지역은 기존 화면 bbox 방식으로 폴백한다.
+  const west=sw.getLng()-lngPad;
+  const south=sw.getLat()-latPad;
+  const east=ne.getLng()+lngPad;
+  const north=ne.getLat()+latPad;
+  const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
+  if(generation!==fiberViewportGeneration)return 0;
+  if(!r||r.ok===false){{
+    if(r&&r.error)setStatus(r.error+' · 기존 광 표시 유지');
+    return 0;
+  }}
+  const features=r.features||[];
+  if(features.length){{
+    const rendered=renderFiberFeatures(features);
+    fiberDiag.cache=features.length;
+    return rendered;
+  }}
+  return 0;
 }}
 
 async function loadObjects(force=false){{
@@ -2728,19 +2914,21 @@ async function loadObjects(force=false){{
         path=originalPath;
       }}
 
-      const l=new kakao.maps.Polyline({{
-        path:path,
-        strokeWeight:4,
-        strokeColor:c,
-        strokeOpacity:.95,
-        strokeStyle:'solid'
-      }});
-      l.setMap(map);
-      if(typeof l.setZIndex==='function')l.setZIndex(5);
       let cableKind='';
       if(group==='COAX'){{
         cableKind=isCellBoundaryFeature(f)?'cell_boundary':coaxCableOverlayKind(f,devices);
       }}
+      const isCellBoundary=(group==='COAX' && cableKind==='cell_boundary');
+      const l=new kakao.maps.Polyline({{
+        path:path,
+        strokeWeight:isCellBoundary?3:4,
+        strokeColor:isCellBoundary?'#f3a6bd':c,
+        strokeOpacity:isCellBoundary?.90:.95,
+        // Kakao dashed style uses visually longer segments than dotted patterns.
+        strokeStyle:isCellBoundary?'dash':'solid'
+      }});
+      l.setMap(map);
+      if(typeof l.setZIndex==='function')l.setZIndex(isCellBoundary?3:5);
       registerOverlay(l,group,cableKind);
       if(['FIBER','COAX','CONDUIT'].includes(group)){{
         bindCableClick(l,p,c,4,5);
@@ -2866,18 +3054,12 @@ async function activateRegion(region){{
       return false;
     }}
 
-    let cached={{features:[],cache:'empty'}};
-    try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
     if(region!==sel.value)return false;
-    const cachedFeatures=cached.features||[];
-    const cachedCount=renderFiberFeatures(cachedFeatures);
-    fiberDiag.cache=cachedFeatures.length;
+    fiberDiag.cache=0;
     fiberDiag.received=0;
     fiberDiag.unique=0;
     fiberDiag.server=0;
-    setStatus((info?info.name:region)+' · '+(cachedCount>0
-      ? '광 캐시 즉시 표시'+fiberDiagText()
-      : '광 캐시 없음 · 최초 다운로드 시작'));
+    setStatus((info?info.name:region)+' · 현재 화면 광 격자 확인 중');
 
     await loadFiberViewport(false);
     await loadObjects(true);
@@ -3023,61 +3205,7 @@ function bindUi(){{
     }};
   }});
 
-  document.getElementById('region').onchange=async e=>{{
-    clearOverlays();
-    document.getElementById('detail').style.display='none';
-    const region=String(e.target.value||'');
-    const r=await apiCall('select',{{region:region}});
-    if(!r.ok){{setStatus(r.error||'지역 선택 실패');return}}
-
-    let cached={{features:[],cache:'empty'}};
-    try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
-    if(region!==document.getElementById('region').value)return;
-    const cachedFeatures=cached.features||[];
-    const cachedCount=renderFiberFeatures(cachedFeatures);
-    fiberDiag.cache=cachedFeatures.length;
-    fiberDiag.received=0;
-    fiberDiag.unique=0;
-    fiberDiag.server=0;
-    setStatus(cachedCount>0
-      ? '광 캐시 즉시 표시'+fiberDiagText()
-      : '광 캐시 없음 · 최초 다운로드 시작');
-
-    apiCall('fiber_all',{{force:false}}).then(fiber=>{{
-      if(region!==document.getElementById('region').value)return;
-      if(fiber.error){{
-        // 기존 캐시는 그대로 유지한다. 불완전한 새 데이터로 화면을 덮어쓰지 않는다.
-        setStatus(fiber.error+' · 기존 광 캐시 유지');
-        return;
-      }}
-      const fiberFeatures=fiber.features||[];
-      const fiberCount=fiberFeatures.length;
-      const expected=Number(fiber.expected_count||0);
-      fiberDiag.server=expected;
-      fiberDiag.received=Number(fiber.received_count||fiberCount);
-      fiberDiag.unique=Number(fiber.unique_key_count||fiber.received_count||fiberCount);
-      if(fiber.cache!=='hit' || cachedCount===0){{
-        renderFiberFeatures(fiberFeatures);
-        fiberDiag.cache=fiberFeatures.length;
-      }}else{{
-        fiberDiag.cache=fiberFeatures.length;
-      }}
-      const source=fiber.cache==='hit'?'광 캐시 최신':'광 캐시 갱신 완료';
-      setStatus(source+fiberDiagText());
-    }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
-
-    if(!map){{
-      setStatus('카카오맵 초기화 대기');
-      return;
-    }}
-    if(Number.isFinite(myLat)&&Number.isFinite(myLng)){{
-      map.setCenter(new kakao.maps.LatLng(myLat,myLng));
-      map.setLevel(3);
-      setTimeout(()=>loadObjects(true),80);
-      return;
-    }}
-    centerMyLocation(true);
-  }};
+  document.getElementById('region').onchange=()=>{{}};
 
 }}
 
@@ -3250,6 +3378,22 @@ def run_online_viewer():
                     result = api.select(data.get("region"))
                 elif name == "fiber_cached":
                     result = api.cached_fiber()
+                elif name == "polemap":
+                    result = api.polemap(
+                        data.get("west"),
+                        data.get("south"),
+                        data.get("east"),
+                        data.get("north"),
+                    )
+                elif name == "fiber_cell":
+                    result = api.fiber_cell(
+                        data.get("grid_id"),
+                        data.get("west"),
+                        data.get("south"),
+                        data.get("east"),
+                        data.get("north"),
+                        force=bool(data.get("force")),
+                    )
                 elif name == "fiber_bbox":
                     result = api.fiber_bbox(
                         data.get("west"),
