@@ -63,5 +63,5 @@
   "fiber_arrow_policy": "filled triangular FIBER input arrowhead; zoom-scaled L1=0.85x/L2=0.72x/L3=0.60x/L4+=0.50x; arrows rerender on zoom and stay grouped with cable selection",
   "drawing_force_reload_policy": "bypass valid drawing cache, reparse source DXF, atomically replace cache only after successful rebuild",
   "roadview_policy": "로드뷰 button opens nearest Kakao Roadview within 100m of current map center; button changes to 지도보기; base-map toggle disabled while Roadview is active",
-  "cable_device_connection_policy": "snap cable endpoints to rendered device symbol boundary instead of device center to avoid apparent cable breaks under opaque symbols"
+  "cable_device_connection_policy": "logical/topology connection remains device-center based; rendered cable endpoint snaps to symbol boundary plus 3px inward overlap beneath opaque symbol to prevent visible gaps"
 }
