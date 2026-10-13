@@ -53,6 +53,68 @@ final class CadSymbolIcon {
                 p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(13,71,161));c.drawPath(r,p);
                 break;
             }
+            case "FIBER_CLOSURE":{
+                c.rotate(-rotation,32,32);
+                p.setStrokeWidth(2.2f);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.rgb(220,235,255));
+                RectF box=new RectF(14,20,50,44);c.drawRoundRect(box,3,3,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(31,78,121));c.drawRoundRect(box,3,3,p);
+                float[] ys={24f,32f,40f};
+                for(float yy:ys){
+                    c.drawCircle(17,yy,1.6f,p);
+                    c.drawCircle(47,yy,1.6f,p);
+                }
+                break;
+            }
+            case "FIBER_L2":{
+                c.rotate(-rotation,32,32);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);c.drawRect(17,17,47,47,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(21,101,192));c.drawRect(17,17,47,47,p);
+                drawCenteredText(c,p,"L2",32,32,15,Color.rgb(255,20,147));
+                break;
+            }
+            case "FIBER_L3":{
+                c.rotate(-rotation,32,32);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);c.drawRect(17,17,47,47,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(21,101,192));c.drawRect(17,17,47,47,p);
+                drawCenteredText(c,p,"L3",32,32,15,Color.rgb(255,20,147));
+                break;
+            }
+            case "FIBER_TERMINAL":{
+                c.rotate(-rotation,32,32);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);c.drawRect(17,17,47,47,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(21,101,192));c.drawRect(17,17,47,47,p);
+                break;
+            }
+            case "FIBER_OFD":{
+                c.rotate(-rotation,32,32);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);c.drawRect(8,20,56,44,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(66,66,66));c.drawRect(8,20,56,44,p);
+                drawCenteredText(c,p,"OFD",32,32,18,Color.rgb(33,33,33));
+                break;
+            }
+            case "FIBER_FDF":{
+                c.rotate(-rotation,32,32);
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.WHITE);c.drawRect(8,20,56,44,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(66,66,66));c.drawRect(8,20,56,44,p);
+                drawCenteredText(c,p,"FDF",32,32,18,Color.rgb(33,33,33));
+                break;
+            }
+            case "FIBER_RN4":{
+                drawCenteredText(c,p,"4RN",32,20,14,Color.rgb(66,66,66));
+                break;
+            }
+            case "FIBER_RN8":{
+                drawCenteredText(c,p,"8RN",32,20,14,Color.rgb(66,66,66));
+                break;
+            }
+            case "FIBER_ARROW":{
+                c.rotate(rotation,32,32);
+                Path a=new Path();a.moveTo(32,5);a.lineTo(21,28);a.lineTo(43,28);a.close();
+                p.setStyle(Paint.Style.FILL);p.setColor(Color.rgb(30,136,229));c.drawPath(a,p);
+                p.setStyle(Paint.Style.STROKE);p.setColor(Color.rgb(13,71,161));c.drawPath(a,p);
+                break;
+            }
             case "PWR":
             case "PWR_PS":{
                 c.rotate(-rotation,32,32);
