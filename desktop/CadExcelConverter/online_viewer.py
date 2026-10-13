@@ -803,22 +803,30 @@ class Api:
             version = self._fiber_version(force=force)
 
             if cached and cached.get("features") and not force:
-                if not version or cached.get("version") == version:
+                cached_features = [
+                    feature for feature in (cached.get("features") or [])
+                    if self._feature_intersects(feature, west, south, east, north)
+                ]
+                # 셀 캐시는 버전뿐 아니라 실제 공간 범위까지 일치해야 유효하다.
+                # Polemap/전주 재업로드 후 예전 셀 파일이 남아 현재 화면 밖 객체를
+                # 렌더하는 문제를 막는다. 교차 객체가 0이면 즉시 서버 재조회한다.
+                if cached_features:
+                    if not version or cached.get("version") == version:
+                        return {
+                            "ok": True,
+                            "grid_id": grid_id,
+                            "features": cached_features,
+                            "cache": "hit",
+                            "refresh_pending": False,
+                        }
+                    self._start_fiber_cell_refresh(grid_id, west, south, east, north)
                     return {
                         "ok": True,
                         "grid_id": grid_id,
-                        "features": cached.get("features") or [],
-                        "cache": "hit",
-                        "refresh_pending": False,
+                        "features": cached_features,
+                        "cache": "stale",
+                        "refresh_pending": True,
                     }
-                self._start_fiber_cell_refresh(grid_id, west, south, east, north)
-                return {
-                    "ok": True,
-                    "grid_id": grid_id,
-                    "features": cached.get("features") or [],
-                    "cache": "stale",
-                    "refresh_pending": True,
-                }
 
             try:
                 layers = self._fiber_layers()
@@ -1057,7 +1065,12 @@ class Api:
         if cached and cached.get("features") and (
             not version_signature or cached.get("version") == version_signature
         ):
-            return cached.get("features") or [], "hit"
+            cached_features = [
+                feature for feature in (cached.get("features") or [])
+                if self._feature_intersects(feature, west, south, east, north)
+            ]
+            if cached_features:
+                return cached_features, "hit"
 
         try:
             raw = self.c.online_grid_objects(
