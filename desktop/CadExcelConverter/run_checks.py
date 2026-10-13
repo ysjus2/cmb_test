@@ -528,10 +528,10 @@ assert "if(lv===2)return 1.35;" in online_source
 assert "if(lv===3)return 1.12;" in online_source
 assert "return 0.90;" in online_source
 assert "function fiberArrowScaleForLevel(level)" in online_source
-assert "if(lv<=1)return 0.85;" in online_source
-assert "if(lv===2)return 0.72;" in online_source
-assert "if(lv===3)return 0.60;" in online_source
-assert "return 0.50;" in online_source
+assert "if(lv<=1)return 1.00;" in online_source
+assert "if(lv===2)return 0.85;" in online_source
+assert "if(lv===3)return 0.72;" in online_source
+assert "return 0.60;" in online_source
 assert "function redrawDevicesFromMemory()" in online_source
 assert "function redrawFiberArrowsForZoom()" in online_source
 assert "currentPointFeatures=pointFeatures.slice();" in online_source
@@ -660,10 +660,14 @@ print("ONLINE_FIBER_SYMBOL_DIFFERENTIATION_OK")
 
 # Closure는 태그형 방향선이 아니라 인라인 함체 + 좌우 연결부로 표시한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-assert "closure:{{shape:'flat_capsule',w:32,h:11" in online_source
-assert "Closure는 방향 표시선이 아니라 실제 인라인 함체처럼 좌/우 케이블 연결부를 표시한다." in online_source
-assert "leftA=rotatePoint" in online_source
-assert "rightB=rotatePoint" in online_source
+assert "closure:{{shape:'closure_box',w:24,h:12" in online_source
+assert "Closure는 자체 함체 심벌만 표시한다." in online_source
+assert "leftA=rotatePoint" not in online_source
+assert "rightB=rotatePoint" not in online_source
+assert "fiber_terminal:{{shape:'rect',w:18,h:18" in online_source
+assert "labelColor:'#ff1493'" in online_source
+assert "return 'L2';" in online_source
+assert "return 'L3';" in online_source
 print("ONLINE_CLOSURE_INLINE_SHAPE_OK")
 
 # 광케이블 입력방향 화살표, RN 라벨, 정보성 레이어 기본 OFF 정책을 고정한다.
