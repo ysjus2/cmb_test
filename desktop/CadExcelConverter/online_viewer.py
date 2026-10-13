@@ -762,12 +762,14 @@ class Api:
                     return
                 version = self._fiber_version()
                 try:
-                    layers = self._fiber_layers()
+                    # Grid API는 셀 단위라 충분히 작다. 광 레이어 메타데이터가
+                    # 비거나 변경돼도 조회가 0건이 되지 않도록 서버에서는 셀 전체를 받고
+                    # 아래에서 group_id=FIBER만 필터링한다.
                     raw = self.c.online_grid_objects(
                         self.region,
                         grid_id,
                         limit=20000,
-                        layers=",".join(layers) if layers else None,
+                        layers=None,
                     ) or {}
                     features = [
                         feature for feature in (raw.get("features") or [])
@@ -829,12 +831,12 @@ class Api:
                     }
 
             try:
-                layers = self._fiber_layers()
+                # 광 셀 조회는 /layers 메타데이터에 의존하지 않는다.
                 raw = self.c.online_grid_objects(
                     self.region,
                     grid_id,
                     limit=20000,
-                    layers=",".join(layers) if layers else None,
+                    layers=None,
                 ) or {}
                 fresh = [
                     feature for feature in (raw.get("features") or [])
@@ -891,11 +893,9 @@ class Api:
 
     def _fetch_fiber_bbox_network(self, west, south, east, north):
         layers = self._fiber_layers()
-        if not layers:
-            return []
         limit = 5000
         max_depth = 14
-        layer_filter = ",".join(layers)
+        layer_filter = ",".join(layers) if layers else None
 
         def fetch_cell(cw, cs, ce, cn, depth=0):
             raw = self.c.online_objects(
