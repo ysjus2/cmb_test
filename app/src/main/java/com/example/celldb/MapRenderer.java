@@ -22,6 +22,15 @@ interface MapRenderer {
     void showMeasurements(List<DistanceMeasurement.Line> lines,List<DistanceMeasurement.Point> current);
     android.graphics.Point screenPoint(MapPoint point);
     MapViewport viewport();
+    default int windowsMapLevel(){
+        MapViewport v=viewport();
+        if(v==null)return 6;
+        double meters=(v.east-v.west)*111320*Math.cos(Math.toRadians((v.north+v.south)/2));
+        if(meters<=450)return 3;
+        if(meters<=900)return 4;
+        if(meters<=1800)return 5;
+        return 6;
+    }
     void setCurrentLocation(MapPoint point, String accuracy);
     default boolean supportsHybridMap(){ return false; }
     default void setHybridMap(boolean hybrid) { }
