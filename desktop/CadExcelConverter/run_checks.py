@@ -189,6 +189,11 @@ assert "cached_features = [" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
+assert "let nonFiberLoadTimer=null;" in online_source
+assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
+assert "await loadFiberViewport(false);" in online_source
+assert "queueNonFiberLoad(false,140);" in online_source
+assert "queueNonFiberLoad(true,140);" in online_source
 print("CROSS_PROCESS_SESSION_STATE_OK")
 
 
