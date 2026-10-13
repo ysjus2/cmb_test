@@ -441,6 +441,33 @@ class CMBServerClient:
                 path += "&layers=" + urllib.parse.quote(layers, safe=",")
         return self._request("GET", path, timeout=15)
 
+    def online_polemap(self, region, west, south, east, north):
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        query = urllib.parse.urlencode({
+            "west": float(west),
+            "south": float(south),
+            "east": float(east),
+            "north": float(north),
+        })
+        return self._request("GET", f"/online/{q}/polemap?{query}", timeout=10)
+
+    def online_polemap_version(self, region):
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        return self._request("GET", f"/online/{q}/polemap/version", timeout=10)
+
+    def replace_polemap(self, region, payload):
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        return self._request(
+            "POST",
+            f"/admin/polemap/{q}/replace",
+            payload,
+            timeout=None,
+        )
+
+    def group_status_v2(self, region):
+        q = urllib.parse.quote(str(region).strip(), safe="")
+        return self._request("GET", f"/admin/drawings/{q}/group-status-v2")
+
     def upload_group(self, payload, progress_callback=None):
         try:
             # 대용량 DXF 업로드/DB 교체는 전주처럼 수시간이 걸릴 수 있다.
@@ -499,17 +526,17 @@ class CMBServerClient:
             base = list(rows.get("items") or rows.get("revisions") or [])
         else:
             base = list(rows or [])
-        try:
-            symbol_rows = self._request(
-                "GET",
-                f"/admin/drawings/{q}/symbol-revisions",
-            )
-            if isinstance(symbol_rows, dict):
-                symbol_rows = symbol_rows.get("items") or symbol_rows.get("revisions") or []
-            base.extend(list(symbol_rows or []))
-        except ServerError as exc:
-            if exc.status != 404:
-                raise
+        allowed = {"FIBER", "COAX", "CONDUIT", "POLE", "USER"}
+        order = {"FIBER": 0, "COAX": 1, "CONDUIT": 2, "POLE": 3, "USER": 4}
+        base = [
+            row for row in base
+            if str((row or {}).get("group_id") or "").upper() in allowed
+        ]
+        base.sort(key=lambda row: (
+            order.get(str(row.get("group_id") or "").upper(), 999),
+            0 if row.get("active") else 1,
+            -int(row.get("revision") or 0),
+        ))
         return base
 
     def restore_revision(self, region, revision_id, group_id=None):
