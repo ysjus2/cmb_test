@@ -635,3 +635,16 @@ assert "기기를 온라인용 단순 심벌로 치환하지 않는다" in viewe
 assert "symbol_kind = _viewer_symbol_kind(ent)" not in viewer_source
 assert "for primitive_index, (kind, data) in enumerate(ent.primitives):" in viewer_source
 print("EXTRACTION_VIEWER_ORIGINAL_GEOMETRY_OK")
+
+# 온라인 광기기 심벌은 block/layer 역할별로 구분하고, 셀번호/ONU 크기를 고정한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "fiber_terminal" in online_source
+assert "fiber_rn" in online_source
+assert "fiber_net" in online_source
+assert "block.startsWith('NETOFD')" in online_source
+assert "block.startsWith('NETFDF')" in online_source
+assert "block.startsWith('RN-')" in online_source
+assert "block.startsWith('SPL-')" in online_source
+assert "font:700 22px Malgun Gothic;color:#d00000" in online_source
+assert "onu:{{shape:'rect',w:38.4,h:19.2" in online_source
+print("ONLINE_FIBER_SYMBOL_DIFFERENTIATION_OK")
