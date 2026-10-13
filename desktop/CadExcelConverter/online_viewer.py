@@ -1317,9 +1317,20 @@ function latLngToPx(latlng){{
 
 function deviceScaleForLevel(level){{
   const lv=Number(level||3);
-  if(lv<=1)return 1.35;
-  if(lv===2)return 1.00;
-  return 0.72;
+  // 상세 줌에서는 기기가 선로에 묻히지 않도록 기존보다 크게 유지한다.
+  if(lv<=1)return 1.65;
+  if(lv===2)return 1.35;
+  if(lv===3)return 1.12;
+  return 0.90;
+}}
+
+function fiberArrowScaleForLevel(level){{
+  const lv=Number(level||3);
+  // 화살표는 기기보다 작게 유지하되 줌 레벨에 따라 단계적으로 조정한다.
+  if(lv<=1)return 0.85;
+  if(lv===2)return 0.72;
+  if(lv===3)return 0.60;
+  return 0.50;
 }}
 
 function scaledSymbolSpec(kind){{
@@ -1628,9 +1639,16 @@ function snapCablePath(coords,devices){{
       if(dist<threshold&&dist<bestDist){{best=dev;bestDist=dist}}
     }}
     if(!best)return;
-    // 케이블 끝점은 심벌 경계가 아니라 심벌 중심으로 보정한다.
-    // 심벌은 더 높은 Z-order로 그려져 케이블을 덮는다.
-    pts[index]=pxToLatLng(best.cx,best.cy);
+    // 케이블은 기기 중심까지 밀어 넣지 않고 실제 심벌 외곽 경계점에 접속한다.
+    // 불투명 심벌이 케이블을 덮어 선이 끊겨 보이는 현상을 줄인다.
+    const neighbor=px[neighborIndex];
+    const edge=boundaryPoint(
+      best.kind,
+      best.cx,best.cy,
+      neighbor.x,neighbor.y,
+      Number(best.deg||0)
+    );
+    pts[index]=pxToLatLng(edge[0],edge[1]);
   }}
 
   snapEnd(0,1);
@@ -2092,9 +2110,14 @@ function drawFiberInputArrow(path,color,cableOverlay,props){{
   vx/=len;vy/=len;
 
   // 광케이블 입력방향은 채워진 삼각형 화살촉으로 표시한다.
-  const tip=[tipPx.x-vx*4,tipPx.y-vy*4];
-  const baseCenter=[tipPx.x-vx*17,tipPx.y-vy*17];
-  const px=-vy,py=vx,wing=5.5;
+  // 줌 변경 때 재생성하며 레벨별 크기를 적용한다.
+  const arrowScale=fiberArrowScaleForLevel(map.getLevel());
+  const tipOffset=4*arrowScale;
+  const baseOffset=17*arrowScale;
+  const wing=5.5*arrowScale;
+  const tip=[tipPx.x-vx*tipOffset,tipPx.y-vy*tipOffset];
+  const baseCenter=[tipPx.x-vx*baseOffset,tipPx.y-vy*baseOffset];
+  const px=-vy,py=vx;
   const left=[baseCenter[0]+px*wing,baseCenter[1]+py*wing];
   const right=[baseCenter[0]-px*wing,baseCenter[1]-py*wing];
 
@@ -2128,6 +2151,33 @@ function drawFiberInputArrow(path,color,cableOverlay,props){{
     }});
   }}
   return arrow;
+}}
+
+function redrawFiberArrowsForZoom(){{
+  if(!map||!cableArrows.size)return;
+  const records=[];
+  for(const [cable,arrows] of cableArrows.entries()){{
+    try{{
+      const path=typeof cable.getPath==='function'?cable.getPath():null;
+      if(path&&path.length>=2){{
+        records.push({{
+          cable,
+          path,
+          color:String(cable.__cmbBaseColor||'#1e88e5'),
+          props:cable.__cmbFiberProps||{{}}
+        }});
+      }}
+    }}catch(e){{}}
+    (arrows||[]).forEach(arrow=>{{
+      try{{arrow.setMap(null);}}catch(e){{}}
+      const idx=overlays.indexOf(arrow);
+      if(idx>=0)overlays.splice(idx,1);
+      overlayGroups.delete(arrow);
+      overlayKinds.delete(arrow);
+    }});
+  }}
+  cableArrows.clear();
+  records.forEach(r=>drawFiberInputArrow(r.path,r.color,r.cable,r.props));
 }}
 
 function renderFiberFeatures(features){{
@@ -2166,6 +2216,8 @@ function renderFiberFeatures(features){{
       l.setMap(map);
       if(typeof l.setZIndex==='function')l.setZIndex(5);
       registerOverlay(l,'FIBER');
+      l.__cmbFiberProps=p;
+      l.__cmbBaseColor=c;
       bindCableClick(l,p,c,4,5);
       drawFiberInputArrow(path,c,l,p);
       rendered++;
@@ -2704,9 +2756,14 @@ function initMap(){{
         const level=map.getLevel();
 
         // 줌 변경은 서버/API와 완전히 분리한다.
-        // 기기만 메모리에서 현재 줌 레벨 크기로 다시 그리고, 선로는 그대로 유지한다.
-        if(level<=3)redrawDevicesFromMemory();
-        else applyZoomVisibility(level);
+        // 기기와 광 방향 화살표만 메모리/기존 오버레이에서 다시 계산하고 선로 데이터는 재조회하지 않는다.
+        if(level<=3){{
+          redrawDevicesFromMemory();
+          redrawFiberArrowsForZoom();
+        }}else{{
+          applyZoomVisibility(level);
+          redrawFiberArrowsForZoom();
+        }}
         lastDetailMode=(level<=3);
         setStatus(
           'L'+level+
