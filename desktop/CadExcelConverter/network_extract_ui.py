@@ -39,6 +39,11 @@ class NetworkExtractionMixin:
             hint='보기 전용 계정 · 추출/Excel 기능 없음'
         for label,command in actions:
             ttk.Button(bar,text=label,command=command).pack(side='left',padx=(0,5))
+        ttk.Button(
+            bar,
+            text='도면 다시 읽기',
+            command=self._force_reload_drawing,
+        ).pack(side='left',padx=(0,5))
         if bool(getattr(self,'is_admin',False)):
             ttk.Separator(bar,orient='vertical').pack(side='left',fill='y',padx=(4,8))
             ttk.Button(
