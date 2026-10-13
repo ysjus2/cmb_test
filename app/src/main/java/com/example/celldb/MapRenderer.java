@@ -23,6 +23,8 @@ interface MapRenderer {
     android.graphics.Point screenPoint(MapPoint point);
     MapViewport viewport();
     void setCurrentLocation(MapPoint point, String accuracy);
+    default boolean supportsHybridMap(){ return false; }
+    default void setHybridMap(boolean hybrid) { }
     void center(MapPoint point, boolean zoomIn);
     void showAll(List<MapPoint> points);
     void resume();
