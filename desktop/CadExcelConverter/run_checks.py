@@ -605,16 +605,17 @@ assert "<button class='layerBtn on' data-group='FIBER'>광</button>" in online_s
 assert "<button class='layerBtn on' data-group='COAX'>동축</button>" in online_source
 print("DEFAULT_FIBER_COAX_ENABLED_OK")
 
-# 광기기는 legacy group/device flag보다 실제 CMB CAD layer/block code를 우선한다.
+
+# 광기기는 Viewer 우회가 아니라 업로드 단계에서 실제 FIBER 그룹에 포함되어야 한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-assert "function isFiberDeviceCode(p)" in online_source
-assert "layer.startsWith('CN_F_CLOSURE')" in online_source
-assert "layer.startsWith('CN_F_CENTER')" in online_source
-assert "layer.startsWith('CN_F_TERMINAL')" in online_source
-assert "layer.startsWith('CN_F_FOSC')" in online_source
-assert "layer.startsWith('CN_F_FDF')" in online_source
-assert "if(group!=='FIBER' && !fiberCode)return;" in online_source
-assert "if(!fiberCode && fields._cmb_is_device===false)return;" in online_source
-assert "const kind=fiberCode?'closure':symbolKind(p);" in online_source
-assert "광코드 " in online_source
-print("FIBER_DEVICE_CODE_PRIORITY_OK")
+assert 'fiber_device_block = (' in admin_upload_source
+assert 'block.startswith("CLOSURE")' in admin_upload_source
+assert 'block.startswith("TERMINAL")' in admin_upload_source
+assert 'block.startswith("CENTER")' in admin_upload_source
+assert 'block.startswith("FOSC")' in admin_upload_source
+assert 'block.startswith("FDF")' in admin_upload_source
+assert 'or fiber_device_block' in admin_upload_source
+assert "function isFiberDeviceCode(p)" not in online_source
+assert "if(String(p.group_id||'').toUpperCase()!=='FIBER')return;" in online_source
+print("FIBER_DEVICE_UPLOAD_GROUP_OK")
