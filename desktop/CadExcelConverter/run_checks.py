@@ -178,6 +178,9 @@ assert "_sync_to_shared_state" in client_source
 assert "CMB_AUTH_STATE_PATH" in launcher_source
 assert "self.c.on_session_expired = self.expire_session" in online_source
 assert "def expire_session(self):" in online_source
+assert 'if not self.c.access_token:' in online_source
+assert 'if not self.c.refresh_token:' in online_source
+assert 'self.c._sync_from_shared_state()' in online_source
 print("CROSS_PROCESS_SESSION_STATE_OK")
 
 
