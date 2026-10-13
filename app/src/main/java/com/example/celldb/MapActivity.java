@@ -100,6 +100,9 @@ public class MapActivity extends Activity {
     private final LinkedHashMap<String,String> serverVersions=new LinkedHashMap<>();
     private long lastVersionCheck;
     private final ArrayList<MapPoint> serverBounds=new ArrayList<>();
+    private final ArrayList<String> authorizedRegionIds=new ArrayList<>();
+    private final ArrayList<String> authorizedRegionTitles=new ArrayList<>();
+    private boolean waitingForAutoRegion;
     private final Runnable serverPoll=new Runnable(){public void run(){
         if(!foreground||destroyed)return;
         checkServerConnection();pollServerViewport();serverHandler.postDelayed(this,400);
@@ -680,35 +683,75 @@ public class MapActivity extends Activity {
     private void chooseServerDataset(){
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
         lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
+        authorizedRegionIds.clear();authorizedRegionTitles.clear();waitingForAutoRegion=true;
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
-        status.setText("권한 지역을 조회하는 중…");
+        status.setText("현재 위치에 맞는 권한 지역을 찾는 중…");
         serverTask=serverWorker.submit(()->{
             try{
                 org.json.JSONArray regions=client.regions();
-                ArrayList<String> titles=new ArrayList<>(),ids=new ArrayList<>();
                 for(int i=0;i<regions.length();i++){
                     org.json.JSONObject region=regions.getJSONObject(i);
                     String id=region.optString("id","").trim();
                     if(id.isEmpty())continue;
                     String name=region.optString("name",id).trim();
-                    titles.add(name.equals(id)?id:(name+" ("+id+")"));
-                    ids.add(id);
+                    authorizedRegionIds.add(id);
+                    authorizedRegionTitles.add(name.equals(id)?id:(name+" ("+id+")"));
                 }
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
-                    if(ids.isEmpty()){
-                        status.setText("배정된 canonical 지역 권한이 없습니다.");
+                    if(authorizedRegionIds.isEmpty()){
+                        waitingForAutoRegion=false;
+                        status.setText("배정된 지역 권한이 없습니다.");
                         regionStatus.setText("시설 도면 없음");
                         return;
                     }
-                    if(ids.size()==1){
-                        selectServerDataset(client,ids.get(0),titles.get(0));
+                    if(currentLocation!=null)autoSelectRegionForLocation(new MapPoint(currentLocation));
+                    else {
+                        waitingForAutoRegion=true;
+                        centerOnFix=true;
+                        requestLocation();
+                        status.setText("현재 위치 확인 중 · 권한 지역 자동 연결");
+                    }
+                });
+            }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){waitingForAutoRegion=false;markServerOffline();status.setText(serverMessage(error));}});}
+        });
+    }
+
+    private static boolean pointInsideBounds(MapPoint p,org.json.JSONObject box){
+        if(p==null||box==null)return false;
+        double south=box.optDouble("south",Double.NaN),north=box.optDouble("north",Double.NaN);
+        double west=box.optDouble("west",Double.NaN),east=box.optDouble("east",Double.NaN);
+        if(!Double.isFinite(south)||!Double.isFinite(north)||!Double.isFinite(west)||!Double.isFinite(east))return false;
+        return p.getLatitude()>=Math.min(south,north)&&p.getLatitude()<=Math.max(south,north)
+                &&p.getLongitude()>=Math.min(west,east)&&p.getLongitude()<=Math.max(west,east);
+    }
+
+    private void autoSelectRegionForLocation(MapPoint here){
+        if(server==null||authorizedRegionIds.isEmpty()||here==null)return;
+        waitingForAutoRegion=false;
+        cancelServerRequest();
+        final ServerApiClient client=server;final int generation=serverGeneration;
+        status.setText("현재 위치의 권한 지역 확인 중…");
+        serverTask=serverWorker.submit(()->{
+            try{
+                String matchedId=null,matchedTitle=null;
+                for(int i=0;i<authorizedRegionIds.size();i++){
+                    if(Thread.currentThread().isInterrupted())return;
+                    String id=authorizedRegionIds.get(i);
+                    org.json.JSONObject metadata=client.onlineLayers(id);
+                    if(pointInsideBounds(here,metadata.optJSONObject("bounds"))){
+                        matchedId=id;matchedTitle=authorizedRegionTitles.get(i);break;
+                    }
+                }
+                final String id=matchedId,title=matchedTitle;
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration||client!=server)return;
+                    if(id!=null){
+                        status.setText("현재 위치 권한 지역 · "+title);
+                        selectServerDataset(client,id,title);
                     }else{
-                        new AlertDialog.Builder(this)
-                            .setTitle("권한 지역 선택")
-                            .setItems(titles.toArray(new String[0]),(d,i)->selectServerDataset(client,ids.get(i),titles.get(i)))
-                            .setNegativeButton("닫기",null)
-                            .show();
+                        regionStatus.setText("현재 위치에 배정된 지역 도면 없음");
+                        status.setText("현재 위치가 권한 지역 도면 범위에 포함되지 않습니다.");
                     }
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
@@ -1118,6 +1161,9 @@ public class MapActivity extends Activity {
         if (centerOnFix && mapReady) {
             map.center(point, true);
             centerOnFix = false;
+        }
+        if(waitingForAutoRegion && server!=null && serverDataset.isEmpty() && !authorizedRegionIds.isEmpty()){
+            autoSelectRegionForLocation(point);
         }
     }
 
