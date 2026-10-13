@@ -7,6 +7,7 @@ import os
 import ssl
 import sys
 import threading
+import time
 import contextlib
 import urllib.error
 import urllib.parse
@@ -289,11 +290,37 @@ class CMBServerClient:
             except Exception:
                 pass
 
-    def _request(self, method, path, payload=None, auth=True, retry_refresh=True, timeout=60):
+    def _request(
+        self,
+        method,
+        path,
+        payload=None,
+        auth=True,
+        retry_refresh=True,
+        timeout=60,
+        retry_transient=True,
+    ):
         failed_access = self.access_token
         try:
             return self._raw_request(method, path, payload, auth=auth, timeout=timeout)
         except ServerError as exc:
+            # 지도 조회 중 한 worker가 무거운 DB 작업을 처리해 일시적으로
+            # Nginx 502/503/504가 발생할 수 있다. 안전한 GET만 1회 짧게 재시도한다.
+            if (
+                str(method or "").upper() == "GET"
+                and exc.status in (502, 503, 504)
+                and retry_transient
+            ):
+                time.sleep(0.35)
+                return self._request(
+                    method,
+                    path,
+                    payload,
+                    auth=auth,
+                    retry_refresh=retry_refresh,
+                    timeout=timeout,
+                    retry_transient=False,
+                )
             if auth and exc.status == 401 and retry_refresh and self.refresh_token:
                 try:
                     # 다른 프로세스가 이미 refresh token을 회전했을 수 있으므로
@@ -311,6 +338,7 @@ class CMBServerClient:
                         auth=True,
                         retry_refresh=False,
                         timeout=timeout,
+                        retry_transient=retry_transient,
                     )
                 except ServerError as refresh_exc:
                     if refresh_exc.status == 401:
