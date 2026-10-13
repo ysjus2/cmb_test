@@ -1581,7 +1581,10 @@ function clearGroupOverlays(group){{
     restoreSelectedCable();
   }}
   if(target==='FIBER')cableArrows.clear();
-  loadGeneration++;
+  // 그룹 하나를 다시 그리는 작업은 다른 그룹의 진행 중 조회를 취소하면 안 된다.
+  // 특히 FIBER 셀 렌더가 loadGeneration을 올리면 동시에 진행 중인
+  // COAX/기기 loadObjects() 결과가 정상 응답이어도 폐기되는 문제가 생긴다.
+  // 전체/지역 전환 취소는 clearOverlays()/clearNonFiberOverlays()에서만 수행한다.
   const kept=[];
   overlays.forEach(x=>{{
     if(overlayGroups.get(x)===target){{
