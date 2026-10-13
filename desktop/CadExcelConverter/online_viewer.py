@@ -1010,6 +1010,10 @@ function clearNonFiberOverlays(){{
 
 function clearGroupOverlays(group){{
   const target=String(group||'').toUpperCase();
+  if(selectedCable && String(overlayGroups.get(selectedCable)||'').toUpperCase()===target){{
+    restoreSelectedCable();
+  }}
+  if(target==='FIBER')cableArrows.clear();
   loadGeneration++;
   const kept=[];
   overlays.forEach(x=>{{
