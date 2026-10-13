@@ -604,3 +604,17 @@ assert "const groupEnabled={{FIBER:true,COAX:true,POLE:false,CONDUIT:false,USER:
 assert "<button class='layerBtn on' data-group='FIBER'>광</button>" in online_source
 assert "<button class='layerBtn on' data-group='COAX'>동축</button>" in online_source
 print("DEFAULT_FIBER_COAX_ENABLED_OK")
+
+# 광기기는 legacy group/device flag보다 실제 CMB CAD layer/block code를 우선한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+assert "function isFiberDeviceCode(p)" in online_source
+assert "layer.startsWith('CN_F_CLOSURE')" in online_source
+assert "layer.startsWith('CN_F_CENTER')" in online_source
+assert "layer.startsWith('CN_F_TERMINAL')" in online_source
+assert "layer.startsWith('CN_F_FOSC')" in online_source
+assert "layer.startsWith('CN_F_FDF')" in online_source
+assert "if(group!=='FIBER' && !fiberCode)return;" in online_source
+assert "if(!fiberCode && fields._cmb_is_device===false)return;" in online_source
+assert "const kind=fiberCode?'closure':symbolKind(p);" in online_source
+assert "광코드 " in online_source
+print("FIBER_DEVICE_CODE_PRIORITY_OK")
