@@ -1237,6 +1237,9 @@ class DXFViewer(ttk.Frame):
             # 추출/로컬 DXF Viewer는 기기를 온라인용 단순 심벌로 치환하지 않는다.
             # INSERT의 virtual entities를 포함한 원본 CAD primitives를 그대로 표시한다.
             arrow_primitive = _optical_arrow_primitive(ent.primitives) if _is_optical_cable_layer(ent.layer) else None
+            # 광 방향 화살표는 광기기가 실제로 보이기 시작하는 LOD와 동일하게 표시한다.
+            # 전체 도면/상위 줌에서는 광선만 보이고 화살표는 숨겨 화면 혼잡을 줄인다.
+            optical_arrow_visible = lod >= layer_level("CN_F_CLOSURE")
             for primitive_index, (kind, data) in enumerate(ent.primitives):
                 if kind == "text" and (lod < MAX_LEVEL or getattr(self, "hide_extraction_text", False)):
                     continue
@@ -1250,7 +1253,7 @@ class DXFViewer(ttk.Frame):
                             # 광케이블은 CAD 내부 Polyline 정점 순서의 마지막 점을
                             # 현재 도면의 IN 방향으로 간주해 화살표를 표시한다.
                             # 동축 및 기타 케이블에는 방향 화살표를 표시하지 않는다.
-                            if primitive_index == arrow_primitive:
+                            if primitive_index == arrow_primitive and optical_arrow_visible:
                                 ids.append(c.create_line(
                                     *coords, fill=color, width=max(width, 2),
                                     arrow=tk.LAST, arrowshape=(10, 12, 5), tags=("cable",),
