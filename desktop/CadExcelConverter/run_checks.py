@@ -656,3 +656,19 @@ assert "Closure는 방향 표시선이 아니라 실제 인라인 함체처럼 �
 assert "leftA=rotatePoint" in online_source
 assert "rightB=rotatePoint" in online_source
 print("ONLINE_CLOSURE_INLINE_SHAPE_OK")
+
+# 광케이블 입력방향 화살표, RN 라벨, 정보성 레이어 기본 OFF 정책을 고정한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+main_source = (root / "main.py").read_text(encoding="utf-8")
+layer_defaults_source = (root / "layer_defaults.py").read_text(encoding="utf-8")
+assert "function drawFiberInputArrow(path,color)" in online_source
+assert "registerOverlay(l,'FIBER','fiber_input_arrow')" in online_source
+assert "if(kind==='fiber_rn')" in online_source
+assert "block.startsWith('RN-8')" in online_source and "return '8'" in online_source
+assert "block.startsWith('RN-4')" in online_source and "return '4'" in online_source
+assert "else if(kind!=='fiber_rn')" in online_source
+assert "if not is_default_hidden(layer.name):" in main_source
+assert "self.viewer.set_visible_layers(self.visible_layers)" in main_source
+assert "_ID_SEGMENT_RE" in layer_defaults_source
+assert "지번" in layer_defaults_source and "jibun" in layer_defaults_source
+print("FIBER_ARROW_RN_AND_HIDDEN_INFO_OK")
