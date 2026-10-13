@@ -275,6 +275,55 @@ def _geometry_parts(e):
     return None, []
 
 
+_UPLOAD_POLE_CODE_RE = re.compile(
+    r"(?<![0-9A-Za-z])(\d{4}[A-Za-z]\d{3})(?![0-9A-Za-z])"
+)
+
+
+def _upload_pole_refs(e):
+    """Return every KEPCO pole reference carried by the original CAD object.
+
+    No nearest-pole/geometric inference is performed here. The source CAD
+    attribute/XDATA/DXF values are authoritative.
+    """
+    blobs = []
+
+    for key, value in (getattr(e, "attributes", {}) or {}).items():
+        blobs.extend((str(key or ""), str(value or "")))
+
+    for appid, values in (getattr(e, "xdata", []) or []):
+        blobs.append(str(appid or ""))
+        blobs.extend(str(v or "") for v in (values or []))
+
+    for key, value in (getattr(e, "dxf_data", {}) or {}).items():
+        blobs.extend((str(key or ""), str(value or "")))
+
+    pole_info = getattr(e, "pole_info", {}) or {}
+    if isinstance(pole_info, dict):
+        for key, value in pole_info.items():
+            blobs.extend((str(key or ""), str(value or "")))
+
+    blobs.extend([
+        str(getattr(e, "text", "") or ""),
+        str(getattr(e, "block_name", "") or ""),
+        str(getattr(e, "layer", "") or ""),
+    ])
+
+    seen = set()
+    refs = []
+    for blob in blobs:
+        for raw in _UPLOAD_POLE_CODE_RE.findall(str(blob or "")):
+            pole_no = raw.upper()
+            if pole_no in seen:
+                continue
+            seen.add(pole_no)
+            refs.append({
+                "pole_no": pole_no,
+                "grid_id": pole_no[:5],
+            })
+    return refs
+
+
 def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     transformer = Transformer.from_crs(
         f"EPSG:{int(epsg)}",
@@ -379,9 +428,21 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             value = dxf.get(src_key)
             if value not in (None, ""):
                 attrs[dst_key] = value
+        # 모든 서버 업로드 객체(FIBER/COAX/CONDUIT/POLE/USER)에 대해
+        # 원본 CAD가 가진 한전주 위치값을 직접 보존한다.
+        # 좌표 근접/최근접 전주 연산은 하지 않는다.
         pole_info = dict(getattr(e, "pole_info", {}) or {})
+        pole_refs = _upload_pole_refs(e)
         if pole_info:
             attrs["_cmb_pole_info"] = pole_info
+        if pole_refs:
+            attrs["_cmb_pole_refs"] = pole_refs
+            # 단일 전주 참조 객체는 조회/검색 편의를 위해 대표값도 평탄화한다.
+            if len(pole_refs) == 1:
+                attrs["_cmb_pole_no"] = pole_refs[0]["pole_no"]
+                attrs["_cmb_grid_id"] = pole_refs[0]["grid_id"]
+            else:
+                attrs["_cmb_grid_ids"] = sorted({ref["grid_id"] for ref in pole_refs})
 
         part_count = len(geometries)
         for part_index, geometry in enumerate(geometries, start=1):
