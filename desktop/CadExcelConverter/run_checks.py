@@ -676,6 +676,10 @@ assert "const refs=Array.isArray(fields._cmb_pole_refs)?fields._cmb_pole_refs:[]
 assert "const a=storedPolePosition(f);" in online_source
 assert "Viewer에서는 최근접 전주/거리/공간연산을 하지 않는다." in online_source
 print("DIRECT_STORED_POLE_POSITION_RENDER_OK")
+assert "def _actual_pole_numbers(e):" in admin_upload_source
+assert "pole_no = grid + str(local).zfill(3)" in admin_upload_source
+assert "pole_numbers = _actual_pole_numbers(e)" in admin_upload_source
+print("SPLIT_POLE_ID_COMBINATION_OK")
 client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
 assert "def online_grid_objects(self, region, grid_id" in client_source
 assert 'f"/online/{q}/grid/{g}/objects?limit={int(limit)}"' in client_source
