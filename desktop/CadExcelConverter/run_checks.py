@@ -177,14 +177,17 @@ assert 'layer.startswith("CN_L_POLE_LINE_")' in admin_upload_source
 assert admin_upload_source.index('return "CONDUIT"') < admin_upload_source.index('return "POLE"')
 print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
-# 지역 전환은 지역 전체 광 gzip를 읽지 않고 Polemap 셀 캐시만 현재 화면부터 읽어야 한다.
+# 지역 전환은 지역 전체 광/일반 객체 gzip을 읽지 않고 Polemap 셀 캐시만 현재 화면부터 읽어야 한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fiber_cell_dir", 1)[0]
-assert "self._load_cache()" in select_block
+assert "self._load_cache()" not in select_block
 assert "self._load_fiber_cache()" not in select_block
-assert "self.fiber_cache = {\"version\": \"\", \"features\": []}" in select_block
+assert 'self.cache_state = {"versions": {}, "features": {}, "coverage": []}' in select_block
+assert 'self.fiber_cache = {"version": "", "features": []}' in select_block
 assert "def _fiber_cell_dir(self):" in online_source
+assert "def _object_cell_dir(self):" in online_source
 assert "def fiber_cell(self, grid_id, west, south, east, north, force=False):" in online_source
+assert "def _cell_object_features(self, cell, version_signature):" in online_source
 assert "def polemap(self, west, south, east, north):" in online_source
 assert 'name == "fiber_cell"' in online_source
 assert 'name == "polemap"' in online_source
@@ -588,6 +591,11 @@ assert "refresh_pending" in online_source
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
 print("FIBER_VIEWPORT_STREAMING_AND_PART_KEYS_OK")
+assert 'polemap = self.polemap(west, south, east, north)' in online_source
+assert 'polemap_cells": len(cells)' in online_source
+assert 'self._read_object_cell_cache(grid_id)' in online_source
+assert 'self._write_object_cell_cache(grid_id, version_signature, features)' in online_source
+print("ALL_GROUP_POLEMAP_CELL_CACHE_OK")
 
 # 기존 광 캐시는 즉시 사용하고 현재 화면 새 수신분을 누적 병합한다.
 assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
