@@ -1134,8 +1134,8 @@ const SYMBOL_LIBRARY={{
   manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
   power:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
   power_ps:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
-  closure:{{shape:'flat_capsule',w:32,h:11,fill:'#ffffff',stroke:'#0d47a1'}},
-  fiber_terminal:{{shape:'diamond',w:18,h:18,fill:'#ffffff',stroke:'#1565c0'}},
+  closure:{{shape:'closure_box',w:24,h:12,fill:'#ffffff',stroke:'#0d47a1'}},
+  fiber_terminal:{{shape:'rect',w:18,h:18,fill:'#ffffff',stroke:'#1565c0',labelColor:'#ff1493'}},
   fiber_rn:{{shape:'triangle',w:13,h:13,fill:'#ffffff',stroke:'#424242'}},
   fiber_net:{{shape:'rect',w:30,h:14,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
@@ -1297,6 +1297,11 @@ function deviceLabel(p,kind){{
     if(block.startsWith('RN-8'))return '8';
     if(block.startsWith('RN-4'))return '4';
   }}
+  if(kind==='fiber_terminal'){{
+    // 터미널 외형은 동일한 사각형을 사용하고 도면의 block/layer/속성에 있는 L2/L3만 표기한다.
+    if(/(^|[^A-Z0-9])L2([^A-Z0-9]|$)/.test(s))return 'L2';
+    if(/(^|[^A-Z0-9])L3([^A-Z0-9]|$)/.test(s))return 'L3';
+  }}
 
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
 }}
@@ -1327,10 +1332,10 @@ function deviceScaleForLevel(level){{
 function fiberArrowScaleForLevel(level){{
   const lv=Number(level||3);
   // 화살표는 기기보다 작게 유지하되 줌 레벨에 따라 단계적으로 조정한다.
-  if(lv<=1)return 0.85;
-  if(lv===2)return 0.72;
-  if(lv===3)return 0.60;
-  return 0.50;
+  if(lv<=1)return 1.00;
+  if(lv===2)return 0.85;
+  if(lv===3)return 0.72;
+  return 0.60;
 }}
 
 function scaledSymbolSpec(kind){{
@@ -1363,6 +1368,14 @@ function polygonPoints(kind,cx,cy,deg=0){{
   }} else if(d.shape==='diamond'){{
     const w=d.w/2,h=d.h/2;
     pts=[[cx,cy-h],[cx+w,cy],[cx,cy+h],[cx-w,cy]];
+  }} else if(d.shape==='closure_box'){{
+    const w=d.w/2,h=d.h/2,cut=Math.min(3*d._scale,h*.45);
+    pts=[
+      [cx-w+cut,cy-h],[cx+w-cut,cy-h],
+      [cx+w,cy-h+cut],[cx+w,cy+h-cut],
+      [cx+w-cut,cy+h],[cx-w+cut,cy+h],
+      [cx-w,cy+h-cut],[cx-w,cy-h+cut]
+    ];
   }} else if(d.shape==='triangle'){{
     const w=d.w/2,h=d.h/2;
     pts=[[cx,cy-h],[cx+w,cy+h],[cx-w,cy+h]];
@@ -1519,25 +1532,9 @@ function drawDevice(center,props){{
     }}
   }}
 
-  // Closure는 방향 표시선이 아니라 실제 인라인 함체처럼 좌/우 케이블 연결부를 표시한다.
+  // Closure는 자체 함체 심벌만 표시한다. 케이블처럼 보이는 좌/우 꼬리와 방향선은 추가하지 않는다.
   if(kind==='closure'){{
-    const halfW=(Number(d.w)||32)/2;
-    const stub=7*(d._scale||1);
-    const leftA=rotatePoint(cx-halfW-stub,cy,cx,cy,deg);
-    const leftB=rotatePoint(cx-halfW,cy,cx,cy,deg);
-    const rightA=rotatePoint(cx+halfW,cy,cx,cy,deg);
-    const rightB=rotatePoint(cx+halfW+stub,cy,cx,cy,deg);
-    [[leftA,leftB],[rightA,rightB]].forEach(seg=>{{
-      const line=new kakao.maps.Polyline({{
-        path:[pxToLatLng(seg[0][0],seg[0][1]),pxToLatLng(seg[1][0],seg[1][1])],
-        strokeWeight:2,strokeColor:d.stroke,strokeOpacity:1
-      }});
-      line.setMap(map);
-      if(typeof line.setZIndex==='function')line.setZIndex(31);
-      registerOverlay(line,props.group_id,kind);
-      parts.push(line);
-      bindClick(line,props);
-    }});
+    // no extra tails / direction marker
   }} else if(kind!=='fiber_rn') {{
     const a=deg*Math.PI/180;
     const dirLen=Math.max(6,(d.r||Math.max(d.w||0,d.h||0)/2)*.9);
