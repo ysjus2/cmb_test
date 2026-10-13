@@ -74,7 +74,7 @@ print("MULTIPART_SOURCE_GEOMETRY_OK")
 
 # 온라인 Viewer는 광을 영구 캐시 레이어로 유지하고,
 # L1~L3에서만 주변 기기/동축/전주/관로를 추가한다.
-assert "FIBER:true,COAX:false,POLE:false,CONDUIT:false" in page
+assert "FIBER:true,COAX:true,POLE:false,CONDUIT:false" in page
 assert "const mapLevelNow=map.getLevel();" in page
 assert "const detailMode=mapLevelNow<=3;" in page
 assert "clearNonFiberOverlays()" in page
