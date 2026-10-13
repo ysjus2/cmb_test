@@ -672,3 +672,23 @@ assert "self.viewer.set_visible_layers(self.visible_layers)" in main_source
 assert "_ID_SEGMENT_RE" in layer_defaults_source
 assert "지번" in layer_defaults_source and "jibun" in layer_defaults_source
 print("FIBER_ARROW_RN_AND_HIDDEN_INFO_OK")
+
+# 하이브리드 지도, 강제 DXF 다시 읽기, 채워진 광 화살표+선택 연동을 고정한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+main_source = (root / "main.py").read_text(encoding="utf-8")
+network_ui_source = (root / "network_extract_ui.py").read_text(encoding="utf-8")
+drawing_cache_source = (root / "drawing_cache.py").read_text(encoding="utf-8")
+assert "kakao.maps.MapTypeId.HYBRID" in online_source
+assert "map.setMapTypeId" in online_source
+assert "id='mapHybrid'" in online_source
+assert "new kakao.maps.Polygon" in online_source
+assert "fillColor:c" in online_source and "fiber_input_arrow" in online_source
+assert "const cableArrows=new Map();" in online_source
+assert "selectedCableArrows" in online_source
+assert "selectCable(cableOverlay" in online_source
+assert "def _force_reload_drawing(self):" in main_source
+assert "force_refresh=True" in main_source
+assert "text='도면 다시 읽기'" in network_ui_source
+assert "force_refresh=False" in drawing_cache_source
+assert "if not force_refresh:" in drawing_cache_source
+print("HYBRID_FORCE_RELOAD_FILLED_ARROW_OK")
