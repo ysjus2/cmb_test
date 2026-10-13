@@ -30,7 +30,7 @@ def scene_layers(scene):
     return [LayerInfo(name, counts.get(name, 0), ', '.join(sorted(types.get(name, set()))))
             for name in sorted(names, key=str.lower)]
 
-def open_drawing(input_path, log=None, progress=None, cache_dir=None, builder=None):
+def open_drawing(input_path, log=None, progress=None, cache_dir=None, builder=None, force_refresh=False):
     log = log or (lambda message: None)
     progress = progress or (lambda value, message: None)
     builder = builder or build_scene
@@ -40,21 +40,24 @@ def open_drawing(input_path, log=None, progress=None, cache_dir=None, builder=No
     directory = Path(cache_dir) if cache_dir else Path(os.environ.get('LOCALAPPDATA', tempfile.gettempdir())) / 'CMB_DXF_Viewer' / 'drawing-cache'
     key = hashlib.sha256(str(source.resolve()).casefold().encode('utf-8')).hexdigest()
     cache = directory / (key + '.json.gz')
-    try:
-        with gzip.open(cache, 'rt', encoding='utf-8') as stream:
-            payload = json.load(stream)
-        if payload['signature'] == signature:
-            values = payload['scene']
-            values['entities'] = [VisualEntity(**entity) for entity in values['entities']]
-            scene = Scene(**values)
-            if any(entity.index != index for index, entity in enumerate(scene.entities)):
-                raise ValueError('Invalid cached entity indices')
-            layers = scene_layers(scene)
-            progress(100, '캐시에서 도면 준비 완료')
-            log('도면 캐시 사용: DXF 재분석 생략')
-            return layers, scene
-    except (OSError, EOFError, ValueError, KeyError, TypeError):
-        pass
+    if not force_refresh:
+        try:
+            with gzip.open(cache, 'rt', encoding='utf-8') as stream:
+                payload = json.load(stream)
+            if payload['signature'] == signature:
+                values = payload['scene']
+                values['entities'] = [VisualEntity(**entity) for entity in values['entities']]
+                scene = Scene(**values)
+                if any(entity.index != index for index, entity in enumerate(scene.entities)):
+                    raise ValueError('Invalid cached entity indices')
+                layers = scene_layers(scene)
+                progress(100, '캐시에서 도면 준비 완료')
+                log('도면 캐시 사용: DXF 재분석 생략')
+                return layers, scene
+        except (OSError, EOFError, ValueError, KeyError, TypeError):
+            pass
+    else:
+        log('강제 다시 읽기: 기존 캐시를 무시하고 원본 DXF를 재분석합니다.')
     scene = builder(source, log=log, progress=progress)
     layers = scene_layers(scene)
     temporary = None
