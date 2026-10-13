@@ -133,6 +133,10 @@ assert "local_map_mode=True" in main_source
 assert "session_client=None" in main_source
 assert 'state="normal"' in launcher_source
 assert 'self._spawn("--map-viewer", verify_server=False)' in launcher_source
+assert "if self.session_guard is not None:\n            self.session_guard.pause()" in launcher_source
+map_block = main_source.split('if "--map-viewer" in sys.argv:', 1)[1].split("import socket", 1)[0]
+for forbidden in ("session_client.me(", ".health(", ".regions(", ".online_layers("):
+    assert forbidden not in map_block
 assert "def _spawn(self, flag, verify_server=True):" in launcher_source
 assert main_source.count("client = self._get_session_client()") == 3
 print("OFFLINE_MAP_VIEWER_LAZY_SERVER_OK")
