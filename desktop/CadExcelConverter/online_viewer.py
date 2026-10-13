@@ -1648,7 +1648,16 @@ function snapCablePath(coords,devices){{
       neighbor.x,neighbor.y,
       Number(best.deg||0)
     );
-    pts[index]=pxToLatLng(edge[0],edge[1]);
+
+    // 표시상 끊김 방지:
+    // 실제 연결 판단은 기기 중심 기준을 유지하되, 화면에서는 외곽 경계보다
+    // 약간 안쪽(3px)까지 케이블을 연장해 심벌 아래로 겹치게 한다.
+    // 이렇게 하면 projection/rounding 오차가 있어도 기기와 케이블 사이에 틈이 생기지 않는다.
+    let ex=best.cx-edge[0],ey=best.cy-edge[1];
+    const elen=Math.hypot(ex,ey)||1;
+    ex/=elen;ey/=elen;
+    const overlapPx=3;
+    pts[index]=pxToLatLng(edge[0]+ex*overlapPx,edge[1]+ey*overlapPx);
   }}
 
   snapEnd(0,1);
