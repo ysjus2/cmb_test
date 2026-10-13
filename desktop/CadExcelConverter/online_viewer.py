@@ -49,8 +49,14 @@ class Api:
         self.fiber_bbox_refreshing = set()
         self.fiber_cell_refreshing = set()
 
-        self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
-        self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        # CMBServerClient()는 먼저 CMB_AUTH_STATE_PATH의 공용 세션 파일에서
+        # 최신 access/refresh token을 읽는다. 장시간 업로드 중 refresh token이
+        # 회전할 수 있으므로 오래된 환경변수 값으로 최신 공용 상태를 덮어쓰지 않는다.
+        if not self.c.access_token:
+            self.c.access_token = os.getenv("CMB_AUTH_ACCESS", "").strip()
+        if not self.c.refresh_token:
+            self.c.refresh_token = os.getenv("CMB_AUTH_REFRESH", "").strip()
+        self.c._sync_from_shared_state()
         self.c.on_session_expired = self.expire_session
         raw_user = os.getenv("CMB_AUTH_USER", "").strip()
         if raw_user:
