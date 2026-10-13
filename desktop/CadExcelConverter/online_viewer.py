@@ -1422,6 +1422,7 @@ let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
+const FIBER_QUERY_RADIUS_METERS=10000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
@@ -2908,18 +2909,19 @@ async function loadFiberViewport(force=false){{
   if(!region||!map||!groupEnabled.FIBER)return 0;
 
   const generation=++fiberViewportGeneration;
-  const bounds=map.getBounds();
-  const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();
   const center=map.getCenter();
+  const cLat=Number(center.getLat()),cLng=Number(center.getLng());
 
-  // 화면보다 약간 넓게 Polemap 셀을 받아 다음 이동 방향까지 미리 캐시한다.
-  const latPad=(ne.getLat()-sw.getLat())*0.22;
-  const lngPad=(ne.getLng()-sw.getLng())*0.22;
+  // 광은 일반 객체의 500m 조회반경과 완전히 분리한다.
+  // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 10km를 Polemap 조회 범위로 사용한다.
+  const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;
+  const fiberLngScale=Math.max(0.2,Math.cos(cLat*Math.PI/180));
+  const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);
   const query={{
-    west:sw.getLng()-lngPad,
-    south:sw.getLat()-latPad,
-    east:ne.getLng()+lngPad,
-    north:ne.getLat()+latPad
+    west:cLng-fiberLngDelta,
+    south:cLat-fiberLatDelta,
+    east:cLng+fiberLngDelta,
+    north:cLat+fiberLatDelta
   }};
 
   let polemap=null;
@@ -2928,7 +2930,6 @@ async function loadFiberViewport(force=false){{
 
   const cells=(polemap&&polemap.cells)||[];
   if(cells.length){{
-    const cLat=Number(center.getLat()),cLng=Number(center.getLng());
     cells.sort((a,b)=>{{
       const ax=(Number(a.west)+Number(a.east))/2, ay=(Number(a.south)+Number(a.north))/2;
       const bx=(Number(b.west)+Number(b.east))/2, by=(Number(b.south)+Number(b.north))/2;
@@ -2979,11 +2980,11 @@ async function loadFiberViewport(force=false){{
     return rendered;
   }}
 
-  // Polemap 미등록 지역은 기존 화면 bbox 방식으로 폴백한다.
-  const west=sw.getLng()-lngPad;
-  const south=sw.getLat()-latPad;
-  const east=ne.getLng()+lngPad;
-  const north=ne.getLat()+latPad;
+  // Polemap 미등록 지역도 광은 동일하게 중심 반경 10km bbox를 사용한다.
+  const west=query.west;
+  const south=query.south;
+  const east=query.east;
+  const north=query.north;
   const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
   if(generation!==fiberViewportGeneration)return 0;
   if(!r||r.ok===false){{
