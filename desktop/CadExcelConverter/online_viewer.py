@@ -48,6 +48,7 @@ class Api:
         self.bbox_refreshing = set()
         self.fiber_bbox_refreshing = set()
         self.fiber_cell_refreshing = set()
+        self.object_cell_refreshing = set()
 
         # CMBServerClient()는 먼저 CMB_AUTH_STATE_PATH의 공용 세션 파일에서
         # 최신 access/refresh token을 읽는다. 장시간 업로드 중 refresh token이
@@ -1078,6 +1079,32 @@ class Api:
         self._write_object_cell_cache(grid_id, version_signature, features)
         return features, "network"
 
+    def _start_object_cell_refresh(self, cell, version_signature):
+        grid_id = str(cell.get("grid_id") or "").strip().upper()
+        if not grid_id:
+            return False
+        key = (str(self.region or ""), grid_id, str(version_signature or ""))
+        with self.cache_lock:
+            if key in self.object_cell_refreshing:
+                return False
+            self.object_cell_refreshing.add(key)
+
+        region = str(self.region or "")
+
+        def worker():
+            try:
+                if region != self.region:
+                    return
+                self._cell_object_features(cell, version_signature)
+            except Exception:
+                pass
+            finally:
+                with self.cache_lock:
+                    self.object_cell_refreshing.discard(key)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
     def _fetch_bbox_network(self, west, south, east, north):
         limit = 2000
         max_depth = 5
@@ -1197,20 +1224,55 @@ class Api:
                     + ((float(c.get("south")) + float(c.get("north"))) / 2.0 - cy) ** 2
                 ))
 
+                # 빠른 첫 표시:
+                # 중앙 셀만 필요 시 동기 조회하고, 주변 셀은 캐시가 있는 것만 즉시 병합한다.
+                # 캐시가 없는 주변 셀은 한 번에 최대 2개씩 백그라운드에서 채운다.
+                # 따라서 모든 셀 네트워크 조회가 끝날 때까지 UI를 막지 않는다.
                 merged = {}
                 cache_kinds = set()
-                for cell in cells:
-                    features, cache_kind = self._cell_object_features(cell, version_signature)
-                    cache_kinds.add(cache_kind)
+                missing_cells = []
+
+                for index, cell in enumerate(cells):
+                    grid_id = str(cell.get("grid_id") or "").strip().upper()
+                    cached = self._read_object_cell_cache(grid_id) if grid_id else None
+                    cache_valid = bool(
+                        cached
+                        and cached.get("features")
+                        and (
+                            not version_signature
+                            or cached.get("version") == version_signature
+                        )
+                    )
+
+                    if cache_valid:
+                        features = list(cached.get("features") or [])
+                        cache_kinds.add("hit")
+                    elif index == 0:
+                        # 중앙 셀은 최초 1회만 기다려서 즉시 화면에 표시한다.
+                        features, cache_kind = self._cell_object_features(cell, version_signature)
+                        cache_kinds.add(cache_kind)
+                    else:
+                        features = []
+                        missing_cells.append(cell)
+
                     for feature in features:
                         if self._feature_intersects(feature, west, south, east, north):
                             merged[self._feature_key(feature)] = feature
 
+                started = 0
+                for cell in missing_cells:
+                    if started >= 2:
+                        break
+                    if self._start_object_cell_refresh(cell, version_signature):
+                        started += 1
+
+                refresh_pending = bool(missing_cells)
                 return {
                     "features": list(merged.values()),
-                    "cache": "hit" if cache_kinds == {"hit"} else "network",
-                    "refresh_pending": False,
+                    "cache": "network" if "network" in cache_kinds else "hit",
+                    "refresh_pending": refresh_pending,
                     "polemap_cells": len(cells),
+                    "pending_cells": len(missing_cells),
                 }
 
             # Polemap이 없는 구형 지역만 기존 지역 캐시 방식으로 폴백한다.
