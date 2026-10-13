@@ -2922,7 +2922,11 @@ async function loadFiberViewport(force=false){{
     Number.isFinite(lastFiberCacheLng)
   ){{
     const moved=distanceMeters(lastFiberCacheLat,lastFiberCacheLng,cLat,cLng);
-    if(moved<FIBER_RECENTER_METERS){{
+    const hasFiberCache=
+      Number(fiberDiag.cache||0)>0 ||
+      Number(fiberDiag.renderParts||0)>0 ||
+      (Array.isArray(currentFiberPointFeatures)&&currentFiberPointFeatures.length>0);
+    if(moved<FIBER_RECENTER_METERS && hasFiberCache){{
       applyZoomVisibility(map.getLevel());
       return Number(fiberDiag.renderParts||0);
     }}
@@ -2995,9 +2999,17 @@ async function loadFiberViewport(force=false){{
       // 중앙 셀을 브라우저가 먼저 그린 뒤 주변 셀을 순차 추가한다.
       if(i<cells.length-1)await new Promise(resolve=>setTimeout(resolve,i===0?70:20));
     }}
-    lastFiberCacheLat=cLat;
-    lastFiberCacheLng=cLng;
-    lastFiberCacheRegion=region;
+    if(merged.size>0 || rendered>0){{
+      lastFiberCacheLat=cLat;
+      lastFiberCacheLng=cLng;
+      lastFiberCacheRegion=region;
+    }}else{{
+      // 빈 조회를 캐시 완료로 취급하면 이후 10km 이내 이동에서
+      // 서버 재조회가 막히므로 anchor를 남기지 않는다.
+      lastFiberCacheLat=null;
+      lastFiberCacheLng=null;
+      lastFiberCacheRegion='';
+    }}
     return rendered;
   }}
 
@@ -3021,9 +3033,11 @@ async function loadFiberViewport(force=false){{
     lastFiberCacheRegion=region;
     return rendered;
   }}
-  lastFiberCacheLat=cLat;
-  lastFiberCacheLng=cLng;
-  lastFiberCacheRegion=region;
+  // 광 데이터가 0개면 캐시 중심을 확정하지 않는다.
+  // 다음 idle/zoom 이후 서버 조회를 다시 허용한다.
+  lastFiberCacheLat=null;
+  lastFiberCacheLng=null;
+  lastFiberCacheRegion='';
   return 0;
 }}
 
