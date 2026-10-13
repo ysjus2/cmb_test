@@ -298,20 +298,20 @@ class Launcher(tk.Tk):
         self._restore_launcher()
 
     def _spawn(self, flag, verify_server=True):
-        # 온라인/관리자 기능은 기존처럼 서버 세션을 확인하지만,
-        # 로컬 맵추출 Viewer는 서버와 완전히 분리해 즉시 실행한다.
-        if verify_server and self.session_guard is not None:
+        # 자식 Viewer가 실행되는 동안 숨겨진 Launcher의 idle/session timer는 항상 중지한다.
+        # map-viewer는 서버 검증만 생략할 뿐, 부모의 백그라운드 세션 통신까지 계속 돌리면 안 된다.
+        if self.session_guard is not None:
             self.session_guard.pause()
 
         try:
             if verify_server:
-                # 현재 access token이 만료 직전이면 refresh까지 완료한 뒤 전달한다.
+                # 온라인 Viewer만 시작 직전에 서버 세션을 검증한다.
                 verified = self.client.me()
                 if isinstance(verified, dict):
                     self.user = verified
             env = self._child_env()
         except Exception:
-            if verify_server and self.session_guard is not None:
+            if self.session_guard is not None:
                 self.session_guard.resume()
             raise
 
