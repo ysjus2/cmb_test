@@ -330,6 +330,51 @@ _UPLOAD_GRID_CODE_RE = re.compile(
 _UPLOAD_LOCAL_POLE_ID_RE = re.compile(r"^\(?\s*(\d{1,3})\s*\)?$")
 
 
+def _object_grid_ids(e):
+    """Return every 5-char Polemap grid id explicitly carried by one CAD object.
+
+    Grid grouping must not depend on a full 8-char pole number being present.
+    Many drawings store the 5-char grid and local pole id separately, and
+    cables/devices may carry only the grid code needed for cell grouping.
+    """
+    blobs = []
+
+    for key, value in (getattr(e, "attributes", {}) or {}).items():
+        blobs.extend((str(key or ""), str(value or "")))
+
+    for appid, values in (getattr(e, "xdata", []) or []):
+        blobs.append(str(appid or ""))
+        blobs.extend(str(v or "") for v in (values or []))
+
+    for key, value in (getattr(e, "dxf_data", {}) or {}).items():
+        blobs.extend((str(key or ""), str(value or "")))
+
+    pole_info = getattr(e, "pole_info", {}) or {}
+    if isinstance(pole_info, dict):
+        for key, value in pole_info.items():
+            blobs.extend((str(key or ""), str(value or "")))
+
+    blobs.extend([
+        str(getattr(e, "text", "") or ""),
+        str(getattr(e, "block_name", "") or ""),
+        str(getattr(e, "layer", "") or ""),
+    ])
+
+    grids = []
+    for ref in _upload_pole_refs(e):
+        grid = str(ref.get("grid_id") or "").strip().upper()
+        if grid and grid not in grids:
+            grids.append(grid)
+
+    for blob in blobs:
+        for raw in _UPLOAD_GRID_CODE_RE.findall(str(blob or "")):
+            grid = raw.upper()
+            if grid not in grids:
+                grids.append(grid)
+
+    return grids
+
+
 def _actual_pole_numbers(e):
     """Return full KEPCO pole numbers for an actual POLE INSERT.
 
@@ -552,13 +597,22 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         pole_refs = _resolved_pole_refs(e, pole_lookup)
         if pole_info:
             attrs["_cmb_pole_info"] = pole_info
-        if pole_refs:
-            attrs["_cmb_pole_refs"] = pole_refs
-            attrs["_cmb_grid_ids"] = sorted({
+        object_grid_ids = sorted(set(
+            _object_grid_ids(e)
+            + [
                 str(ref.get("grid_id") or "").upper()
                 for ref in pole_refs
                 if str(ref.get("grid_id") or "").strip()
-            })
+            ]
+        ))
+        if object_grid_ids:
+            # 격자 그룹 조회는 full pole number 인식 여부와 독립적으로 보존한다.
+            attrs["_cmb_grid_ids"] = object_grid_ids
+            if len(object_grid_ids) == 1:
+                attrs["_cmb_grid_id"] = object_grid_ids[0]
+
+        if pole_refs:
+            attrs["_cmb_pole_refs"] = pole_refs
             # 단일 전주 참조 객체는 조회/검색 편의를 위해 대표값도 평탄화한다.
             if len(pole_refs) == 1:
                 attrs["_cmb_pole_no"] = pole_refs[0]["pole_no"]
