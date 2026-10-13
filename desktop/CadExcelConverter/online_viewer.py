@@ -1108,7 +1108,7 @@ function originalCableColor(p,group){{
 }}
 
 const SYMBOL_LIBRARY={{
-  onu:{{shape:'rect',w:32,h:16,fill:'#12c978',stroke:'#075c3c',label:'ONU',labelColor:'#053b2b'}},
+  onu:{{shape:'rect',w:38.4,h:19.2,fill:'#12c978',stroke:'#075c3c',label:'ONU',labelColor:'#053b2b'}},
   amp:{{shape:'triangle',w:18,h:18,fill:'#ff8f00',stroke:'#6d3b00'}},
   pole:{{shape:'circle_x',r:2.2,fill:'#ffffff',stroke:'#6d4c41'}},
   tap:{{shape:'hexagon',w:18,h:16,fill:'#ffc928',stroke:'#6d4c00'}},
@@ -1117,7 +1117,10 @@ const SYMBOL_LIBRARY={{
   manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
   power:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
   power_ps:{{shape:'square_circle',w:18,h:18,fill:'#e53935',stroke:'#7f0000',innerFill:'#ffffff',label:'PS',labelColor:'#7f0000'}},
-  closure:{{shape:'flat_capsule',w:26,h:14,fill:'#2196f3',stroke:'#0d47a1'}},
+  closure:{{shape:'flat_capsule',w:28,h:14,fill:'#ffffff',stroke:'#0d47a1'}},
+  fiber_terminal:{{shape:'diamond',w:18,h:18,fill:'#ffffff',stroke:'#1565c0'}},
+  fiber_rn:{{shape:'triangle',w:13,h:13,fill:'#ffffff',stroke:'#424242'}},
+  fiber_net:{{shape:'rect',w:30,h:14,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
   generic:{{shape:'rect',w:16,h:12,fill:'#eeeeee',stroke:'#424242'}}
 }};
 
@@ -1225,12 +1228,18 @@ function symbolKind(p){{
     padded.includes(' POWER ') || padded.includes(' PS ')
   )return 'power_ps';
 
+  // 광기기는 layer만으로 묶지 않고 실제 block code를 우선해 구분한다.
+  if(block.startsWith('NETOFD') || block.startsWith('NETFDF'))return 'fiber_net';
+  if(block.startsWith('RN-') || block==='RN')return 'fiber_rn';
+  if(layer.startsWith('CN_F_TERMINAL') || block.startsWith('OIM-'))return 'fiber_terminal';
   if(
     layer.startsWith('CN_F_CLOSURE') ||
-    layer.startsWith('CN_F_CENTER') ||
-    layer.startsWith('CN_F_TERMINAL') ||
-    s.includes('CLOSURE') || s.includes('TERMINAL') || s.includes('CENTER')
+    block.startsWith('SPL-') ||
+    block.startsWith('FO_VCONN') ||
+    s.includes('CLOSURE')
   )return 'closure';
+  // Center는 Closure와 같은 것으로 강제하지 않는다.
+  if(layer.startsWith('CN_F_CENTER') || s.includes(' CENTER '))return 'generic';
 
   if(s.includes('MANHOLE')||s.includes('맨홀'))return 'manhole';
   if(layer==='CN_L_POLE'||layer.startsWith('CN_L_POLE_POLE')||s.includes('POLE')||s.includes('전주'))return 'pole';
@@ -1262,6 +1271,10 @@ function deviceLabel(p,kind){{
     if(block.startsWith('3SP')||s.includes('3WAY')||s.includes('3-WAY')||s.includes('3분기')||s.includes('3분배'))return '3';
     if(block.startsWith('2SP')||s.includes('2WAY')||s.includes('2-WAY')||s.includes('2분기')||s.includes('2분배'))return '2';
     if(layer.startsWith('CN_C_DC')||block.startsWith('DC')||padded.includes(' DC ')||s.includes('DIRECTIONAL COUPLER'))return 'DC';
+  }}
+  if(kind==='fiber_net'){{
+    if(block.startsWith('NETOFD'))return 'NETOFD';
+    if(block.startsWith('NETFDF'))return 'NETFDF';
   }}
 
   return (SYMBOL_LIBRARY[kind]||{{}}).label||'';
@@ -1495,7 +1508,7 @@ function drawDevice(center,props){{
 
 function isDeviceOverlayKind(kind){{
   return [
-    'onu','amp','tap','splitter','pi','power','power_ps','closure','pole','manhole','generic',
+    'onu','amp','tap','splitter','pi','power','power_ps','closure','fiber_terminal','fiber_rn','fiber_net','pole','manhole','generic',
     'amp_input_arrow','tap_input_arrow','splitter_input_arrow'
   ].includes(String(kind||'').toLowerCase());
 }}
@@ -1943,7 +1956,7 @@ function renderCellNumberFeature(f){{
      !Number.isFinite(Number(xy[0]))||!Number.isFinite(Number(xy[1])))return null;
   const text=cellNumberText(p);
   if(!text)return null;
-  const content='<div style="background:rgba(255,255,255,.88);border:1px solid #475569;border-radius:3px;padding:1px 4px;font:700 11px Malgun Gothic;color:#0f172a;white-space:nowrap;pointer-events:none">'+esc(text)+'</div>';
+  const content='<div style="background:rgba(255,255,255,.88);border:1px solid #b91c1c;border-radius:3px;padding:2px 6px;font:700 22px Malgun Gothic;color:#d00000;white-space:nowrap;pointer-events:none">'+esc(text)+'</div>';
   const o=new kakao.maps.CustomOverlay({{
     position:new kakao.maps.LatLng(Number(xy[1]),Number(xy[0])),
     content:content,
