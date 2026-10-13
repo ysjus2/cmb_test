@@ -72,3 +72,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_v4.20_FINAL.zip
           make_latest: true
+
+# v4.20 selftest rerun
