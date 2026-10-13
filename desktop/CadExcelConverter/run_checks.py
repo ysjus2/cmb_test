@@ -655,7 +655,8 @@ assert 'def _upload_pole_refs(e):' in admin_upload_source
 assert 'attrs["_cmb_pole_refs"] = pole_refs' in admin_upload_source
 assert 'attrs["_cmb_pole_no"] = pole_refs[0]["pole_no"]' in admin_upload_source
 assert 'attrs["_cmb_grid_id"] = pole_refs[0]["grid_id"]' in admin_upload_source
-assert 'attrs["_cmb_grid_ids"] = sorted({ref["grid_id"] for ref in pole_refs})' in admin_upload_source
+assert 'attrs["_cmb_grid_ids"] = sorted({' in admin_upload_source
+assert 'str(ref.get("grid_id") or "").upper()' in admin_upload_source
 assert 'No nearest-pole/geometric inference is performed here.' in admin_upload_source
 viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
 assert r'\d{4}[A-Za-z]\d{3}' in viewer_source
