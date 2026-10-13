@@ -120,14 +120,22 @@ assert hasattr(_api2, "_cache_covers")
 print("WINDOWS_REVISION_CACHE_OK")
 
 
-# map-viewer 내부 관리자 기능은 refresh token 회전을 피하기 위해
-# 하나의 CMBServerClient를 공유해야 한다.
+# map-viewer는 최초 실행을 서버와 완전히 분리한다.
+# DXF/추출/Excel은 로컬에서 즉시 사용하고 서버 업/다운 시점에만 client를 만든다.
 main_source = (root / "main.py").read_text(encoding="utf-8")
-assert "def __init__(self, session_user=None, session_client=None):" in main_source
-assert "self.session_client = session_client" in main_source
-assert "session_client=session_client" in main_source
+launcher_source = (root / "launcher.py").read_text(encoding="utf-8")
+assert "def __init__(self, session_user=None, session_client=None, local_map_mode=False):" in main_source
+assert "self.local_map_mode = bool(local_map_mode)" in main_source
+assert "self.can_extract = True if self.local_map_mode" in main_source
+assert 'if "--map-viewer" in sys.argv:' in main_source
+assert "verified_user = session_client.me()" not in main_source
+assert "local_map_mode=True" in main_source
+assert "session_client=None" in main_source
+assert 'state="normal"' in launcher_source
+assert 'self._spawn("--map-viewer", verify_server=False)' in launcher_source
+assert "def _spawn(self, flag, verify_server=True):" in launcher_source
 assert main_source.count("client = self._get_session_client()") == 3
-print("SHARED_SESSION_CLIENT_OK")
+print("OFFLINE_MAP_VIEWER_LAZY_SERVER_OK")
 
 subprocess.run([sys.executable, str(root / "session_regression_selftest.py")], cwd=root, check=True)
 subprocess.run([sys.executable, str(root / "online_render_selftest.py")], cwd=root, check=True)
