@@ -185,6 +185,8 @@ assert "self.object_cell_refreshing = set()" in online_source
 assert "def _start_object_cell_refresh" in online_source
 assert "if started >= 2:" in online_source
 assert '"pending_cells": len(missing_cells)' in online_source
+assert "cached_features = [" in online_source
+assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 print("CROSS_PROCESS_SESSION_STATE_OK")
 
 
