@@ -54,7 +54,7 @@ public class MapActivity extends Activity {
     private boolean centerOnFix;
     private KakaoNetworkRenderer networkRenderer;
     private NetworkData networkData;
-    private final boolean[] layers = {true,true,true};
+    private final boolean[] layers = {true,true,false,false};
     private ArrayList<CadRecord> allRecords = new ArrayList<>();
 
 
@@ -65,6 +65,9 @@ public class MapActivity extends Activity {
     private TextView regionStatus;
     private TextView selectionStatus;
     private Button measureButton;
+    private Button hybridButton;
+    private final ArrayList<Button> quickLayerButtons=new ArrayList<>();
+    private boolean hybridMode;
     private final DistanceMeasurement measurements=new DistanceMeasurement();
     private CadRecord selectedRecord;
     private String selectedCableKey="";
@@ -127,10 +130,10 @@ public class MapActivity extends Activity {
 
         TextView title = new TextView(this);
         title.setText("CAD 서버 지도 · 설정 ▼");header=title;
-        title.setTextSize(21);
+        title.setTextSize(14);
         title.setTextColor(Color.WHITE);
         title.setBackgroundColor(Color.rgb(15, 23, 42));
-        title.setPadding(dp(16), dp(12), dp(16), dp(12));
+        title.setPadding(dp(10), dp(6), dp(10), dp(6));
         root.addView(title);
         LinearLayout menu=new LinearLayout(this);settingsContent=menu;menu.setOrientation(LinearLayout.VERTICAL);
         settingsPanel=new android.widget.ScrollView(this);settingsPanel.addView(menu);
@@ -143,7 +146,74 @@ public class MapActivity extends Activity {
         });
 
         status = new TextView(this);
-        status.setPadding(dp(12), dp(2), dp(12), dp(2));status.setTextSize(11);status.setMaxLines(1);
+        status.setPadding(dp(8), dp(2), dp(8), dp(2));status.setTextSize(11);status.setMaxLines(1);
+
+        HorizontalScrollView quickScroll=new HorizontalScrollView(this);
+        quickScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout quickBar=new LinearLayout(this);
+        quickBar.setOrientation(LinearLayout.HORIZONTAL);
+        String[] quickNames=LayerGroups.NAMES;
+        for(int i=0;i<quickNames.length;i++){
+            final int index=i;
+            boolean defaultOn=index<2;
+            layers[index]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("group_"+categories[index],defaultOn);
+            Button b=new Button(this);
+            b.setText(quickNames[i]);
+            b.setTextSize(11);
+            b.setMinHeight(dp(36));
+            b.setPadding(dp(8),0,dp(8),0);
+            b.setSelected(layers[index]);
+            updateLayerButtonStyle(b,layers[index]);
+            b.setOnClickListener(v->{
+                layers[index]=!layers[index];
+                getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putBoolean("group_"+categories[index],layers[index]).apply();
+                updateLayerButtonStyle(b,layers[index]);
+                loadMarkers();
+            });
+            quickLayerButtons.add(b);
+            quickBar.addView(b,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+        }
+        hybridButton=new Button(this);
+        hybridButton.setText("위성지도");
+        hybridButton.setTextSize(11);
+        hybridButton.setMinHeight(dp(36));
+        hybridButton.setOnClickListener(v->{
+            if(map==null||!map.supportsHybridMap()){
+                Toast.makeText(this,"현재 지도에서는 위성지도를 지원하지 않습니다.",Toast.LENGTH_SHORT).show();
+                return;
+            }
+            hybridMode=!hybridMode;
+            map.setHybridMap(hybridMode);
+            hybridButton.setText(hybridMode?"일반지도":"위성지도");
+            status.setText(hybridMode?"위성지도":"일반지도");
+        });
+        quickBar.addView(hybridButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+
+        measureButton=new Button(this);measureButton.setText("거리");measureButton.setTextSize(11);measureButton.setMinHeight(dp(36));
+        measureButton.setOnClickListener(v->{
+            if(measurements.active())finishMeasurement();
+            else {measurements.start();selectedRecord=null;selectedMeasurement=null;measureButton.setText("완료");
+                if(selectionStatus!=null)selectionStatus.setText("지도를 눌러 측정점을 추가하세요 · 완료로 구간 종료");drawMeasurements();}
+        });
+        quickBar.addView(measureButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+
+        Button clearDistanceButton=new Button(this);clearDistanceButton.setText("거리 삭제");clearDistanceButton.setTextSize(11);clearDistanceButton.setMinHeight(dp(36));
+        clearDistanceButton.setOnClickListener(v->{
+            measurements.clearAll();selectedMeasurement=null;drawMeasurements();measureButton.setText("거리");
+            if(selectionStatus!=null)selectionStatus.setText("거리 측정을 모두 삭제했습니다.");
+        });
+        quickBar.addView(clearDistanceButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+
+        Button currentButton=new Button(this);currentButton.setText("현재위치");currentButton.setTextSize(11);currentButton.setMinHeight(dp(36));
+        currentButton.setOnClickListener(v->{centerOnFix=true;requestLocation();});
+        quickBar.addView(currentButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+
+        Button settingsQuick=new Button(this);settingsQuick.setText("설정");settingsQuick.setTextSize(11);settingsQuick.setMinHeight(dp(36));
+        settingsQuick.setOnClickListener(v->toggleSettingsPanel());
+        quickBar.addView(settingsQuick,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+
+        quickScroll.addView(quickBar);
+        root.addView(quickScroll,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(40)));
         root.addView(status);
 
         LinearLayout actions = new LinearLayout(this);
@@ -152,14 +222,9 @@ public class MapActivity extends Activity {
         addButton(actions, "가까운 시설", this::showNearest);
         menu.addView(actions);
         LinearLayout tools=new LinearLayout(this);
-        measureButton=new Button(this);measureButton.setText("거리 측정");measureButton.setTextSize(13);
-        measureButton.setOnClickListener(v->{
-            if(measurements.active())finishMeasurement();
-            else {measurements.start();selectedRecord=null;selectedMeasurement=null;measureButton.setText("측정 종료");
-                selectionStatus.setText("지도를 눌러 측정점을 추가하세요 · Esc 또는 측정 종료로 완료");drawMeasurements();}
-        });
-        tools.addView(measureButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
-        addButton(tools,"선택 메뉴",this::showSelectionMenu);menu.addView(tools);
+        addButton(tools,"선택 메뉴",this::showSelectionMenu);
+        addButton(tools,"전체 보기",this::showAll);
+        menu.addView(tools);
         selectionStatus=new TextView(this);selectionStatus.setText("객체 선택 후 길게 누르기 / 우클릭 → 속성");
         selectionStatus.setPadding(dp(12),dp(4),dp(12),dp(4));menu.addView(selectionStatus);
         serverButton=new Button(this);serverButton.setText("서버 로그인");
@@ -180,11 +245,12 @@ public class MapActivity extends Activity {
             final int index=i;
             CheckBox check = new CheckBox(this);
             check.setText(names[i]); check.setTextSize(12);
-            layers[i]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("group_"+categories[i],true);
+            layers[i]=getSharedPreferences("network_prefs",MODE_PRIVATE).getBoolean("group_"+categories[i],i<2);
             check.setChecked(layers[i]);
             check.setOnCheckedChangeListener((button,checked) -> {
                 layers[index]=checked;
                 getSharedPreferences("network_prefs",MODE_PRIVATE).edit().putBoolean("group_"+categories[index],checked).apply();
+                if(index<quickLayerButtons.size())updateLayerButtonStyle(quickLayerButtons.get(index),checked);
                 loadMarkers();
             });
             toggles.addView(check);
@@ -280,9 +346,9 @@ public class MapActivity extends Activity {
         }
 
         header.setText("CAD 서버 지도 · 설정 ▼");
-        header.setTextSize(landscape()?16:21);
+        header.setTextSize(landscape()?12:14);
         header.setGravity(Gravity.START);
-        header.setPadding(dp(landscape()?10:16),dp(landscape()?6:12),dp(landscape()?10:16),dp(landscape()?6:12));
+        header.setPadding(dp(8),dp(5),dp(8),dp(5));
 
         ViewGroup.LayoutParams panelParams=settingsPanel.getLayoutParams();
         if(panelParams!=null){
@@ -322,6 +388,11 @@ public class MapActivity extends Activity {
     }
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
+    private void updateLayerButtonStyle(Button button,boolean on){
+        button.setTextColor(on?Color.WHITE:Color.rgb(30,41,59));
+        button.setBackgroundColor(on?Color.rgb(37,99,235):Color.rgb(241,245,249));
+    }
 
     private void addButton(LinearLayout parent, String text, Runnable action) {
         Button button = new Button(this);
