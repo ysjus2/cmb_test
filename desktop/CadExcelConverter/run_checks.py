@@ -634,8 +634,8 @@ assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
 stored_block = online_source.split("function storedPolePosition(f){{",1)[1].split("function isConnectorFeature",1)[0]
 assert "const g=(f&&f.geometry)||{{}};" in stored_block
-assert "_cmb_pole_position" not in stored_block
-assert "_cmb_pole_refs" not in stored_block
+assert "fields._cmb_pole_position" not in stored_block
+assert "fields._cmb_pole_refs" not in stored_block
 assert "전주번호, _cmb_pole_position, _cmb_pole_refs는 상세정보용 메타데이터로만 유지한다." in stored_block
 print("COORDINATE_BBOX_AND_GEOMETRY_POSITION_OK")
 
