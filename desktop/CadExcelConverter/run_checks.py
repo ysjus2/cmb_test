@@ -768,8 +768,11 @@ assert "pole_no = grid + str(local).zfill(3)" in admin_upload_source
 assert "pole_numbers = _actual_pole_numbers(e)" in admin_upload_source
 print("SPLIT_POLE_ID_COMBINATION_OK")
 client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+assert "def online_grid_direct_objects(self, grid_id" in client_source
+assert 'f"/online/grid/{g}/objects?limit={int(limit)}"' in client_source
 assert "def online_grid_objects(self, region, grid_id" in client_source
 assert 'f"/online/{q}/grid/{g}/objects?limit={int(limit)}"' in client_source
+assert "return self.online_grid_direct_objects(" in client_source
 assert "self.c.online_grid_objects(" in online_source
 assert "grid_id," in online_source
 print("DIRECT_GRID_ID_SERVER_LOOKUP_OK")
