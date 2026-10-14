@@ -36,6 +36,7 @@ class Api:
     def __init__(self):
         self.c = CMBServerClient()
         self.region = ""
+        self.region_generation = 0
         self.user = None
         self.window = None
         self.session_ended = False
@@ -240,14 +241,26 @@ class Api:
             "version": str(self.fiber_cache.get("version") or ""),
         }
 
-    def _fetch_all_region_features(self):
+    def _fetch_all_region_features(self, region=None, generation=None):
+        # 지역 전환 중 이전 지역 전체수집이 새 지역을 오염시키지 않도록
+        # 시작 시점의 region/generation을 고정한다.
+        region = str(region or self.region or "")
+        if generation is None:
+            generation = self.region_generation
+
+        def ensure_current():
+            if region != self.region or generation != self.region_generation:
+                raise RuntimeError("REGION_SWITCH_CANCELLED")
+
+        ensure_current()
+
         # FIBER 전체 캐시는 해당 지역의 실제 bounds + FIBER 레이어만 수집한다.
         # 과거처럼 전체 그룹을 전국 bbox에서 받은 뒤 FIBER만 거르면
         # COAX/시설 밀도가 높은 지역에서 5,000개 제한을 불필요하게 소진한다.
         limit = 5000
         max_depth = 14
 
-        meta = self.c.online_layers(self.region) or {}
+        meta = self.c.online_layers(region) or {}
         layer_rows = meta.get("layers") or meta.get("items") or []
         fiber_layers = []
         for row in layer_rows:
@@ -279,12 +292,14 @@ class Api:
         layer_filter = ",".join(sorted(set(fiber_layers)))
 
         def fetch_cell(w, s, e, n, depth=0):
+            ensure_current()
             raw = self.c.online_objects(
-                self.region,
+                region,
                 f"{w},{s},{e},{n}",
                 limit=limit,
                 layers=layer_filter,
             ) or {}
+            ensure_current()
             features = [
                 feature for feature in (raw.get("features") or [])
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
@@ -323,6 +338,9 @@ class Api:
         if not self.region:
             return {"ok": True, "features": [], "cache": "none"}
 
+        region = str(self.region)
+        generation = self.region_generation
+
         # 이 지역의 서버 revision은 앱 실행 후 최초 진입 시 한 번만 확인한다.
         self._refresh_versions_if_due(force=force)
         fiber_version = str((self.cache_state.get("versions") or {}).get("FIBER") or "")
@@ -355,7 +373,28 @@ class Api:
         if not fiber_version:
             self._delete_fiber_cache()
             return {"ok": True, "features": [], "cache": "empty", "version": ""}
-        all_features = self._fetch_all_region_features()
+        try:
+            all_features = self._fetch_all_region_features(region, generation)
+        except RuntimeError as exc:
+            if str(exc) == "REGION_SWITCH_CANCELLED":
+                return {
+                    "ok": False,
+                    "cancelled": True,
+                    "features": [],
+                    "cache": "cancelled",
+                    "region": region,
+                }
+            raise
+
+        if region != self.region or generation != self.region_generation:
+            return {
+                "ok": False,
+                "cancelled": True,
+                "features": [],
+                "cache": "cancelled",
+                "region": region,
+            }
+
         fiber_features = [
             feature for feature in all_features
             if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
@@ -376,6 +415,15 @@ class Api:
                 "expected_count": expected_count,
                 "received_count": received_count,
                 "unique_key_count": unique_key_count,
+            }
+
+        if region != self.region or generation != self.region_generation:
+            return {
+                "ok": False,
+                "cancelled": True,
+                "features": [],
+                "cache": "cancelled",
+                "region": region,
             }
 
         self.fiber_cache = {"version": fiber_version, "features": fiber_features}
@@ -627,7 +675,10 @@ class Api:
             )
 
     def select(self, region):
-        self.region = str(region or "")
+        new_region = str(region or "")
+        if new_region != self.region:
+            self.region_generation += 1
+        self.region = new_region
         if not self.region:
             self.cache_state = {"versions": {}, "features": {}, "coverage": []}
             self.fiber_cache = {"version": "", "features": []}
@@ -1051,6 +1102,7 @@ let nonFiberLoadTimer=null;
 let authorizedRegions=[];
 let activeRegionId='';
 let regionSwitching=false;
+let regionSwitchGeneration=0;
 let regionResolveTimer=null;
 let regionResolveGeneration=0;
 const REGION_SETTLE_DELAY_MS=700;
@@ -2601,6 +2653,7 @@ async function loadRegionFiber(syncForce=false){{
   const fresh=await apiCall('fiber_all',{{force:!!syncForce}});
   if(region!==document.getElementById('region').value)return 0;
   if(!fresh||fresh.ok===false){{
+    if(fresh&&fresh.cancelled)return 0;
     if(fresh&&fresh.error)setWorkStatus(fresh.error+' · 기존 광 캐시 유지',100,false);
     return 0;
   }}
@@ -2969,49 +3022,57 @@ async function loadRegions(){{
 async function activateRegion(region){{
   region=String(region||'');
   const sel=document.getElementById('region');
-  if(!region||regionSwitching)return false;
-  if(activeRegionId===region)return true;
+  if(!region)return false;
 
+  const info=authorizedRegions.find(x=>x.id===region);
+  if(!info){{
+    sel.value=activeRegionId||'';
+    setStatus('권한이 없는 지역입니다');
+    return false;
+  }}
+  if(activeRegionId===region && !regionSwitching)return true;
+
+  const mySwitch=++regionSwitchGeneration;
   regionSwitching=true;
-  try{{
-    clearOverlays();
-    setWorkStatus('지역 전환 · 기존 지역 숨김 · '+region,5,true);
-    document.getElementById('detail').style.display='none';
-    const info=authorizedRegions.find(x=>x.id===region);
-    if(!info){{
-      sel.value=activeRegionId||'';
-      setStatus('권한이 없는 지역입니다');
-      return false;
-    }}
 
+  // 새 지역을 선택하는 순간 이전 지역 화면/재렌더 메모리를 즉시 제거한다.
+  clearOverlays();
+  activeRegionId='';
+  document.getElementById('detail').style.display='none';
+  sel.value=region;
+  setWorkStatus('지역 전환 · 이전 지역 취소/숨김 · '+region,5,true);
+
+  try{{
     const r=await apiCall('select',{{region:region}});
+    if(mySwitch!==regionSwitchGeneration)return false;
     if(!r.ok){{
-      sel.value=activeRegionId||'';
-      setStatus(r.error||'지역 연결 실패');
+      sel.value='';
+      setWorkStatus(r.error||'지역 연결 실패',100,false);
       return false;
     }}
 
     activeRegionId=region;
-    sel.value=region;
     viewDiag.region=region;
-    viewDiag.stage='지역 선택';
+    viewDiag.stage='새 지역 캐시 준비';
     viewDiag.progress=(info?info.name:region);
-    setWorkStatus('L'+map.getLevel()+' · '+viewDiagText(),8,true);
+    setWorkStatus('L'+map.getLevel()+' · '+viewDiagText(),10,true);
 
-    // 지역 전환 시 동축 조회 기준(500m/200m)을 새 지역에서 다시 시작한다.
     lastQueryLat=null;
     lastQueryLng=null;
     lastDetailMode=null;
 
-    // 선택 지역의 광 전체 캐시를 즉시 표시하고 서버와 1회 동기화한다.
-    // 완료 후 현재 위치의 동축/기기만 500m 범위로 조회한다.
+    // 새 지역 광 캐시를 먼저 표시하고, 이전 지역 전체수집은 backend generation으로 취소된다.
     await loadRegionFiber(false);
+    if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
+
     setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 동축/기기 조회 시작',80,true);
     await loadObjects(true);
+    if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
+
     setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 완료',100,false);
     return true;
   }} finally {{
-    regionSwitching=false;
+    if(mySwitch===regionSwitchGeneration)regionSwitching=false;
   }}
 }}
 
