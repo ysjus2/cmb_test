@@ -719,6 +719,20 @@ assert "boundsContainsLatLng" not in online_source
 assert "apiCall('region_at_point'" not in online_source
 assert "지도 위치에 따라 자동 연결" not in online_source
 assert "지역을 선택하세요" in online_source
+assert "id='progressBar'" in online_source
+assert "id='progressText'" in online_source
+assert "function setProgress(percent,busy=false)" in online_source
+assert "function setWorkStatus(text,percent,busy=false)" in online_source
+clear_all_block = online_source.split("function clearOverlays(){{",1)[1].split("function clearNonFiberOverlays",1)[0]
+for token in ("currentPointFeatures=[];","currentFiberPointFeatures=[];","currentLineFeatures=[];","currentDevices=[];"):
+    assert token in clear_all_block
+assert "fiberViewportGeneration++;" in clear_all_block
+assert "기존 지역 숨김" in online_source
+assert "이동 '+Math.round(moved)+'m / '+QUERY_RECENTER_METERS+'m" in online_source
+assert "STAGE 새 지역 광 캐시 확인" in online_source
+assert "STAGE 동축/기기 조회 시작" in online_source
+assert "STAGE 완료" in online_source
+print("REGION_TRANSITION_PROGRESS_UI_OK")
 print("EXPLICIT_AUTHORIZED_REGION_SELECTION_OK")
 
 # 케이블 선택 시 기기 위로 올려 강조하고 다른 선택/해제 시 원상복구한다.
