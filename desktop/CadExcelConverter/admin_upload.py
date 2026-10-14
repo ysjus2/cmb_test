@@ -75,21 +75,16 @@ def classify_entity(e):
     ):
         return "CONDUIT"
 
-    # 실제 전주 INSERT만 POLE 그룹으로 분류한다.
-    # Polemap/ID/Class/Approval/SEQEND 같은 보조 객체는 서버 POLE 객체로 올리지 않는다.
+    # 실제 전주번호를 원본 CAD에서 확정할 수 있는 INSERT만 POLE로 분류한다.
+    # POLE-JOINT / TRS / Polemap 보조 심벌은 이름이 POLE로 시작해도 제외한다.
     entity_type = str(e.entity_type or "").strip().upper()
-    actual_pole_layer = (
-        layer == "CN_L_POLE"
-        or layer.startswith("CN_L_POLE_POLE")
-    )
-    actual_pole_block = (
-        block.startswith("POLE")
-        or "POLE-JOINT" in block
-        or "POLE_CATV" in block
-        or "POLE-CATV" in block
-    )
-    if entity_type == "INSERT" and (actual_pole_layer or actual_pole_block):
-        return "POLE"
+    if entity_type == "INSERT":
+        try:
+            pole_numbers = _actual_pole_numbers(e)
+        except Exception:
+            pole_numbers = []
+        if pole_numbers:
+            return "POLE"
 
     # 동축선로 / 동축장비
     if (
