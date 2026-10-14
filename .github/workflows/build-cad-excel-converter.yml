@@ -68,7 +68,7 @@ jobs:
           tag_name: windows-v1.0-rev1
           name: CMB DXF Viewer Windows 1.0 Rev1
           body: |
-            Windows 1.0 Rev1: show only authorized regions in an explicit selector; after region selection, show the full regional FIBER cache immediately, synchronize regional FIBER once with the server, then load COAX/devices within 500m and refresh after 200m movement.
+            Windows 1.0 Rev1 final verified build: explicit authorized-region selection; immediate regional FIBER cache display; mandatory first-entry full FIBER synchronization with live object-count progress; interruptible region switching; manual full FIBER refresh; then COAX/devices within 500m with 200m movement refresh.
           target_commitish: ${{ github.sha }}
           files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev1.zip
           make_latest: true
