@@ -16,7 +16,7 @@ CFG = APP_DATA_DIR / "online.json"
 CACHE_DIR = APP_DATA_DIR / "online_cache"
 FIBER_CACHE_SCHEMA = 2
 SESSION_ENDED_EXIT_CODE = 41
-WINDOWS_RELEASE = "Windows_1.0_Rev2_WORKING"
+WINDOWS_RELEASE = "Windows_1.0_Coordinate_BBox"
 
 
 def key():
@@ -138,49 +138,9 @@ class Api:
         ys = [p[1] for p in points]
         return min(xs), min(ys), max(xs), max(ys)
 
-    @staticmethod
-    def _stored_point_position(feature):
-        """Return authoritative viewer position for Point devices when stored pole coordinates exist."""
-        try:
-            props = (feature or {}).get("properties") or {}
-            attrs = props.get("attributes") or {}
-            fields = attrs.get("fields") if isinstance(attrs, dict) else None
-            if not isinstance(fields, dict):
-                fields = attrs if isinstance(attrs, dict) else {}
-
-            direct = fields.get("_cmb_pole_position") or {}
-            if isinstance(direct, dict):
-                lon = float(direct.get("lon"))
-                lat = float(direct.get("lat"))
-                if -180 <= lon <= 180 and -90 <= lat <= 90:
-                    return lon, lat
-
-            refs = fields.get("_cmb_pole_refs") or []
-            if isinstance(refs, list):
-                for ref in refs:
-                    if not isinstance(ref, dict):
-                        continue
-                    lon = float(ref.get("lon"))
-                    lat = float(ref.get("lat"))
-                    if -180 <= lon <= 180 and -90 <= lat <= 90:
-                        return lon, lat
-        except Exception:
-            pass
-        return None
-
     @classmethod
     def _feature_intersects(cls, feature, west, south, east, north):
-        geometry = (feature or {}).get("geometry") or {}
-        # Device rendering uses _cmb_pole_position as the authoritative position.
-        # Cache viewport filtering must use the same coordinate or a cached device can be
-        # removed before it reaches the JavaScript renderer.
-        if str(geometry.get("type") or "") == "Point":
-            stored = cls._stored_point_position(feature)
-            if stored:
-                lon, lat = stored
-                return west <= lon <= east and south <= lat <= north
-
-        bounds = cls._geometry_bounds(geometry)
+        bounds = cls._geometry_bounds(feature.get("geometry") or {})
         if not bounds:
             return False
         fw, fs, fe, fn = bounds
@@ -692,13 +652,19 @@ class Api:
             self.fiber_cache = {"version": "", "features": []}
             return {"ok": True, "bounds": None, "layers": []}
         try:
-            # 지역 전환은 즉시 끝낸다.
-            # Polemap 셀 캐시는 화면에 필요한 셀만 읽으므로 지역 전체 fiber.json.gz를 여기서 열지 않는다.
-            self.cache_state = {"versions": {}, "features": {}, "coverage": []}
-            self.fiber_cache = {"version": "", "features": []}
+            # UI 응답 우선: 지역 선택에서는 서버를 기다리지 않는다.
+            self._load_cache()
+            self._load_fiber_cache()
 
             group_counts = {}
-            fiber_count = 0
+            for feature in (self.cache_state.get("features") or {}).values():
+                group = str(((feature.get("properties") or {}).get("group_id") or "")).upper()
+                if group:
+                    group_counts[group] = group_counts.get(group, 0) + 1
+
+            fiber_count = len(self.fiber_cache.get("features") or [])
+            if fiber_count:
+                group_counts["FIBER"] = fiber_count
 
             group_summary = [
                 {"group_id": group, "count": count}
@@ -1547,89 +1513,7 @@ class Api:
             east = float(east)
             north = float(north)
 
-            # Polemap이 등록된 지역은 지역 전체 캐시를 열지 않고 현재 화면 셀만 읽는다.
-            polemap = self.polemap(west, south, east, north)
-            cells = list((polemap or {}).get("cells") or [])
-            if cells:
-                self._refresh_versions_if_due()
-                version_signature = self._version_signature()
-                cx = (west + east) / 2.0
-                cy = (south + north) / 2.0
-                cells.sort(key=lambda c: (
-                    ((float(c.get("west")) + float(c.get("east"))) / 2.0 - cx) ** 2
-                    + ((float(c.get("south")) + float(c.get("north"))) / 2.0 - cy) ** 2
-                ))
-
-                # 일반 객체도 광과 동일하게 현재 화면 중심점을 실제 포함하는 GRID를 최우선으로 읽는다.
-                # 인접 GRID의 중심거리가 더 짧다는 이유로 현재 GRID가 백그라운드로 밀리는 것을 방지한다.
-                center_index = next(
-                    (
-                        i for i, cell in enumerate(cells)
-                        if cx >= min(float(cell.get("west")), float(cell.get("east")))
-                        and cx <= max(float(cell.get("west")), float(cell.get("east")))
-                        and cy >= min(float(cell.get("south")), float(cell.get("north")))
-                        and cy <= max(float(cell.get("south")), float(cell.get("north")))
-                    ),
-                    None,
-                )
-                if center_index not in (None, 0):
-                    cells.insert(0, cells.pop(center_index))
-
-                # 빠른 첫 표시:
-                # 중앙 셀만 필요 시 동기 조회하고, 주변 셀은 캐시가 있는 것만 즉시 병합한다.
-                # 캐시가 없는 주변 셀은 한 번에 최대 2개씩 백그라운드에서 채운다.
-                # 따라서 모든 셀 네트워크 조회가 끝날 때까지 UI를 막지 않는다.
-                merged = {}
-                cache_kinds = set()
-                missing_cells = []
-
-                for index, cell in enumerate(cells):
-                    grid_id = str(cell.get("grid_id") or "").strip().upper()
-                    cached = self._read_object_cell_cache(grid_id) if grid_id else None
-                    cache_valid = bool(
-                        cached
-                        and cached.get("features")
-                        and (
-                            not version_signature
-                            or cached.get("version") == version_signature
-                        )
-                    )
-
-                    if cache_valid:
-                        features = list(cached.get("features") or [])
-                        cache_kinds.add("hit")
-                    elif index == 0:
-                        # 중앙 셀은 최초 1회만 기다려서 즉시 화면에 표시한다.
-                        features, cache_kind = self._cell_object_features(cell, version_signature)
-                        cache_kinds.add(cache_kind)
-                    else:
-                        features = []
-                        missing_cells.append(cell)
-
-                    for feature in features:
-                        if self._feature_intersects(feature, west, south, east, north):
-                            merged[self._feature_key(feature)] = feature
-
-                started = 0
-                for cell in missing_cells:
-                    if started >= 2:
-                        break
-                    if self._start_object_cell_refresh(cell, version_signature):
-                        started += 1
-
-                refresh_pending = bool(missing_cells)
-                return {
-                    "features": list(merged.values()),
-                    "cache": "network" if "network" in cache_kinds else "hit",
-                    "refresh_pending": refresh_pending,
-                    "polemap_cells": len(cells),
-                    "pending_cells": len(missing_cells),
-                }
-
-            # Polemap이 없는 구형 지역만 기존 지역 캐시 방식으로 폴백한다.
-            if not (self.cache_state.get("features") or self.cache_state.get("coverage")):
-                self._load_cache()
-
+            # 1) 최신 coverage가 있으면 순수 캐시 hit.
             if self._cache_covers(west, south, east, north):
                 nearby = [
                     feature for feature in self._cached_features(west, south, east, north)
@@ -1637,6 +1521,8 @@ class Api:
                 ]
                 return {"features": nearby, "cache": "hit", "refresh_pending": False}
 
+            # 2) coverage가 오래됐더라도 기존 캐시가 있으면 먼저 즉시 반환한다.
+            # 서버 revision 확인/새 데이터 수신/저장은 백그라운드에서 수행한다.
             stale_nearby = [
                 feature for feature in self._cached_features(west, south, east, north)
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
@@ -1649,6 +1535,7 @@ class Api:
                     "refresh_pending": True,
                 }
 
+            # 3) 이 범위에 캐시가 전혀 없을 때만 최초 서버 수신을 기다린다.
             self._refresh_versions_if_due()
             features = self._fetch_bbox_network(west, south, east, north)
             self._commit_bbox_cache(features, west, south, east, north)
@@ -1660,7 +1547,6 @@ class Api:
         except Exception as exc:
             handled = self._handle_error(exc, {"features": []})
             return handled
-
 
 
 def html(k, local_token):
@@ -2103,31 +1989,13 @@ const SYMBOL_LIBRARY={{
 }};
 
 function storedPolePosition(f){{
-  const p=(f&&f.properties)||{{}};
-  const a=p.attributes||{{}};
-  const fields=a.fields||a;
-
-  // 새 업로드 데이터는 한전주 좌표를 권위 위치로 사용한다.
-  // Viewer에서는 최근접 전주/거리/공간연산을 하지 않는다.
-  const direct=fields._cmb_pole_position||{{}};
-  const dLon=Number(direct.lon),dLat=Number(direct.lat);
-  if(Number.isFinite(dLon)&&Number.isFinite(dLat)){{
-    return [dLon,dLat];
-  }}
-
-  const refs=Array.isArray(fields._cmb_pole_refs)?fields._cmb_pole_refs:[];
-  for(const ref of refs){{
-    const lon=Number((ref||{{}}).lon),lat=Number((ref||{{}}).lat);
-    if(Number.isFinite(lon)&&Number.isFinite(lat)){{
-      return [lon,lat];
-    }}
-  }}
-
-  // 구버전 서버 데이터만 기존 저장 geometry를 사용한다.
+  // 지도 표시/검색/캐시의 유일한 공간 기준은 GeoJSON 위·경도 geometry이다.
+  // 전주번호, _cmb_pole_position, _cmb_pole_refs는 상세정보용 메타데이터로만 유지한다.
   const g=(f&&f.geometry)||{{}};
   const xy=g.coordinates||[];
   if(Array.isArray(xy)&&xy.length>=2&&
-     Number.isFinite(Number(xy[0]))&&Number.isFinite(Number(xy[1]))){{
+     Number.isFinite(Number(xy[0]))&&Number.isFinite(Number(xy[1]))&&
+     Math.abs(Number(xy[0]))<=180&&Math.abs(Number(xy[1]))<=90){{
     return [Number(xy[0]),Number(xy[1])];
   }}
   return null;
@@ -3803,13 +3671,6 @@ async function loadRegions(){{
     return;
   }}
   setStatus('권한 지역 '+authorizedRegions.length+'개 · 지도 위치에 따라 자동 연결');
-  if(map){{
-    const ok=await autoRegionForMapCenter();
-    if(ok){{
-      await loadFiberViewport(false);
-      queueNonFiberLoad(true,0);
-    }}
-  }}
 }}
 
 function boundsContainsLatLng(bounds,latlng){{
@@ -3841,154 +3702,61 @@ async function activateRegion(region){{
       return false;
     }}
 
+    let cached={{features:[],cache:'empty'}};
+    try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
     if(region!==sel.value)return false;
-    fiberDiag.cache=0;
+    const cachedFeatures=cached.features||[];
+    const cachedCount=renderFiberFeatures(cachedFeatures);
+    fiberDiag.cache=cachedFeatures.length;
     fiberDiag.received=0;
     fiberDiag.unique=0;
     fiberDiag.server=0;
-    setStatus((info?info.name:region)+' · 현재 화면 광 격자 확인 중');
+    setStatus((info?info.name:region)+' · '+(cachedCount>0
+      ? '광 캐시 즉시 표시'+fiberDiagText()
+      : '광 캐시 없음 · 최초 다운로드 시작'));
 
-    await loadFiberViewport(false);
-    // 광을 먼저 실제 지도에 표시한 뒤 동축/기기는 후순위로 조회한다.
-    queueNonFiberLoad(true,0);
+    apiCall('fiber_all',{{force:false}}).then(fiber=>{{
+      if(region!==sel.value)return;
+      if(fiber.error){{
+        setStatus(fiber.error+' · 기존 광 캐시 유지');
+        return;
+      }}
+      const fiberFeatures=fiber.features||[];
+      const fiberCount=fiberFeatures.length;
+      const expected=Number(fiber.expected_count||0);
+      fiberDiag.server=expected;
+      fiberDiag.received=Number(fiber.received_count||fiberCount);
+      fiberDiag.unique=Number(fiber.unique_key_count||fiber.received_count||fiberCount);
+      if(fiber.cache!=='hit' || cachedCount===0)renderFiberFeatures(fiberFeatures);
+      const source=(fiber.cache==='hit'?'광 캐시':'광 서버')+' '+fiberCount+'개';
+      setStatus((info?info.name:region)+' · '+source+fiberDiagText());
+    }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
+
+    await loadObjects(true);
     return true;
   }} finally {{
     regionSwitching=false;
   }}
 }}
 
-function regionBoundsArea(bounds){{
-  if(!bounds)return Number.POSITIVE_INFINITY;
-  const west=Number(bounds.west),south=Number(bounds.south);
-  const east=Number(bounds.east),north=Number(bounds.north);
-  if(![west,south,east,north].every(Number.isFinite))return Number.POSITIVE_INFINITY;
-  return Math.abs((east-west)*(north-south));
-}}
-
-function bestRegionForMapCenter(center){{
-  const candidates=authorizedRegions
-    .filter(x=>boundsContainsLatLng(x.bounds,center))
-    .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
-  return candidates.length?candidates[0]:null;
-}}
-
-async function cachedRegionForMapCenter(center){{
-  const lat=Number(center.getLat()),lng=Number(center.getLng());
-  gridDiag.stage='로컬 GRID 확인';
-  gridDiag.progress='캐시 우선';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText());
-  try{{
-    const r=await apiCall('cached_region_probe',{{
-      regions:authorizedRegions.map(x=>x.id),
-      lat:lat,
-      lng:lng
-    }});
-    if(r&&r.ambiguous){{
-      gridDiag.stage='로컬 GRID 중복';
-      gridDiag.progress=String((r.matches||[]).length)+'개 지역 · 서버 재확인';
-      setStatus('L'+map.getLevel()+' · '+gridDiagText());
-      return null;
-    }}
-    if(r&&r.region&&r.grid_id){{
-      const matched=authorizedRegions.find(x=>x.id===String(r.region));
-      if(matched){{
-        gridDiag.region=matched.id;
-        gridDiag.centerGrid=String(r.grid_id||'-');
-        gridDiag.cells=1;
-        gridDiag.stage='로컬 GRID 적중';
-        gridDiag.progress=matched.id+' · '+String(r.grid_id||'-');
-        setStatus('L'+map.getLevel()+' · '+gridDiagText());
-        return matched;
-      }}
-    }}
-  }}catch(e){{}}
-  return null;
-}}
-
-async function probeRegionForMapCenter(center){{
-  const lat=Number(center.getLat()),lng=Number(center.getLng());
-  const primary=authorizedRegions
-    .filter(x=>boundsContainsLatLng(x.bounds,center))
-    .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
-  const primaryIds=new Set(primary.map(x=>x.id));
-  const ordered=primary.concat(authorizedRegions.filter(x=>!primaryIds.has(x.id)));
-
-  for(let i=0;i<ordered.length;i++){{
-    const candidate=ordered[i];
-    gridDiag.stage='지역 GRID 탐색';
-    gridDiag.progress=String(i+1)+'/'+String(ordered.length)+' '+candidate.id;
-    setStatus('L'+map.getLevel()+' · '+gridDiagText());
-    let r=null;
-    try{{
-      r=await apiCall('polemap_probe',{{
-        region:candidate.id,
-        lat:lat,
-        lng:lng,
-        radius_m:2000
-      }});
-    }}catch(e){{
-      r=null;
-    }}
-    const cells=(r&&r.cells)||[];
-    if(cells.length){{
-      // 지역 자동 판정은 "근처 GRID"가 아니라 지도 중심점을 실제 포함하는 GRID만 허용한다.
-      // 인접 지역(예: 함평/나주)의 2km probe 결과가 서로 섞여 지역이 뒤바뀌는 것을 방지한다.
-      const centerCell=containingCellFromList(cells,lat,lng);
-      if(!centerCell)continue;
-      gridDiag.region=candidate.id;
-      gridDiag.cells=cells.length;
-      gridDiag.centerGrid=String(centerCell.grid_id||'-');
-      gridDiag.stage='지역 GRID 확인';
-      gridDiag.progress=candidate.id+' · '+String(centerCell.grid_id||'-');
-      return candidate;
-    }}
-  }}
-  return null;
-}}
-
 async function autoRegionForMapCenter(){{
   if(!map||!authorizedRegions.length||regionSwitching)return false;
   const center=map.getCenter();
-  const lat=Number(center.getLat()),lng=Number(center.getLng());
   const sel=document.getElementById('region');
+  const current=authorizedRegions.find(x=>x.id===sel.value);
+  if(current&&boundsContainsLatLng(current.bounds,center))return true;
 
-  // 지역/GIRD 경계는 수백 m 안에서도 바뀔 수 있으므로 이전 지역을 거리 기준으로 재사용하지 않는다.
-  // 지도 이동이 멈출 때마다 현재 중심점을 포함하는 GRID를 다시 판정한다.
-
-  let matched=await cachedRegionForMapCenter(center);
-
-  // 로컬 캐시에 현재 중심 GRID가 없을 때만 서버 Polemap을 확인한다.
-  if(!matched){{
-    matched=await probeRegionForMapCenter(center);
-  }}
-
-  // 서버 Polemap 확인도 불가능한 경우에만 bounds 판정을 최후 폴백으로 사용한다.
-  if(!matched){{
-    matched=bestRegionForMapCenter(center);
-  }}
-
+  const matched=authorizedRegions.find(x=>boundsContainsLatLng(x.bounds,center));
   if(!matched){{
     if(sel.value){{
       clearOverlays();
       await apiCall('select',{{region:''}});
       sel.value='';
     }}
-    lastRegionResolveLat=null;
-    lastRegionResolveLng=null;
-    lastRegionResolveId='';
     setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다');
     return false;
   }}
-
-  if(sel.value!==matched.id){{
-    const ok=await activateRegion(matched.id);
-    if(!ok)return false;
-  }}
-
-  lastRegionResolveLat=lat;
-  lastRegionResolveLng=lng;
-  lastRegionResolveId=matched.id;
-  return true;
+  return await activateRegion(matched.id);
 }}
 
 async function loadMapDisplaySettings(){{
@@ -4027,8 +3795,16 @@ function bindUi(){{
   document.getElementById('reload').onclick=async()=>{{
     const ok=await autoRegionForMapCenter();
     if(!ok)return;
-    await loadFiberViewport(true);
-    queueNonFiberLoad(true,0);
+    const region=String(document.getElementById('region').value||'');
+    try{{
+      const fiber=await apiCall('fiber_all',{{force:true}});
+      if(region===document.getElementById('region').value && fiber && !fiber.error){{
+        const items=fiber.features||[];
+        renderFiberFeatures(items);
+        fiberDiag.cache=items.length;
+      }}
+    }}catch(e){{}}
+    await loadObjects(true);
   }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
   document.getElementById('mapHybrid').onclick=()=>{{
@@ -4096,7 +3872,14 @@ function bindUi(){{
           setStatus('L'+map.getLevel()+' · '+g+' 캐시 즉시 표시 · '+restored+'개');
         }}else{{
           if(g==='FIBER'){{
-            loadFiberViewport(true);
+            apiCall('fiber_cached').then(cached=>{{
+              const items=(cached&&cached.features)||[];
+              if(items.length){{
+                renderFiberFeatures(items);
+                return null;
+              }}
+              return apiCall('fiber_all',{{force:false}}).then(f=>renderFiberFeatures((f&&f.features)||[]));
+            }}).catch(()=>{{}});
           }}else{{
             queueNonFiberLoad(true,0);
           }}
@@ -4171,13 +3954,7 @@ function centerMyLocation(loadAfter){{
       map.setCenter(new kakao.maps.LatLng(lat,lng));
       map.setLevel(3);
       setStatus('현재 위치 · 반경 '+QUERY_RADIUS_METERS+'m');
-      (async()=>{{
-        const ok=await autoRegionForMapCenter();
-        if(!ok)return;
-        if(loadAfter){{
-          scheduleFiberRecenter(true);
-        }}
-      }})();
+      if(loadAfter)loadObjects(true);
     }},
     err=>{{
       setStatus('현재 위치 확인 실패');
@@ -4197,14 +3974,9 @@ function initMap(){{
         center:new kakao.maps.LatLng(35.1595,126.8526),
         level:3
       }});
-      kakao.maps.event.addListener(map,'idle',()=>{{
-        const c=map.getCenter();
-        gridDiag.centerLat=Number(c.getLat());
-        gridDiag.centerLng=Number(c.getLng());
-        gridDiag.stage='지도 이동';
-        gridDiag.progress='현재 GRID 재확인';
-        setStatus('L'+map.getLevel()+' · '+gridDiagText());
-        scheduleFiberRecenter(false);
+      kakao.maps.event.addListener(map,'idle',async()=>{{
+        const ok=await autoRegionForMapCenter();
+        if(ok)loadObjects();
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
@@ -4223,16 +3995,17 @@ function initMap(){{
           redrawFiberArrowsForZoom();
         }}
         lastDetailMode=(level<=3);
-        gridDiag.stage='줌 변경';
-        gridDiag.progress=(level<=3?'상세':'광 우선');
         setStatus(
-          'L'+level+' · '+gridDiagText()+
+          'L'+level+
           (level<=3 ? ' · 캐시 레벨 즉시 적용' : ' · 광만 표시')+
           fiberDiagText()
         );
       }});
       centerMyLocation(false);
-      setTimeout(()=>scheduleFiberRecenter(true),250);
+      setTimeout(async()=>{{
+        const ok=await autoRegionForMapCenter();
+        if(ok)loadObjects(true);
+      }},250);
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
