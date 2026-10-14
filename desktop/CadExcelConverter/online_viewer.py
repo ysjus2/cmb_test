@@ -86,10 +86,11 @@ class Api:
             fields = attrs if isinstance(attrs, dict) else {}
 
         group = str(props.get("group_id") or "").upper()
+        feature_id = str(feature.get("id") or "").strip()
         source_handle = str(props.get("source_handle") or "").strip()
         regional_id = str(
-            props.get("regional_object_id")
-            or props.get("entity_id")
+            props.get("entity_id")
+            or props.get("regional_object_id")
             or props.get("object_id")
             or ""
         ).strip()
@@ -99,7 +100,9 @@ class Api:
             or ""
         ).strip()
 
-        if source_handle:
+        if feature_id:
+            ident = feature_id
+        elif source_handle:
             ident = source_handle
             if part_index:
                 ident = f"{ident}|part={part_index}"
