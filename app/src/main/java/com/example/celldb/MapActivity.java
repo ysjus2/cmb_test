@@ -78,7 +78,7 @@ public class MapActivity extends Activity {
     private ServerApiClient server;
     private String serverDataset="",serverRegion="";
     private org.json.JSONArray serverLayers=new org.json.JSONArray();
-    private Button serverButton, regionButton, logoutButton;
+    private Button serverButton, regionButton, regionQuickButton, logoutButton;
     private TextView connectionStatus;
     private long lastVerified, lastConnectionCheck;
     private final ExecutorService serverWorker=Executors.newSingleThreadExecutor();
@@ -176,36 +176,13 @@ public class MapActivity extends Activity {
             quickLayerButtons.add(b);
             quickBar.addView(b,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
         }
-        hybridButton=new Button(this);
-        hybridButton.setText("위성지도");
-        hybridButton.setTextSize(11);
-        hybridButton.setMinHeight(dp(36));
-        hybridButton.setOnClickListener(v->{
-            if(map==null||!map.supportsHybridMap()){
-                Toast.makeText(this,"현재 지도에서는 위성지도를 지원하지 않습니다.",Toast.LENGTH_SHORT).show();
-                return;
-            }
-            hybridMode=!hybridMode;
-            map.setHybridMap(hybridMode);
-            hybridButton.setText(hybridMode?"일반지도":"위성지도");
-            status.setText(hybridMode?"위성지도":"일반지도");
-        });
-        quickBar.addView(hybridButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
-
-        measureButton=new Button(this);measureButton.setText("거리");measureButton.setTextSize(11);measureButton.setMinHeight(dp(36));
-        measureButton.setOnClickListener(v->{
-            if(measurements.active())finishMeasurement();
-            else {measurements.start();selectedRecord=null;selectedMeasurement=null;measureButton.setText("완료");
-                if(selectionStatus!=null)selectionStatus.setText("지도를 눌러 측정점을 추가하세요 · 완료로 구간 종료");drawMeasurements();}
-        });
-        quickBar.addView(measureButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
-
-        Button clearDistanceButton=new Button(this);clearDistanceButton.setText("거리 삭제");clearDistanceButton.setTextSize(11);clearDistanceButton.setMinHeight(dp(36));
-        clearDistanceButton.setOnClickListener(v->{
-            measurements.clearAll();selectedMeasurement=null;drawMeasurements();measureButton.setText("거리");
-            if(selectionStatus!=null)selectionStatus.setText("거리 측정을 모두 삭제했습니다.");
-        });
-        quickBar.addView(clearDistanceButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
+        regionQuickButton=new Button(this);
+        regionQuickButton.setText("지역");
+        regionQuickButton.setTextSize(11);
+        regionQuickButton.setMinHeight(dp(36));
+        regionQuickButton.setEnabled(false);
+        regionQuickButton.setOnClickListener(v->showRegionSelection());
+        quickBar.addView(regionQuickButton,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,dp(38)));
 
         Button currentButton=new Button(this);currentButton.setText("현재위치");currentButton.setTextSize(11);currentButton.setMinHeight(dp(36));
         currentButton.setOnClickListener(v->{centerOnFix=true;requestLocation();});
@@ -219,23 +196,92 @@ public class MapActivity extends Activity {
         root.addView(quickScroll,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(40)));
         root.addView(status);
 
-        LinearLayout actions = new LinearLayout(this);
-        addButton(actions, "내 위치", () -> { centerOnFix = true; requestLocation(); });
-        addButton(actions, "전체 보기", this::showAll);
-        addButton(actions, "가까운 시설", this::showNearest);
-        menu.addView(actions);
-        LinearLayout tools=new LinearLayout(this);
-        addButton(tools,"선택 메뉴",this::showSelectionMenu);
-        addButton(tools,"전체 보기",this::showAll);
-        menu.addView(tools);
+        TextView viewSection=new TextView(this);
+        viewSection.setText("조회");
+        viewSection.setTextSize(12);
+        viewSection.setTextColor(Color.rgb(71,85,105));
+        viewSection.setPadding(dp(12),dp(8),dp(12),0);
+        menu.addView(viewSection);
+        LinearLayout viewTools=new LinearLayout(this);
+        addButton(viewTools,"전체 보기",this::showAll);
+        addButton(viewTools,"가까운 시설",this::showNearest);
+        addButton(viewTools,"선택 메뉴",this::showSelectionMenu);
+        menu.addView(viewTools);
+
+        TextView mapSection=new TextView(this);
+        mapSection.setText("지도 도구");
+        mapSection.setTextSize(12);
+        mapSection.setTextColor(Color.rgb(71,85,105));
+        mapSection.setPadding(dp(12),dp(8),dp(12),0);
+        menu.addView(mapSection);
+        LinearLayout mapTools=new LinearLayout(this);
+
+        hybridButton=new Button(this);
+        hybridButton.setText("위성지도");
+        hybridButton.setTextSize(12);
+        hybridButton.setOnClickListener(v->{
+            if(map==null||!map.supportsHybridMap()){
+                Toast.makeText(this,"현재 지도에서는 위성지도를 지원하지 않습니다.",Toast.LENGTH_SHORT).show();
+                return;
+            }
+            hybridMode=!hybridMode;
+            map.setHybridMap(hybridMode);
+            hybridButton.setText(hybridMode?"일반지도":"위성지도");
+            status.setText(hybridMode?"위성지도":"일반지도");
+        });
+        mapTools.addView(hybridButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
+
+        measureButton=new Button(this);
+        measureButton.setText("거리 측정");
+        measureButton.setTextSize(12);
+        measureButton.setOnClickListener(v->{
+            if(measurements.active())finishMeasurement();
+            else {
+                measurements.start();
+                selectedRecord=null;
+                selectedMeasurement=null;
+                measureButton.setText("측정 완료");
+                if(selectionStatus!=null)selectionStatus.setText("지도를 눌러 측정점을 추가하세요 · 측정 완료로 구간 종료");
+                drawMeasurements();
+            }
+        });
+        mapTools.addView(measureButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
+
+        Button clearDistanceButton=new Button(this);
+        clearDistanceButton.setText("거리 삭제");
+        clearDistanceButton.setTextSize(12);
+        clearDistanceButton.setOnClickListener(v->{
+            measurements.clearAll();
+            selectedMeasurement=null;
+            drawMeasurements();
+            measureButton.setText("거리 측정");
+            if(selectionStatus!=null)selectionStatus.setText("거리 측정을 모두 삭제했습니다.");
+        });
+        mapTools.addView(clearDistanceButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
+        menu.addView(mapTools);
+
         selectionStatus=new TextView(this);selectionStatus.setText("객체 선택 후 길게 누르기 / 우클릭 → 속성");
         selectionStatus.setPadding(dp(12),dp(4),dp(12),dp(4));menu.addView(selectionStatus);
-        serverButton=new Button(this);serverButton.setText("서버 로그인");
-        serverButton.setOnClickListener(v->showServerLogin());menu.addView(serverButton);
+
+        TextView accountSection=new TextView(this);
+        accountSection.setText("지역 · 계정");
+        accountSection.setTextSize(12);
+        accountSection.setTextColor(Color.rgb(71,85,105));
+        accountSection.setPadding(dp(12),dp(8),dp(12),0);
+        menu.addView(accountSection);
+
+        serverButton=new Button(this);
+        serverButton.setText("서버 로그인");
+        serverButton.setOnClickListener(v->showServerLogin());
+
+        LinearLayout accountTools=new LinearLayout(this);
         regionButton=new Button(this);regionButton.setText("지역 선택");regionButton.setEnabled(false);
-        regionButton.setOnClickListener(v->showRegionSelection());menu.addView(regionButton);
+        regionButton.setOnClickListener(v->showRegionSelection());
+        accountTools.addView(regionButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
         logoutButton=new Button(this);logoutButton.setText("로그아웃");logoutButton.setEnabled(false);
-        logoutButton.setOnClickListener(v->disconnectServer());menu.addView(logoutButton);
+        logoutButton.setOnClickListener(v->disconnectServer());
+        accountTools.addView(logoutButton,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f));
+        menu.addView(accountTools);
         connectionStatus=new TextView(this);connectionStatus.setPadding(dp(12),dp(2),dp(12),dp(2));connectionStatus.setTextSize(11);connectionStatus.setMaxLines(1);
         connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");root.addView(connectionStatus);
         regionStatus = new TextView(this);
@@ -779,7 +825,7 @@ public class MapActivity extends Activity {
         logoutButton.setEnabled(false);connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");
         allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
         regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
-        if(regionButton!=null)regionButton.setEnabled(false);
+        if(regionButton!=null)regionButton.setEnabled(false);\n        if(regionQuickButton!=null)regionQuickButton.setEnabled(false);
         if(previous!=null)serverWorker.execute(previous::logout);
         loadMarkers();stopLocation();
         if(ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
@@ -811,7 +857,7 @@ public class MapActivity extends Activity {
                         regionStatus.setText("시설 도면 없음");
                         return;
                     }
-                    if(regionButton!=null)regionButton.setEnabled(true);
+                    if(regionButton!=null)regionButton.setEnabled(true);\n                    if(regionQuickButton!=null)regionQuickButton.setEnabled(true);
                     regionStatus.setText("지역을 선택하세요.");
                     status.setText("권한 지역 "+authorizedRegionIds.size()+"개 · 지역 선택 필요");
                     showRegionSelection();
@@ -884,7 +930,7 @@ public class MapActivity extends Activity {
                     refreshDistanceMeters=Math.max(25,Math.min(displayRadiusMeters,displaySettings.optInt("refresh_distance_m",200)));
                     lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
                     if(serverLayers==null)serverLayers=new org.json.JSONArray();
-                    regionStatus.setText(title+" · 서버 조회");viewportKey="";pendingViewportKey="";
+                    regionStatus.setText(title+" · 서버 조회");\n                    if(regionQuickButton!=null)regionQuickButton.setText("지역");\n                    viewportKey="";pendingViewportKey="";
                     org.json.JSONObject box=metadata.optJSONObject("bounds");
                     if(box!=null){
                         serverBounds.clear();
