@@ -1145,6 +1145,40 @@ function viewDiagText(){{
   return parts.join(' · ');
 }}
 
+async function loadRegions(){{
+  const r=await apiCall('regions');
+  if(!r.ok){{setStatus('지역 조회 실패 · '+(r.error||'서버 오류'));return}}
+  const sel=document.getElementById('region');
+  const items=(r.items||[]).filter(x=>x&&x.id);
+  authorizedRegions=items.map(x=>({{
+    id:String(x.id),
+    name:String(x.name||x.id),
+    bounds:x.bounds||null
+  }}));
+  sel.innerHTML='<option value=""></option>';
+  authorizedRegions.forEach(x=>{{
+    const o=document.createElement('option');
+    o.value=x.id;
+    o.text=x.name!==x.id ? (x.name+' ('+x.id+')') : x.id;
+    sel.appendChild(o);
+  }});
+  if(!authorizedRegions.length){{
+    setStatus('권한 지역 0개 · 관리자 지역 권한 설정을 확인하세요 · 등급 '+String(r.level||'?'));
+    return;
+  }}
+  setStatus('권한 지역 '+authorizedRegions.length+'개 · 지도 위치에 따라 자동 연결');
+}}
+
+function boundsContainsLatLng(bounds,latlng){{
+  if(!bounds||!latlng)return false;
+  const west=Number(bounds.west),south=Number(bounds.south);
+  const east=Number(bounds.east),north=Number(bounds.north);
+  if(![west,south,east,north].every(Number.isFinite))return false;
+  const lat=Number(latlng.getLat()),lng=Number(latlng.getLng());
+  return lat>=Math.min(south,north)&&lat<=Math.max(south,north)&&
+         lng>=Math.min(west,east)&&lng<=Math.max(west,east);
+}}
+
 function regionBoundsArea(bounds){{
   if(!bounds)return Number.POSITIVE_INFINITY;
   const west=Number(bounds.west),south=Number(bounds.south);
