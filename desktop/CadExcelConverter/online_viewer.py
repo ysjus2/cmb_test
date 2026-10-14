@@ -842,6 +842,7 @@ class Api:
             for x in (regions or [])
             if str(x or "").strip()
         ]
+        matches = []
         for region in region_ids:
             cells = self._read_polemap_cache_for(region)
             for cell in cells:
@@ -854,14 +855,35 @@ class Api:
                     lng >= min(west, east) and lng <= max(west, east)
                     and lat >= min(south, north) and lat <= max(south, north)
                 ):
-                    return {
-                        "ok": True,
+                    matches.append({
                         "region": region,
                         "grid_id": str(cell.get("grid_id") or "").strip().upper(),
                         "cell": cell,
-                        "source": "cache",
-                    }
-        return {"ok": True, "region": "", "grid_id": "", "cell": None, "source": "cache"}
+                    })
+                    break
+
+        # 로컬 캐시는 한 지역만 정확히 포함할 때만 지역 판정에 사용한다.
+        # 둘 이상이면 과거/중복 Polemap 캐시 가능성이 있으므로 서버 GRID 판정으로 넘긴다.
+        if len(matches) == 1:
+            match = matches[0]
+            return {
+                "ok": True,
+                "region": match["region"],
+                "grid_id": match["grid_id"],
+                "cell": match["cell"],
+                "matches": matches,
+                "ambiguous": False,
+                "source": "cache",
+            }
+        return {
+            "ok": True,
+            "region": "",
+            "grid_id": "",
+            "cell": None,
+            "matches": matches,
+            "ambiguous": len(matches) > 1,
+            "source": "cache",
+        }
 
     def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):
         """Read Polemap + fiber cell files only. Never contacts the server."""
@@ -3849,6 +3871,12 @@ async function cachedRegionForMapCenter(center){{
       lat:lat,
       lng:lng
     }});
+    if(r&&r.ambiguous){{
+      gridDiag.stage='로컬 GRID 중복';
+      gridDiag.progress=String((r.matches||[]).length)+'개 지역 · 서버 재확인';
+      setStatus('L'+map.getLevel()+' · '+gridDiagText());
+      return null;
+    }}
     if(r&&r.region&&r.grid_id){{
       const matched=authorizedRegions.find(x=>x.id===String(r.region));
       if(matched){{
@@ -3912,16 +3940,8 @@ async function autoRegionForMapCenter(){{
   const lat=Number(center.getLat()),lng=Number(center.getLng());
   const sel=document.getElementById('region');
 
-  // 같은 위치 부근에서는 이미 실제 Polemap으로 확인한 지역을 재사용한다.
-  if(
-    lastRegionResolveId &&
-    sel.value===lastRegionResolveId &&
-    Number.isFinite(lastRegionResolveLat) &&
-    Number.isFinite(lastRegionResolveLng) &&
-    distanceMeters(lastRegionResolveLat,lastRegionResolveLng,lat,lng)<1000
-  ){{
-    return true;
-  }}
+  // 지역/GIRD 경계는 수백 m 안에서도 바뀔 수 있으므로 이전 지역을 거리 기준으로 재사용하지 않는다.
+  // 지도 이동이 멈출 때마다 현재 중심점을 포함하는 GRID를 다시 판정한다.
 
   let matched=await cachedRegionForMapCenter(center);
 
