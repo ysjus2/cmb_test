@@ -428,12 +428,31 @@ class Api:
                 "expected_count": expected_count,
                 "received_count": cached_count,
             }
+        # /versions 응답에 FIBER 키가 없더라도 실제 FIBER가 없는 것으로 판단하지 않는다.
+        # 서버 메타 object_count가 있으면 반드시 지역 전체 FIBER를 조회한다.
+        # 메타 개수조차 확인되지 않으면 "정상 0개"로 넘기지 않고 오류로 중단한다.
+        if expected_count is None or expected_count <= 0:
+            state = self.fiber_progress.get(region)
+            if state is not None:
+                state.update({
+                    "active": False,
+                    "percent": 0,
+                    "stage": "metadata_missing",
+                })
+            return {
+                "ok": False,
+                "error": "광 전체수집 중단 · 서버 FIBER object_count 확인 실패",
+                "features": self._fiber_features(),
+                "cache": "stale",
+                "version": str(self.fiber_cache.get("version") or ""),
+                "expected_count": expected_count,
+            }
+
+        # 버전 문자열이 없는 서버에서도 개수 검증을 기준으로 동기화할 수 있게
+        # 안정적인 지역/개수 서명을 사용한다.
         if not fiber_version:
-            self._delete_fiber_cache()
-            self.fiber_progress[region].update({
-                "active": False, "percent": 100, "stage": "empty",
-            })
-            return {"ok": True, "features": [], "cache": "empty", "version": ""}
+            fiber_version = f"count:{region}:{int(expected_count)}"
+
         try:
             all_features = self._fetch_all_region_features(region, generation)
         except RuntimeError as exc:
@@ -467,7 +486,7 @@ class Api:
         received_count = len(fiber_features)
         unique_key_count = len({self._feature_key(f) for f in fiber_features})
         if expected_count is not None and expected_count > 0 and received_count != expected_count:
-            # 일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다.
+            # 0개/일부 광을 정상 캐시로 덮어쓰지 않는다.
             state = self.fiber_progress.get(region)
             if state is not None:
                 state.update({
