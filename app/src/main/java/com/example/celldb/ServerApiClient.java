@@ -19,7 +19,7 @@ final class ServerApiClient {
         final int status;
         ApiError(int status,String message){super(message);this.status=status;}
     }
-    static final String BASE_URL="https://192.168.246.54";
+    static final String BASE_URL="https://192.168.246.54:8443";
     interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
     private final ConnectionFactory connections;
     private final String deviceId;
