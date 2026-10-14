@@ -279,8 +279,7 @@ class Api:
         limit = 5000
         max_depth = 14
 
-        meta = self.c.online_layers(region) or {}
-        # 광 전체동기화는 /layers 메타의 bounds를 신뢰하지 않는다.
+        # 광 전체동기화는 /layers 메타의 bounds/레이어 목록을 사용하지 않는다.
         # 운영 서버가 region_code + groups=FIBER를 직접 SQL 필터하므로
         # WGS84 전체 bbox로 요청해도 해당 지역 FIBER만 반환된다.
         # 이렇게 해야 잘못되거나 부분적인 메타 bounds 때문에 광이 끊기는 일을 막을 수 있다.
