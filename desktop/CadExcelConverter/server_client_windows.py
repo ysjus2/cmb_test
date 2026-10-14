@@ -12,6 +12,7 @@ import contextlib
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 BASE_URL = "https://192.168.246.54:8443"
@@ -49,6 +50,8 @@ class CMBServerClient:
         self.on_session_expired = None
         self._refresh_lock = threading.RLock()
         self.shared_state_path = os.getenv("CMB_AUTH_STATE_PATH", "").strip()
+        self.device_type = "WINDOWS"
+        self.device_id = self._load_device_id()
         self._sync_from_shared_state()
 
     @contextlib.contextmanager
@@ -139,6 +142,26 @@ class CMBServerClient:
             except FileNotFoundError:
                 pass
 
+    def _load_device_id(self):
+        base = Path(os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "CMB_DXF_Viewer"
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "device_id.txt"
+        try:
+            value = path.read_text(encoding="utf-8").strip()
+            if value:
+                return value
+        except Exception:
+            pass
+        value = str(uuid.uuid4())
+        path.write_text(value, encoding="utf-8")
+        return value
+
+    def _device_headers(self):
+        return {
+            "X-CMB-Device-ID": self.device_id,
+            "X-CMB-Device-Type": self.device_type,
+        }
+
     @property
     def authenticated(self):
         return bool(self.access_token)
@@ -181,6 +204,7 @@ class CMBServerClient:
             "Content-Type": "application/json; charset=utf-8",
             "Content-Length": str(len(body_bytes)),
             "Authorization": "Bearer " + self.access_token,
+            **self._device_headers(),
         }
         req = urllib.request.Request(
             self.base_url + path,
@@ -246,7 +270,7 @@ class CMBServerClient:
 
     def _raw_request(self, method, path, payload=None, auth=True, timeout=60):
         body = None
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", **self._device_headers()}
 
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
