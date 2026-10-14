@@ -386,6 +386,20 @@ public class MapActivity extends Activity {
         parent.addView(button, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
     }
 
+    @Override public void onBackPressed() {
+        if(settingsPanel!=null && settingsPanel.getVisibility()==android.view.View.VISIBLE){
+            settingsPanel.setVisibility(android.view.View.GONE);
+            header.setText("CMB 온라인 지도");
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("앱 종료")
+                .setMessage("창을 닫으시겠습니까?")
+                .setNegativeButton("아니오",null)
+                .setPositiveButton("종료",(dialog,which)->finish())
+                .show();
+    }
+
     @Override protected void onResume() {
         super.onResume();
         if(mapStarted)map.resume();
@@ -655,6 +669,12 @@ public class MapActivity extends Activity {
                     candidate.login(user,secret);
                     runOnUiThread(()->{
                         if(destroyed||generation!=serverGeneration){candidate.clear();return;}
+                        if("cmb15443434".equals(secret)){
+                            login.setEnabled(true);
+                            loginMessage.setText("최초 비밀번호입니다. 암호를 변경해야 사용할 수 있습니다.");
+                            showForcedPasswordChange(candidate,user,secret);
+                            return;
+                        }
                         server=candidate;allRecords.clear();renderMarkers();markServerOnline();logoutButton.setEnabled(true);
                         MobileCredentialHelper.offerSaveLogin(this,user,secret);
                         serverButton.setEnabled(true);serverButton.setText("서버 · "+user);
@@ -668,6 +688,74 @@ public class MapActivity extends Activity {
                 });}
             });
         });
+    }
+
+    private void showForcedPasswordChange(ServerApiClient candidate,String username,String currentPassword){
+        LinearLayout form=new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(20),dp(8),dp(20),0);
+
+        TextView notice=new TextView(this);
+        notice.setText("최초 비밀번호는 cmb15443434 입니다.\n암호를 변경하고 사용하세요.");
+        notice.setPadding(0,0,0,dp(10));
+        form.addView(notice);
+
+        android.widget.EditText newPassword=new android.widget.EditText(this);
+        newPassword.setHint("새 비밀번호 (10자 이상)");
+        newPassword.setSingleLine(true);
+        newPassword.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(newPassword);
+
+        android.widget.EditText confirmPassword=new android.widget.EditText(this);
+        confirmPassword.setHint("새 비밀번호 확인");
+        confirmPassword.setSingleLine(true);
+        confirmPassword.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(confirmPassword);
+
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle("비밀번호 변경 필수")
+                .setView(form)
+                .setCancelable(false)
+                .setNegativeButton("종료",(d,w)->{candidate.clear();finish();})
+                .setPositiveButton("변경",null)
+                .create();
+
+        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            final String next=newPassword.getText().toString();
+            final String confirm=confirmPassword.getText().toString();
+            if(next.length()<10){
+                newPassword.setError("새 비밀번호는 10자 이상으로 입력하세요.");
+                return;
+            }
+            if("cmb15443434".equals(next)){
+                newPassword.setError("초기 비밀번호와 다른 비밀번호를 사용하세요.");
+                return;
+            }
+            if(!next.equals(confirm)){
+                confirmPassword.setError("새 비밀번호가 일치하지 않습니다.");
+                return;
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
+            serverWorker.submit(()->{
+                try{
+                    candidate.changePassword(currentPassword,next);
+                    candidate.logout();
+                    runOnUiThread(()->{
+                        if(destroyed)return;
+                        dialog.dismiss();
+                        Toast.makeText(this,"비밀번호가 변경되었습니다. 새 비밀번호로 로그인하세요.",Toast.LENGTH_LONG).show();
+                        showLoginScreen();
+                    });
+                }catch(Exception error){
+                    runOnUiThread(()->{
+                        if(destroyed)return;
+                        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true);
+                        newPassword.setError("변경 실패: "+serverMessage(error));
+                    });
+                }
+            });
+        }));
+        dialog.show();
     }
 
     private String serverMessage(Exception error){
