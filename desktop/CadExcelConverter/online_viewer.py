@@ -3340,6 +3340,13 @@ async function loadRegions(){{
     return;
   }}
   setStatus('권한 지역 '+authorizedRegions.length+'개 · 지도 위치에 따라 자동 연결');
+  if(map){{
+    const ok=await autoRegionForMapCenter();
+    if(ok){{
+      await loadFiberViewport(false);
+      queueNonFiberLoad(true,140);
+    }}
+  }}
 }}
 
 function boundsContainsLatLng(bounds,latlng){{
@@ -3628,14 +3635,19 @@ document.addEventListener('keydown',e=>{{
   }}
 }});
 bindUi();
-initMap();
 
 let authBootstrapped=false;
 async function runBootstrapOnce(){{
   if(authBootstrapped)return;
   authBootstrapped=true;
   await loadMapDisplaySettings();
-  await bootstrapAuth();
+  const ok=await bootstrapAuth();
+  if(!ok)return;
+
+  // 권한 지역 목록이 준비된 뒤 지도를 만든다.
+  // 이전에는 initMap()이 먼저 실행되어 첫 idle 이벤트 때 authorizedRegions가 비어
+  // Polemap/grid 조회가 시작되지 않을 수 있었다.
+  initMap();
 }}
 runBootstrapOnce();
 </script>
