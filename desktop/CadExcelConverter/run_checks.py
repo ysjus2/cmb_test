@@ -200,6 +200,12 @@ assert "loadGeneration++" not in clear_group_block
 assert "let nonFiberLoadTimer=null;" in online_source
 assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
 assert "function bestRegionForMapCenter(center)" in online_source
+assert "async function cachedRegionForMapCenter(center)" in online_source
+assert "apiCall('cached_region_probe'" in online_source
+assert "def cached_region_probe(self, regions, lat, lng):" in online_source
+assert "def _start_polemap_refresh(self, west, south, east, north):" in online_source
+assert "현재 화면은 서버보다 로컬 Polemap 캐시를 먼저 사용한다." in online_source
+assert "let matched=await cachedRegionForMapCenter(center);" in online_source
 assert "async function probeRegionForMapCenter(center)" in online_source
 assert "apiCall('polemap_probe'" in online_source
 assert "gridDiag.stage='지역 GRID 탐색';" in online_source
