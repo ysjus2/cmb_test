@@ -102,6 +102,7 @@ public class MapActivity extends Activity {
     private final ArrayList<MapPoint> serverBounds=new ArrayList<>();
     private final ArrayList<String> authorizedRegionIds=new ArrayList<>();
     private final ArrayList<String> authorizedRegionTitles=new ArrayList<>();
+    private String deviceId="";
     private final Runnable serverPoll=new Runnable(){public void run(){
         if(!foreground||destroyed)return;
         checkServerConnection();pollServerViewport();serverHandler.postDelayed(this,400);
@@ -265,6 +266,12 @@ public class MapActivity extends Activity {
         screen=new android.widget.FrameLayout(this);screen.addView(mapScreen);setContentView(screen);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
         mapCache = new ServerMapCache(this);
+        android.content.SharedPreferences devicePrefs=getSharedPreferences("cmb_device",MODE_PRIVATE);
+        deviceId=devicePrefs.getString("device_id","");
+        if(deviceId==null||deviceId.trim().isEmpty()){
+            deviceId=java.util.UUID.randomUUID().toString();
+            devicePrefs.edit().putString("device_id",deviceId).apply();
+        }
 
         if (ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
         else showLoginScreen();
@@ -661,7 +668,7 @@ public class MapActivity extends Activity {
         login.setOnClickListener(v->{
             final String user=username.getText().toString().trim(),secret=password.getText().toString();
             if(user.isEmpty()||secret.isEmpty()){password.setError("계정과 비밀번호를 입력하세요.");return;}
-            final ServerApiClient candidate=new ServerApiClient();
+            final ServerApiClient candidate=new ServerApiClient(deviceId);
             password.setText("");login.setEnabled(false);loginMessage.setText("로그인 중…");serverButton.setEnabled(false);connectionStatus.setText("● 서버 로그인 중…");status.setText("서버 로그인 중…");
             final int generation=++serverGeneration;
             serverTask=serverWorker.submit(()->{
