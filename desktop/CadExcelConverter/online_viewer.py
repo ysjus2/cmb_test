@@ -1625,7 +1625,7 @@ let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
 const FIBER_QUERY_RADIUS_METERS=10000;
-const FIBER_RECENTER_METERS=5000;
+const FIBER_RECENTER_METERS=8000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
@@ -3283,7 +3283,7 @@ async function loadFiberViewport(force=false){{
       await new Promise(resolve=>setTimeout(resolve,20));
     }}
 
-    // 10km 광 전체가 완료된 이 중심점을 다음 5km 이동 판정의 고정점으로 사용한다.
+    // 10km 광 전체가 완료된 이 중심점을 다음 8km 이동 판정의 고정점으로 사용한다.
     lastFiberCacheLat=cLat;
     lastFiberCacheLng=cLng;
     lastFiberCacheRegion=region;
@@ -3951,7 +3951,7 @@ function scheduleFiberRecenter(force=false){{
   const c=map.getCenter();
   const lat=Number(c.getLat()),lng=Number(c.getLng());
 
-  // 최초 실행 또는 기존 10km 기준점에서 5km 이상 이동했을 때만
+  // 최초 실행 또는 기존 10km 기준점에서 8km 이상 이동했을 때만
   // 1초 동안 추가 이동이 없는지 확인한 뒤 새 기준점을 만든다.
   let needsFiberReload=force;
   if(!Number.isFinite(lastFiberCacheLat)||!Number.isFinite(lastFiberCacheLng)){{
@@ -3961,7 +3961,7 @@ function scheduleFiberRecenter(force=false){{
     needsFiberReload=needsFiberReload || moved>=FIBER_RECENTER_METERS;
     if(!needsFiberReload){{
       gridDiag.stage='기존 10km 광 유지';
-      gridDiag.progress='기준점 이동 '+Math.round(moved)+'m / 5000m';
+      gridDiag.progress='기준점 이동 '+Math.round(moved)+'m / 8000m';
       setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
       // 5km 미만 이동은 광 재다운로드 없이 현재 화면의 동축/기기만 갱신한다.
       queueNonFiberLoad(false,0);
@@ -3974,7 +3974,7 @@ function scheduleFiberRecenter(force=false){{
     fiberRecenterTimer=null;
   }}
   gridDiag.stage='광 기준점 대기';
-  gridDiag.progress='5km 이동 · 1초 후 10km 갱신';
+  gridDiag.progress='8km 이동 · 1초 후 10km 갱신';
   setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
 
   fiberRecenterTimer=setTimeout(async()=>{{
