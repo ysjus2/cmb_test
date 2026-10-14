@@ -774,9 +774,10 @@ assert 'payload["symbol_library"] = []' in upload_source
 assert "if(String(p.group_id||'').toUpperCase()==='POLE')" in online_source
 assert "add('전주번호',poleNo);" in online_source
 assert "if(polePos.grid_id)add('전주 격자정보(상세)',polePos.grid_id);" not in online_source
-assert "pole_numbers = _actual_pole_numbers(e)" in upload_source
-assert '"POLE-JOINT" in block' not in upload_source.split("def classify_entity",1)[1].split("def _is_info_entity",1)[0]
-print("NUMBERED_POLE_ONLY_CLASSIFICATION_OK")
+assert 'layer.startswith("CN_L_POLE_POLE")' in upload_source
+assert 'block.startswith("POLE")' in upload_source
+assert 'display_no = pole_no or source_id' in upload_source
+print("ALL_POLE_SYMBOLS_WITH_DISPLAY_NUMBER_OK")
 print("MINIMAL_POLE_STORAGE_AND_DETAIL_OK")
 print("SERVER_FEATURE_ID_DEDUPE_OK")
 print("REGION_FIBER_CACHE_SYNC_OK")
