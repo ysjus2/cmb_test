@@ -714,6 +714,11 @@ assert "self.fiber_synced_regions.add(region)" in online_source
 assert "async function pollFiberProgress(region,token)" in online_source
 assert "apiCall('fiber_progress')" in online_source
 assert "수신 '+received.toLocaleString()" in online_source
+assert "raw_count = len(raw_features)" in online_source
+assert "if raw_count < limit:" in online_source
+assert "fiber_count={len(features)}" in online_source
+assert "광 전체 동기화 실패" in online_source
+print("UNFILTERED_SERVER_FIBER_PAGINATION_OK")
 print("FIRST_ENTRY_FULL_FIBER_SYNC_AND_PROGRESS_OK")
 print("REGION_FIBER_CACHE_SYNC_OK")
 
