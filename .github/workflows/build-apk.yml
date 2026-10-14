@@ -1,10 +1,19 @@
-name: Build Signed APK v2.22_FINAL
+name: Build Signed APK v2.23_FINAL
 
 permissions:
   contents: write
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'kakao.properties.example'
+      - '.github/workflows/build-apk.yml'
 
 jobs:
   build:
@@ -52,30 +61,31 @@ jobs:
           keytool -printcert -jarfile app/build/outputs/apk/release/app-release.apk -rfc \
             | openssl x509 -outform DER \
             | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
-          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.22_FINAL.apk
+          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.23_FINAL.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Android-v2.22-FINAL
+          name: CMB-Android-v2.23-FINAL
           path: |
-            CMB_Android_v2.22_FINAL.apk
+            CMB_Android_v2.23_FINAL.apk
             kakao-key-hash.txt
           if-no-files-found: error
 
       - name: Publish direct-download Android Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.22_FINAL
-          name: CMB Android v2.22 FINAL
+          tag_name: v2.23_FINAL
+          name: CMB Android v2.23 FINAL
           body: |
-            Mobile viewer synced to Windows v4.10 behavior:
-            - stale cache remains visible across revision changes and is replaced only after successful area fetch
-            - CMB code-first symbols for 2SP/3SP/DC/PI/ONU/AMP/TAP/PS
-            - Anno and Connector hidden from map
-            - selected cable is highlighted above device symbols
-            - multipart server line identities preserved
-            - distance measurement behavior retained
+            Mobile viewer synced to current Windows online-view policy:
+            - manual authorized-region selection; map movement never changes the selected region
+            - full regional FIBER cache first; movement refresh excludes FIBER and loads nearby non-fiber data
+            - optical closure visible from L3; all other optical devices visible from L2
+            - existing COAX level policy remains unchanged
+            - minimal POLE metadata supported; pole detail shows pole number only
+            - stale cache remains visible until successful refresh
+            - hybrid Kakao map and distance measurement retained
           target_commitish: ${{ github.sha }}
-          files: CMB_Android_v2.22_FINAL.apk
+          files: CMB_Android_v2.23_FINAL.apk
           make_latest: false
