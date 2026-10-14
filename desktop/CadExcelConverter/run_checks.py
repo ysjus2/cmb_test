@@ -224,7 +224,7 @@ assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
 assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
 assert "await loadFiberViewport(false);" in online_source
-assert "queueNonFiberLoad(false,140);" in online_source
+assert "queueNonFiberLoad(false,0);" in online_source
 assert "queueNonFiberLoad(true,140);" in online_source
 assert "const FIBER_QUERY_RADIUS_METERS=10000;" in online_source
 assert "gridDiag.stage='현재 GRID 광';" in online_source
