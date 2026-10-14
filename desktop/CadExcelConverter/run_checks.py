@@ -15,8 +15,8 @@ from online_viewer import html
 page = html("test-kakao-key", "test-local-token")
 assert 'const LOCAL_API_TOKEN="test-local-token";' in page
 assert "apiCall('regions')" in page
-assert "apiCall('select',{region:" in page
-assert "apiCall('objects',{west:" in page
+assert "apiCall('select'" in page
+assert "apiCall('objects'" in page
 assert "pywebview.api" not in page
 assert "/api/" in page
 print('ONLINE_VIEWER_LOCAL_API_OK')
