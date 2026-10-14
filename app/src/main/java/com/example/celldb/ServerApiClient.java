@@ -84,7 +84,7 @@ final class ServerApiClient {
                 byte[] buffer=new byte[8192];int n;
                 while((n=in.read(buffer))!=-1){
                     if(Thread.currentThread().isInterrupted())throw new InterruptedIOException();
-                    out.write(buffer,0,n);if(out.size()>3*1024*1024)throw new IOException("서버 응답이 너무 큽니다.");
+                    out.write(buffer,0,n);if(out.size()>12*1024*1024)throw new IOException("서버 응답이 너무 큽니다.");
                 }
             }
             return new JSONTokener(out.toString("UTF-8")).nextValue();
@@ -147,8 +147,17 @@ final class ServerApiClient {
         }
     }
     ArrayList<CadRecord> onlineObjects(String region,MapViewport viewport,String layerFilter)throws Exception {
+        return onlineObjects(region,viewport,layerFilter,null);
+    }
+
+    ArrayList<CadRecord> onlineObjectsByGroups(String region,MapViewport viewport,String groups)throws Exception {
+        return onlineObjects(region,viewport,null,groups);
+    }
+
+    private ArrayList<CadRecord> onlineObjects(String region,MapViewport viewport,String layerFilter,String groups)throws Exception {
         String path="/online/"+encoded(region)+"/objects?bbox="+encoded(viewport.bbox())+"&limit=5000";
         if(layerFilter!=null&&!layerFilter.trim().isEmpty())path+="&layers="+encoded(layerFilter);
+        if(groups!=null&&!groups.trim().isEmpty())path+="&groups="+encoded(groups);
         JSONObject page=(JSONObject)request(path,null,true,true);
         JSONArray features=page.optJSONArray("features");
         ArrayList<CadRecord> rows=new ArrayList<>();
@@ -168,6 +177,7 @@ final class ServerApiClient {
         }
         return rows;
     }
+
     JSONArray datasets(String region)throws Exception{return (JSONArray)request("/regions/"+encoded(region)+"/datasets",null,true,true);}
     JSONObject layers(String dataset)throws Exception{return (JSONObject)request("/datasets/"+encoded(dataset)+"/layers",null,true,true);}
     JSONObject detail(String dataset,String layer,String entity,String version)throws Exception {
