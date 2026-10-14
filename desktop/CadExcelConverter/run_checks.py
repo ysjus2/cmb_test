@@ -211,7 +211,8 @@ assert "kakao.maps.event.addListener(map,'idle',()=>{{" in init_block
 assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
-assert "if(ok){{" in init_block
+assert "if(!ok||generation!==regionResolveGeneration)return;" in init_block
+assert "if(region){{" in init_block
 assert "await loadFiberViewport(false);" in init_block
 assert "await loadObjects(false);" in init_block
 assert init_block.index("await loadFiberViewport(false);") < init_block.index("await loadObjects(false);")
