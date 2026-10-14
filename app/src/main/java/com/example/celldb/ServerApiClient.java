@@ -85,7 +85,19 @@ final class ServerApiClient {
                 return request(path,body,true,false);
             }
             if(status<200||status>=300){
-                String message=status==401?"계정 또는 비밀번호를 확인하세요.":status==403?"이 지역에 접근 권한이 없습니다.":status==409?"서버 자료가 갱신됐습니다.":status==429?"로그인 시도가 많습니다. 15분 후 다시 시도하세요.":"서버 응답 오류 ("+status+")";
+                String detail="";
+                try(InputStream errorStream=connection.getErrorStream()){
+                    if(errorStream!=null){
+                        ByteArrayOutputStream errorOut=new ByteArrayOutputStream();
+                        byte[] errorBuffer=new byte[2048];
+                        int errorRead;
+                        while((errorRead=errorStream.read(errorBuffer))!=-1 && errorOut.size()<8192)errorOut.write(errorBuffer,0,errorRead);
+                        String errorText=errorOut.toString("UTF-8");
+                        try{detail=new JSONObject(errorText).optString("detail","").trim();}catch(Exception ignored){}
+                    }
+                }catch(Exception ignored){}
+                boolean deviceMismatch=status==403&&("DEVICE_NOT_APPROVED".equals(detail)||"DEVICE_REQUIRED".equals(detail));
+                String message=deviceMismatch?"등록된 기기와 다릅니다. 관리자에게 문의하세요.":status==401?"계정 또는 비밀번호를 확인하세요.":status==403?"이 지역에 접근 권한이 없습니다.":status==409?"서버 자료가 갱신됐습니다.":status==429?"로그인 시도가 많습니다. 15분 후 다시 시도하세요.":"서버 응답 오류 ("+status+")";
                 throw new ApiError(status,message);
             }
             if(status==204)return new JSONObject();
