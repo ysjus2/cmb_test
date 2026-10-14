@@ -725,6 +725,12 @@ assert "layers=layer_filter" in online_source
 assert "if(level>5)" in online_source
 assert "loadGeneration++" in online_source
 assert "광 캐시 표시'+fiberDiagText(),100,false" in online_source
+assert 'groups="FIBER"' in online_source
+assert 'group_filter = "COAX,CONDUIT,POLE,USER"' in online_source
+assert "groups=group_filter" in online_source
+assert "const fiberResult=await loadRegionFiber(false);" in online_source
+assert "if(fiberResult<0)" in online_source
+print("GROUP_FILTERED_FIBER_SYNC_OK")
 print("NEARBY_OBJECT_STALL_GUARD_OK")
 print("UNFILTERED_SERVER_FIBER_PAGINATION_OK")
 print("FIRST_ENTRY_FULL_FIBER_SYNC_AND_PROGRESS_OK")
