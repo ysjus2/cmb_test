@@ -1630,6 +1630,8 @@ let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
 let nonFiberLoadTimer=null;
+let fiberRecenterTimer=null;
+const FIBER_RECENTER_DELAY_MS=1000;
 let authorizedRegions=[];
 let regionSwitching=false;
 let fiberViewportGeneration=0;
@@ -3250,9 +3252,6 @@ async function loadFiberViewport(force=false){{
       fiberDiag.cache=merged.size;
     }}
     lastFiberGridId=primaryGrid;
-    lastFiberCacheLat=cLat;
-    lastFiberCacheLng=cLng;
-    lastFiberCacheRegion=region;
     gridDiag.stage='현재 GRID 광 표시';
     gridDiag.progress=primaryGrid+' · '+String(merged.size)+'개';
     setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
@@ -3284,8 +3283,12 @@ async function loadFiberViewport(force=false){{
       await new Promise(resolve=>setTimeout(resolve,20));
     }}
 
+    // 10km 광 전체가 완료된 이 중심점을 다음 5km 이동 판정의 고정점으로 사용한다.
+    lastFiberCacheLat=cLat;
+    lastFiberCacheLng=cLng;
+    lastFiberCacheRegion=region;
     gridDiag.stage='10km 광 완료';
-    gridDiag.progress=String(ordered.length)+' GRID · '+String(merged.size)+'개';
+    gridDiag.progress=String(ordered.length)+' GRID · '+String(merged.size)+'개 · 기준점 고정';
     setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
     return rendered;
   }}
@@ -3943,6 +3946,58 @@ function bindUi(){{
 
 }}
 
+function scheduleFiberRecenter(force=false){{
+  if(!map)return;
+  const c=map.getCenter();
+  const lat=Number(c.getLat()),lng=Number(c.getLng());
+
+  // 최초 실행 또는 기존 10km 기준점에서 5km 이상 이동했을 때만
+  // 1초 동안 추가 이동이 없는지 확인한 뒤 새 기준점을 만든다.
+  let needsFiberReload=force;
+  if(!Number.isFinite(lastFiberCacheLat)||!Number.isFinite(lastFiberCacheLng)){{
+    needsFiberReload=true;
+  }}else{{
+    const moved=distanceMeters(lastFiberCacheLat,lastFiberCacheLng,lat,lng);
+    needsFiberReload=needsFiberReload || moved>=FIBER_RECENTER_METERS;
+    if(!needsFiberReload){{
+      gridDiag.stage='기존 10km 광 유지';
+      gridDiag.progress='기준점 이동 '+Math.round(moved)+'m / 5000m';
+      setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+      // 5km 미만 이동은 광 재다운로드 없이 현재 화면의 동축/기기만 갱신한다.
+      queueNonFiberLoad(false,0);
+      return;
+    }}
+  }}
+
+  if(fiberRecenterTimer){{
+    clearTimeout(fiberRecenterTimer);
+    fiberRecenterTimer=null;
+  }}
+  gridDiag.stage='광 기준점 대기';
+  gridDiag.progress='5km 이동 · 1초 후 10km 갱신';
+  setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+
+  fiberRecenterTimer=setTimeout(async()=>{{
+    fiberRecenterTimer=null;
+    if(!map)return;
+
+    const fixed=map.getCenter();
+    const fixedLat=Number(fixed.getLat()),fixedLng=Number(fixed.getLng());
+    gridDiag.centerLat=fixedLat;
+    gridDiag.centerLng=fixedLng;
+    gridDiag.stage='광 기준점 확정';
+    gridDiag.progress='10km 광 시작';
+    setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+
+    const ok=await autoRegionForMapCenter();
+    if(!ok)return;
+
+    // 현재 GRID 광 -> 10km 전체 광 -> 동축/기기 순서.
+    await loadFiberViewport(force);
+    queueNonFiberLoad(force,0);
+  }},FIBER_RECENTER_DELAY_MS);
+}}
+
 function centerMyLocation(loadAfter){{
   if(!navigator.geolocation){{
     setStatus('현재 위치 기능을 사용할 수 없습니다');
@@ -3963,8 +4018,7 @@ function centerMyLocation(loadAfter){{
         const ok=await autoRegionForMapCenter();
         if(!ok)return;
         if(loadAfter){{
-          await loadFiberViewport(true);
-          queueNonFiberLoad(true,0);
+          scheduleFiberRecenter(true);
         }}
       }})();
     }},
@@ -3986,22 +4040,14 @@ function initMap(){{
         center:new kakao.maps.LatLng(35.1595,126.8526),
         level:3
       }});
-      kakao.maps.event.addListener(map,'idle',async()=>{{
+      kakao.maps.event.addListener(map,'idle',()=>{{
         const c=map.getCenter();
         gridDiag.centerLat=Number(c.getLat());
         gridDiag.centerLng=Number(c.getLng());
         gridDiag.stage='지도 이동';
-        gridDiag.progress='지역 판정';
+        gridDiag.progress='5km 기준 확인';
         setStatus('L'+map.getLevel()+' · '+gridDiagText());
-        const ok=await autoRegionForMapCenter();
-        if(ok){{
-          // 로딩 순서 고정:
-          // 1) 현재 GRID 광 즉시 표시
-          // 2) 중심 기준 10km 광 전체 완료
-          // 3) 그 다음 동축/기기
-          await loadFiberViewport(false);
-          queueNonFiberLoad(false,0);
-        }}
+        scheduleFiberRecenter(false);
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
@@ -4029,13 +4075,7 @@ function initMap(){{
         );
       }});
       centerMyLocation(false);
-      setTimeout(async()=>{{
-        const ok=await autoRegionForMapCenter();
-        if(ok){{
-          await loadFiberViewport(false);
-          queueNonFiberLoad(true,0);
-        }}
-      }},250);
+      setTimeout(()=>scheduleFiberRecenter(true),250);
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
