@@ -762,6 +762,10 @@ print("GROUP_FILTERED_FIBER_SYNC_OK")
 print("NEARBY_OBJECT_STALL_GUARD_OK")
 print("UNFILTERED_SERVER_FIBER_PAGINATION_OK")
 print("FIRST_ENTRY_FULL_FIBER_SYNC_AND_PROGRESS_OK")
+assert 'feature_id = str(feature.get("id") or "").strip()' in online_source
+assert "if feature_id:" in online_source
+assert "ident = feature_id" in online_source
+print("SERVER_FEATURE_ID_DEDUPE_OK")
 print("REGION_FIBER_CACHE_SYNC_OK")
 
 # 지역은 지도 좌표 자동판정이 아니라 로그인 사용자의 권한 목록에서 직접 선택한다.
