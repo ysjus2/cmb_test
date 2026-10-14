@@ -240,7 +240,7 @@ class Launcher(tk.Tk):
     def _force_password_change(self, current_password):
         win = tk.Toplevel(self)
         win.title("비밀번호 변경 필수")
-        win.geometry("440x280")
+        win.geometry("460x340")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
@@ -250,7 +250,14 @@ class Launcher(tk.Tk):
         frame.pack(fill="both", expand=True)
         ttk.Label(
             frame,
-            text="최초 비밀번호는 cmb15443434 입니다.\n암호를 변경하고 사용하세요.",
+            text=(
+                "최초 비밀번호는 cmb15443434 입니다.\n"
+                "암호를 변경하고 사용하세요.\n\n"
+                "비밀번호 규칙\n"
+                "• 10자 이상\n"
+                "• 초기 비밀번호(cmb15443434)와 다르게 설정\n"
+                "• 새 비밀번호와 확인 값이 서로 일치해야 함"
+            ),
             justify="left",
         ).pack(anchor="w", pady=(0, 14))
 
@@ -291,7 +298,11 @@ class Launcher(tk.Tk):
                     parent=self,
                 )
             except Exception as exc:
-                status.set(str(exc))
+                msg = str(exc)
+                if getattr(exc, "status", None) == 404:
+                    status.set("비밀번호 변경 API 연결 오류입니다. 서버 프록시 설정을 확인해주세요.")
+                else:
+                    status.set(msg)
 
         ttk.Button(frame, text="비밀번호 변경", command=apply_change).pack(fill="x", pady=(8, 0))
         self.password.set("")
