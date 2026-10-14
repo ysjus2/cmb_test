@@ -744,6 +744,13 @@ assert "self._delete_fiber_cache()" in online_source
 assert "self._delete_cache_file()" in online_source
 print("REGION_SCOPED_CACHE_INVALIDATION_OK")
 print("FULL_FIBER_GLOBAL_BBOX_AND_PROGRESS_GUARD_OK")
+client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
+assert "def online_objects(self, region, bbox, limit=5000, layers=None, groups=None, timeout=15):" in client_source
+assert 'return self._request("GET", path, timeout=float(timeout))' in client_source
+assert 'groups="FIBER",' in online_source
+assert "timeout=120" in online_source
+assert "timeout=60" in online_source
+print("FIBER_EXTENDED_TIMEOUT_OK")
 print("GROUP_FILTERED_FIBER_SYNC_OK")
 print("NEARBY_OBJECT_STALL_GUARD_OK")
 print("UNFILTERED_SERVER_FIBER_PAGINATION_OK")
