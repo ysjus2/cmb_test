@@ -1025,34 +1025,26 @@ class Api:
         try:
             west = float(west); south = float(south); east = float(east); north = float(north)
             cached = self._read_fiber_cell_cache(grid_id)
-            version = self._fiber_version(force=force)
 
             if cached and cached.get("features") and not force:
                 cached_features = [
                     feature for feature in (cached.get("features") or [])
                     if self._feature_intersects(feature, west, south, east, north)
                 ]
-                # 셀 캐시는 버전뿐 아니라 실제 공간 범위까지 일치해야 유효하다.
-                # Polemap/전주 재업로드 후 예전 셀 파일이 남아 현재 화면 밖 객체를
-                # 렌더하는 문제를 막는다. 교차 객체가 0이면 즉시 서버 재조회한다.
+                # 화면이 멈추면 로컬 GRID 캐시를 서버/버전 확인보다 먼저 즉시 반환한다.
+                # 버전 확인과 새 데이터 갱신은 백그라운드에서 수행한다.
+                # 이렇게 해야 중심 GRID와 주변 GRID의 광선/광기기가 네트워크 지연 없이 바로 보인다.
                 if cached_features:
-                    if not version or cached.get("version") == version:
-                        return {
-                            "ok": True,
-                            "grid_id": grid_id,
-                            "features": cached_features,
-                            "cache": "hit",
-                            "refresh_pending": False,
-                        }
                     self._start_fiber_cell_refresh(grid_id, west, south, east, north)
                     return {
                         "ok": True,
                         "grid_id": grid_id,
                         "features": cached_features,
-                        "cache": "stale",
+                        "cache": "hit",
                         "refresh_pending": True,
                     }
 
+            version = self._fiber_version(force=force)
             try:
                 # 광 셀 조회는 /layers 메타데이터에 의존하지 않는다.
                 raw = self.c.online_grid_objects(
@@ -3340,7 +3332,10 @@ async function loadFiberViewport(force=false){{
           setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
         }}
       }}catch(e){{}}
-      await new Promise(resolve=>setTimeout(resolve,20));
+      // 로컬 셀 캐시는 연속으로 즉시 합치고, 네트워크 조회 때만 UI에 짧게 양보한다.
+      if(typeof r!=='undefined' && r && r.cache!=='hit'){{
+        await new Promise(resolve=>setTimeout(resolve,20));
+      }}
     }}
 
     // 10km 광 전체가 완료된 이 중심점을 다음 8km 이동 판정의 고정점으로 사용한다.
