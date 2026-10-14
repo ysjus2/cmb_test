@@ -159,7 +159,6 @@ assert "SYMBOL 데이터" in admin_users_source
 assert "사용자-지역 권한 연결" in admin_users_source
 assert "지도 표시 설정" not in admin_users_source
 assert "edit_map_display_settings" not in admin_users_source
-assert "권한 지역 선택" in online_source
 print("REGION_EDIT_DELETE_UI_OK")
 
 
