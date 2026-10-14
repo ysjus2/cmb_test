@@ -28,7 +28,11 @@ final class ServerCadParser {
             record.name=!blockName.isEmpty()?blockName:properties.optString("name",record.layer);record.source="SERVER";record.sequence=i;
             record.longitude=point.getDouble(0);record.latitude=point.getDouble(1);
             if(!record.hasCoordinates())throw new Exception("서버 좌표가 잘못되었습니다.");
-            if(fields!=null)for(Iterator<String> keys=fields.keys();keys.hasNext();){String key=keys.next();record.fields.put(key,fields.optString(key,""));}
+            if(fields!=null)for(Iterator<String> keys=fields.keys();keys.hasNext();){
+                String key=keys.next(),value=fields.optString(key,"");
+                record.fields.put(key,value);
+                if("_cmb_pole_no".equals(key)&&!value.trim().isEmpty())record.fields.put("전주번호",value.trim());
+            }
             record.fields.put("CAD레이어",record.layer);
             record.fields.put("__serverSourceHandle",sourceHandle);
             record.fields.put("__serverBlock",blockName);
