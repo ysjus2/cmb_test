@@ -159,6 +159,7 @@ assert "SYMBOL 데이터" in admin_users_source
 assert "사용자-지역 권한 연결" in admin_users_source
 assert "지도 표시 설정" not in admin_users_source
 assert "edit_map_display_settings" not in admin_users_source
+assert "권한 지역 선택" in online_source
 print("REGION_EDIT_DELETE_UI_OK")
 
 
@@ -196,27 +197,26 @@ bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
 assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
-assert "function boundsContainsLatLng(bounds,latlng)" in online_source
+assert "<select id='region' title='권한 지역 선택'>" in online_source
 assert "apiCall('region_at_point'" not in online_source
 assert "def region_at_point(" not in online_source
-assert "async function autoRegionForMapCenter()" in online_source
+assert "async function autoRegionForMapCenter()" not in online_source
 activate_block = online_source.split("async function activateRegion(region){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
+assert "activeRegionId===region" in activate_block
+assert "authorizedRegions.find(x=>x.id===region)" in activate_block
+assert "activeRegionId=region;" in activate_block
 assert "await loadRegionFiber(false);" in activate_block
 assert "await loadObjects(true);" in activate_block
 assert activate_block.index("await loadRegionFiber(false);") < activate_block.index("await loadObjects(true);")
 assert "lastFiberQueryLat=null;" not in activate_block
-auto_region_block2 = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function bootstrapAuth(){{",1)[0]
-assert "authorizedRegions" in auto_region_block2
-assert "boundsContainsLatLng" in auto_region_block2
-assert "candidates.find(x=>x.id===String(sel.value||''))" in auto_region_block2
-assert "apiCall('region_at_point'" not in auto_region_block2
+assert "activeRegionId='';" in online_source
+assert "document.getElementById('region').onchange=async e=>" in online_source
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
 assert "kakao.maps.event.addListener(map,'idle',()=>{{" in init_block
 assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
-assert "if(!ok||generation!==regionResolveGeneration)return;" in init_block
-assert "if(region){{" in init_block
+assert "if(generation!==regionResolveGeneration||!map||!activeRegionId)return;" in init_block
 assert "await loadFiberViewport(false);" not in init_block
 assert "await loadObjects(false);" in init_block
 reload_block = online_source.split("document.getElementById('reload').onclick=async()=>{{",1)[1].split("document.getElementById('myLocation')",1)[0]
@@ -670,6 +670,7 @@ init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdo
 assert "loadRegionFiber(" not in init_block
 assert "loadFiberViewport(" not in init_block
 assert "await loadObjects(false);" in init_block
+assert "!activeRegionId" in init_block
 
 assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
 fetch_bbox_block = online_source.split("    def _fetch_bbox_network(self, west, south, east, north):",1)[1].split("    def _commit_bbox_cache",1)[0]
@@ -704,21 +705,18 @@ assert "self._fetch_all_region_features()" in online_source
 assert "apiCall('fiber_all'" in region_fiber_block
 print("REGION_FIBER_CACHE_SYNC_OK")
 
-# 지역 자동 전환은 로그인 사용자의 권한 지역 bounds만 메모리에서 비교한다.
+# 지역은 지도 좌표 자동판정이 아니라 로그인 사용자의 권한 목록에서 직접 선택한다.
 assert "authorizedRegions=[]" in online_source
-assert "function boundsContainsLatLng(bounds,latlng)" in online_source
-assert "async function autoRegionForMapCenter()" in online_source
-auto_region_block = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function bootstrapAuth(){{",1)[0]
-assert ".filter(x=>boundsContainsLatLng(x.bounds,center))" in auto_region_block
-assert "candidates.find(x=>x.id===String(sel.value||''))" in auto_region_block
-assert "apiCall('region_at_point'" not in auto_region_block
-assert "cached_region_probe" not in auto_region_block
-assert "polemap_probe" not in auto_region_block
-assert "'GRID '+String(viewDiag.centerGrid||'-')" not in online_source
-assert "'CELLS '+String(viewDiag.cells||0)" not in online_source
-assert "style='display:none'" in online_source
-assert "지도 위치에 따라 자동 연결" in online_source
-print("AUTHORIZED_REGION_BOUNDS_ONLY_OK")
+assert "activeRegionId='';" in online_source
+assert "<select id='region' title='권한 지역 선택'>" in online_source
+assert "style='display:none'" not in online_source.split("<select id='region'",1)[1].split("</select>",1)[0]
+assert "document.getElementById('region').onchange=async e=>" in online_source
+assert "async function autoRegionForMapCenter()" not in online_source
+assert "boundsContainsLatLng" not in online_source
+assert "apiCall('region_at_point'" not in online_source
+assert "지도 위치에 따라 자동 연결" not in online_source
+assert "지역을 선택하세요" in online_source
+print("EXPLICIT_AUTHORIZED_REGION_SELECTION_OK")
 
 # 케이블 선택 시 기기 위로 올려 강조하고 다른 선택/해제 시 원상복구한다.
 assert "function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5)" in online_source
