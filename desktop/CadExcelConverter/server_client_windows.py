@@ -457,7 +457,7 @@ class CMBServerClient:
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/online/{q}/symbols")
 
-    def online_objects(self, region, bbox, limit=5000, layers=None, groups=None):
+    def online_objects(self, region, bbox, limit=5000, layers=None, groups=None, timeout=15):
         q = urllib.parse.quote(region, safe="")
         bb = urllib.parse.quote(bbox, safe=",.-")
         path = f"/online/{q}/objects?bbox={bb}&limit={int(limit)}"
@@ -473,7 +473,7 @@ class CMBServerClient:
             layers = str(layers or "").strip()
             if layers:
                 path += "&layers=" + urllib.parse.quote(layers, safe=",")
-        return self._request("GET", path, timeout=15)
+        return self._request("GET", path, timeout=float(timeout))
 
     def online_grid_direct_objects(self, grid_id, limit=20000, groups=None, layers=None):
         g = urllib.parse.quote(str(grid_id).strip().upper(), safe="")
