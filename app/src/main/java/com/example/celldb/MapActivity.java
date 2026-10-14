@@ -703,7 +703,7 @@ public class MapActivity extends Activity {
         form.setPadding(dp(20),dp(8),dp(20),0);
 
         TextView notice=new TextView(this);
-        notice.setText("최초 비밀번호는 cmb15443434 입니다.\n암호를 변경하고 사용하세요.");
+        notice.setText("최초 비밀번호는 cmb15443434 입니다.\n암호를 변경하고 사용하세요.\n\n비밀번호 규칙\n• 10자 이상\n• 초기 비밀번호(cmb15443434)와 다르게 설정\n• 새 비밀번호와 확인 값이 서로 일치해야 함");
         notice.setPadding(0,0,0,dp(10));
         form.addView(notice);
 
