@@ -706,6 +706,15 @@ assert "def ensure_fiber_all(self, force=False):" in online_source
 assert "self._refresh_versions_if_due(force=force)" in online_source
 assert "self._fetch_all_region_features(region, generation)" in online_source
 assert "apiCall('fiber_all'" in region_fiber_block
+assert "fiber_synced_regions = set()" in online_source
+assert "def fiber_progress_status(self):" in online_source
+assert 'elif name == "fiber_progress":' in online_source
+assert "region in self.fiber_synced_regions" in online_source
+assert "self.fiber_synced_regions.add(region)" in online_source
+assert "async function pollFiberProgress(region,token)" in online_source
+assert "apiCall('fiber_progress')" in online_source
+assert "수신 '+received.toLocaleString()" in online_source
+print("FIRST_ENTRY_FULL_FIBER_SYNC_AND_PROGRESS_OK")
 print("REGION_FIBER_CACHE_SYNC_OK")
 
 # 지역은 지도 좌표 자동판정이 아니라 로그인 사용자의 권한 목록에서 직접 선택한다.
