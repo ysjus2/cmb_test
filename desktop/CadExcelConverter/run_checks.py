@@ -415,7 +415,7 @@ assert "if(isInfoPointFeature(f))return false;" in online_source
 assert "fiberDeviceMap" in online_source
 assert "drawDevice(new kakao.maps.LatLng" in online_source
 assert "if(kind==='closure')visible=(mapLevel<=3);" in online_source
-assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);" in online_source
+assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=2);" in online_source
 assert "def _is_info_entity(e):" in admin_upload_source
 assert "not _is_info_entity(e)" in admin_upload_source
 print("FIBER_DEVICE_AND_INFO_FILTER_OK")
@@ -638,7 +638,7 @@ assert "'onu','amp','amp_input_arrow'," in online_source
 assert "'tap','pi','generic','coax_main_cable','coax_tap_cable'" in online_source
 assert "if(kind==='closure')visible=(mapLevel<=3);" in online_source
 assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);" in online_source
-print("FIBER_ONLY_DEVICE_LOD_CHANGE_COAX_UNCHANGED_OK")
+print("FIBER_CLOSURE_L3_OTHER_DEVICES_L2_COAX_UNCHANGED_OK")
 print("ZOOM_RESPONSIVE_DEVICE_SCALE_OK")
 
 # 서버는 Point/LineString만 허용하므로 multipart CAD geometry는 업로드 시 개별 LineString으로 분리한다.
