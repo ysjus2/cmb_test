@@ -1633,7 +1633,7 @@ let nonFiberLoadTimer=null;
 let authorizedRegions=[];
 let regionSwitching=false;
 let fiberViewportGeneration=0;
-let lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='';
+let lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='',lastFiberGridId='';
 let authenticated=false;
 let lastServerTouch=0;
 let fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
@@ -3167,24 +3167,8 @@ async function loadFiberViewport(force=false){{
   gridDiag.progress='광 20km';
   setStatus('L'+map.getLevel()+' · '+gridDiagText());
 
-  // 광은 20km 범위를 한 번 캐시한 뒤, 중심이 10km 이상 이동할 때만
-  // 다음 20km 범위를 추가 조회한다. 작은 지도 이동은 기존 광 오버레이/캐시를 그대로 쓴다.
-  if(
-    !force &&
-    lastFiberCacheRegion===region &&
-    Number.isFinite(lastFiberCacheLat) &&
-    Number.isFinite(lastFiberCacheLng)
-  ){{
-    const moved=distanceMeters(lastFiberCacheLat,lastFiberCacheLng,cLat,cLng);
-    const hasFiberCache=
-      Number(fiberDiag.cache||0)>0 ||
-      Number(fiberDiag.renderParts||0)>0 ||
-      (Array.isArray(currentFiberPointFeatures)&&currentFiberPointFeatures.length>0);
-    if(moved<FIBER_RECENTER_METERS && hasFiberCache){{
-      applyZoomVisibility(map.getLevel());
-      return Number(fiberDiag.renderParts||0);
-    }}
-  }}
+  // 지도 이동 시 거리 기준으로 광 조회를 생략하지 않는다.
+  // 현재 중심 GRID가 바뀌었는지가 기준이며, 중심 GRID 광은 항상 최우선으로 확인한다.
 
   const generation=++fiberViewportGeneration;
 
@@ -3212,66 +3196,97 @@ async function loadFiberViewport(force=false){{
   gridDiag.progress='광';
   setStatus('L'+map.getLevel()+' · '+gridDiagText());
   if(cells.length){{
-    cells.sort((a,b)=>{{
+    const ordered=cells.slice().sort((a,b)=>{{
       const ax=(Number(a.west)+Number(a.east))/2, ay=(Number(a.south)+Number(a.north))/2;
       const bx=(Number(b.west)+Number(b.east))/2, by=(Number(b.south)+Number(b.north))/2;
       return ((ax-cLng)**2+(ay-cLat)**2)-((bx-cLng)**2+(by-cLat)**2);
     }});
 
+    // 정확히 현재 중심을 포함하는 GRID를 무조건 첫 번째로 올린다.
+    if(centerCell){{
+      const centerId=String(centerCell.grid_id||'').toUpperCase();
+      const rest=ordered.filter(x=>String(x.grid_id||'').toUpperCase()!==centerId);
+      ordered.length=0;
+      ordered.push(centerCell,...rest);
+    }}
+
     const merged=new Map();
-    let rendered=0;
-    for(let i=0;i<cells.length;i++){{
-      if(generation!==fiberViewportGeneration)return rendered;
-      if(region!==document.getElementById('region').value)return rendered;
-      const cell=cells[i];
-      gridDiag.stage='GRID API';
-      gridDiag.progress='FIBER '+String(i+1)+'/'+String(cells.length)+' · '+String(cell.grid_id||'-');
-      if(i===0 && centerCell)gridDiag.centerGrid=String(centerCell.grid_id||cell.grid_id||'-');
-      setStatus('L'+map.getLevel()+' · '+gridDiagText());
-
-      let r=null;
-      try{{
-        r=await apiCall('fiber_cell',{{
-          grid_id:String(cell.grid_id||''),
-          west:Number(cell.west),south:Number(cell.south),
-          east:Number(cell.east),north:Number(cell.north),
-          force:force && i===0
-        }});
-      }}catch(e){{
-        continue;
-      }}
-      if(generation!==fiberViewportGeneration)return rendered;
-
-      (r.features||[]).forEach(f=>{{
+    const addFeatures=(features)=>{{
+      (features||[]).forEach(f=>{{
         const p=f.properties||{{}};
         const a=p.attributes||{{}}, fields=a.fields||a;
         const part=String(fields._cmb_geometry_part_index||'');
         const k=String(p.source_handle||p.regional_object_id||p.entity_id||p.object_id||JSON.stringify(f.geometry||{{}}))+'|'+part;
         merged.set(k,f);
       }});
+    }};
 
-      if(merged.size){{
-        rendered=renderFiberFeatures([...merged.values()]);
-        fiberDiag.cache=merged.size;
-        gridDiag.stage='GRID 수신';
-        gridDiag.progress='FIBER '+String(i+1)+'/'+String(cells.length)+' · '+String(cell.grid_id||'-')+' · '+String(merged.size)+'개';
-        setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-      }}
+    // 1) 현재 GRID 광을 최우선으로 로컬 캐시/서버에서 가져와 즉시 렌더한다.
+    const primary=ordered[0];
+    const primaryGrid=String((primary&&primary.grid_id)||'-');
+    gridDiag.centerGrid=primaryGrid;
+    gridDiag.stage='현재 GRID 광';
+    gridDiag.progress=primaryGrid+' · 즉시 표시';
+    setStatus('L'+map.getLevel()+' · '+gridDiagText());
 
-      // 중앙 셀을 브라우저가 먼저 그린 뒤 주변 셀을 순차 추가한다.
-      if(i<cells.length-1)await new Promise(resolve=>setTimeout(resolve,i===0?70:20));
+    let primaryResult=null;
+    try{{
+      primaryResult=await apiCall('fiber_cell',{{
+        grid_id:primaryGrid,
+        west:Number(primary.west),south:Number(primary.south),
+        east:Number(primary.east),north:Number(primary.north),
+        force:force
+      }});
+    }}catch(e){{
+      primaryResult=null;
     }}
-    if(merged.size>0 || rendered>0){{
-      lastFiberCacheLat=cLat;
-      lastFiberCacheLng=cLng;
-      lastFiberCacheRegion=region;
-    }}else{{
-      // 빈 조회를 캐시 완료로 취급하면 이후 10km 이내 이동에서
-      // 서버 재조회가 막히므로 anchor를 남기지 않는다.
-      lastFiberCacheLat=null;
-      lastFiberCacheLng=null;
-      lastFiberCacheRegion='';
+    if(generation!==fiberViewportGeneration)return 0;
+    if(region!==document.getElementById('region').value)return 0;
+
+    addFeatures((primaryResult&&primaryResult.features)||[]);
+    let rendered=0;
+    if(merged.size){{
+      rendered=renderFiberFeatures([...merged.values()]);
+      fiberDiag.cache=merged.size;
     }}
+    lastFiberGridId=primaryGrid;
+    lastFiberCacheLat=cLat;
+    lastFiberCacheLng=cLng;
+    lastFiberCacheRegion=region;
+    gridDiag.stage='현재 GRID 광 표시';
+    gridDiag.progress=primaryGrid+' · '+String(merged.size)+'개';
+    setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+
+    // 2) 현재 GRID가 표시된 뒤 주변 광은 백그라운드로 순차 보충한다.
+    // loadFiberViewport()는 여기서 즉시 반환하므로 동축/기기 로딩이 지연되지 않는다.
+    if(ordered.length>1){{
+      (async()=>{{
+        for(let i=1;i<ordered.length;i++){{
+          if(generation!==fiberViewportGeneration)return;
+          if(region!==document.getElementById('region').value)return;
+          const cell=ordered[i];
+          try{{
+            const r=await apiCall('fiber_cell',{{
+              grid_id:String(cell.grid_id||''),
+              west:Number(cell.west),south:Number(cell.south),
+              east:Number(cell.east),north:Number(cell.north),
+              force:false
+            }});
+            if(generation!==fiberViewportGeneration)return;
+            addFeatures((r&&r.features)||[]);
+            if(merged.size){{
+              rendered=renderFiberFeatures([...merged.values()]);
+              fiberDiag.cache=merged.size;
+              gridDiag.stage='주변 GRID 광 보충';
+              gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)+' · '+String(cell.grid_id||'-');
+              setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+            }}
+          }}catch(e){{}}
+          await new Promise(resolve=>setTimeout(resolve,20));
+        }}
+      }})();
+    }}
+
     return rendered;
   }}
 
@@ -3303,6 +3318,7 @@ async function loadFiberViewport(force=false){{
   lastFiberCacheLat=null;
   lastFiberCacheLng=null;
   lastFiberCacheRegion='';
+  lastFiberGridId='';
   return 0;
 }}
 
