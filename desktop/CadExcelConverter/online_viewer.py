@@ -1101,6 +1101,7 @@ let lodReferenceSpan=null;
 let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
+let lastFiberQueryLat=null,lastFiberQueryLng=null;
 let QUERY_RADIUS_METERS=500;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
@@ -1145,6 +1146,19 @@ function viewDiagText(){{
   ];
   if(viewDiag.progress)parts.push(String(viewDiag.progress));
   return parts.join(' · ');
+}}
+
+function queryBoundsFromCenter(lat,lng){{
+  const radius=Math.max(100,Number(QUERY_RADIUS_METERS)||500);
+  const latDelta=radius/111320;
+  const lngScale=Math.max(0.2,Math.cos(Number(lat)*Math.PI/180));
+  const lngDelta=radius/(111320*lngScale);
+  return {{
+    west:Number(lng)-lngDelta,
+    south:Number(lat)-latDelta,
+    east:Number(lng)+lngDelta,
+    north:Number(lat)+latDelta
+  }};
 }}
 
 function fiberDiagText(){{
@@ -2595,36 +2609,22 @@ async function loadFiberViewport(force=false){{
 
   const center=map.getCenter();
   const cLat=Number(center.getLat()),cLng=Number(center.getLng());
+
+  if(!force && Number.isFinite(lastFiberQueryLat) && Number.isFinite(lastFiberQueryLng)){{
+    const moved=distanceMeters(lastFiberQueryLat,lastFiberQueryLng,cLat,cLng);
+    if(moved<QUERY_RECENTER_METERS)return 0;
+  }}
+
   const generation=++fiberViewportGeneration;
+  const bbox=queryBoundsFromCenter(cLat,cLng);
+  const west=bbox.west,south=bbox.south,east=bbox.east,north=bbox.north;
 
   viewDiag.region=region;
   viewDiag.centerLat=cLat;
   viewDiag.centerLng=cLng;
   viewDiag.stage='광 좌표 조회';
-  viewDiag.progress='현재 화면 bbox';
+  viewDiag.progress='관리자 반경 '+String(QUERY_RADIUS_METERS)+'m';
   setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
-
-  // 광도 위·경도 없이 현재 지도 화면의 위·경도 bbox만 사용한다.
-  let west,south,east,north;
-  try{{
-    const bounds=map.getBounds();
-    const sw=bounds.getSouthWest(), ne=bounds.getNorthEast();
-    const latSpan=Math.max(0.0005,Number(ne.getLat())-Number(sw.getLat()));
-    const lngSpan=Math.max(0.0005,Number(ne.getLng())-Number(sw.getLng()));
-    const latPad=latSpan*0.20;
-    const lngPad=lngSpan*0.20;
-    west=Number(sw.getLng())-lngPad;
-    south=Number(sw.getLat())-latPad;
-    east=Number(ne.getLng())+lngPad;
-    north=Number(ne.getLat())+latPad;
-  }}catch(e){{
-    const radius=Math.max(1000,Number(QUERY_RADIUS_METERS)||500);
-    const latDelta=radius/111320;
-    const lngScale=Math.max(0.2,Math.cos(cLat*Math.PI/180));
-    const lngDelta=radius/(111320*lngScale);
-    west=cLng-lngDelta; south=cLat-latDelta;
-    east=cLng+lngDelta; north=cLat+latDelta;
-  }}
 
   const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
   if(generation!==fiberViewportGeneration)return 0;
@@ -2635,6 +2635,8 @@ async function loadFiberViewport(force=false){{
     return 0;
   }}
 
+  lastFiberQueryLat=cLat;
+  lastFiberQueryLng=cLng;
   const features=(r.features||[]);
   let rendered=0;
   if(features.length){{
@@ -2694,25 +2696,8 @@ async function loadObjects(force=false){{
   }}
 
   const myGeneration=++loadGeneration;
-  let west,east,south,north;
-  if(map&&typeof map.getBounds==='function'){{
-    const visibleBounds=map.getBounds();
-    const sw=visibleBounds.getSouthWest(),ne=visibleBounds.getNorthEast();
-    const latPad=(ne.getLat()-sw.getLat())*0.12;
-    const lngPad=(ne.getLng()-sw.getLng())*0.12;
-    west=sw.getLng()-lngPad;
-    south=sw.getLat()-latPad;
-    east=ne.getLng()+lngPad;
-    north=ne.getLat()+latPad;
-  }}else{{
-    const latDelta=QUERY_RADIUS_METERS/111320;
-    const lngScale=Math.max(0.2,Math.cos(queryLat*Math.PI/180));
-    const lngDelta=QUERY_RADIUS_METERS/(111320*lngScale);
-    west=queryLng-lngDelta;
-    east=queryLng+lngDelta;
-    south=queryLat-latDelta;
-    north=queryLat+latDelta;
-  }}
+  const bbox=queryBoundsFromCenter(queryLat,queryLng);
+  const west=bbox.west,south=bbox.south,east=bbox.east,north=bbox.north;
 
   viewDiag.region=region;
   viewDiag.centerLat=queryLat;
@@ -3009,12 +2994,16 @@ async function activateRegion(region){{
     viewDiag.progress=(info?info.name:region)+' · 현재 화면 도면 조회';
     setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
-    // 지역 전체 광을 받지 않는다.
-    // 현재 화면 bbox의 광/동축/기기만 즉시 캐시 우선으로 읽고 서버 갱신한다.
-    await Promise.all([
-      loadFiberViewport(false),
-      loadObjects(true)
-    ]);
+    // 지역 전환 시 관리자 조회 기준(반경/이동거리)을 새 지역에서 다시 시작한다.
+    lastFiberQueryLat=null;
+    lastFiberQueryLng=null;
+    lastQueryLat=null;
+    lastQueryLng=null;
+    lastDetailMode=null;
+
+    // 광을 먼저 읽고 화면에 표시한 뒤 동축/기기를 순차 조회한다.
+    await loadFiberViewport(true);
+    await loadObjects(true);
     return true;
   }} finally {{
     regionSwitching=false;
@@ -3285,10 +3274,8 @@ function initMap(){{
           // 같은 지역에서 이동한 경우에만 현재 bbox를 갱신한다.
           const region=String(document.getElementById('region').value||'');
           if(region){{
-            await Promise.all([
-              loadFiberViewport(false),
-              loadObjects(false)
-            ]);
+            await loadFiberViewport(false);
+            await loadObjects(false);
           }}
         }},REGION_SETTLE_DELAY_MS);
       }});
