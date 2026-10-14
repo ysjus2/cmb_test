@@ -535,68 +535,6 @@ class Api:
             result.update(fallback)
         return result
 
-    def region_at_point(self, regions, lat, lng, radius_m=1200):
-        """Resolve the map center by actual lon/lat object presence, without 위·경도."""
-        lat = float(lat); lng = float(lng)
-        radius_m = max(200.0, min(3000.0, float(radius_m or 1200)))
-        lat_delta = radius_m / 111320.0
-        lng_scale = max(0.2, __import__("math").cos(lat * __import__("math").pi / 180.0))
-        lng_delta = radius_m / (111320.0 * lng_scale)
-        bbox = f"{lng-lng_delta},{lat-lat_delta},{lng+lng_delta},{lat+lat_delta}"
-
-        ranked = []
-        for region in [str(x or "").strip() for x in (regions or []) if str(x or "").strip()]:
-            try:
-                raw = self.c.online_objects(region, bbox, limit=500) or {}
-                features = [x for x in (raw.get("features") or []) if isinstance(x, dict)]
-                if not features:
-                    continue
-
-                # 현재 중심에 가까운 실제 geometry가 있는 지역을 우선한다.
-                nearest = float("inf")
-                for feature in features:
-                    bounds = self._geometry_bounds((feature or {}).get("geometry") or {})
-                    if not bounds:
-                        continue
-                    west, south, east, north = bounds
-                    cx = min(max(lng, west), east)
-                    cy = min(max(lat, south), north)
-                    dist = (cx-lng) ** 2 + (cy-lat) ** 2
-                    if dist < nearest:
-                        nearest = dist
-                ranked.append((nearest, -len(features), region, len(features)))
-            except Exception:
-                continue
-
-        if not ranked:
-            return {"ok": True, "region": "", "count": 0, "source": "bbox_objects"}
-
-        ranked.sort(key=lambda row: (row[0], row[1], row[2]))
-        nearest, _neg_count, region, count = ranked[0]
-        return {
-            "ok": True,
-            "region": region,
-            "count": count,
-            "source": "bbox_objects",
-            "distance_score": nearest,
-        }
-
-    def map_display_settings(self):
-        try:
-            settings = self.c.map_display_settings() or {}
-            radius = int(settings.get("radius_m", 500))
-            refresh = int(settings.get("refresh_distance_m", 200))
-            return {
-                "ok": True,
-                "radius_m": max(100, min(3000, radius)),
-                "refresh_distance_m": max(25, min(radius, refresh)),
-            }
-        except Exception as exc:
-            return self._handle_error(
-                exc,
-                {"radius_m": 500, "refresh_distance_m": 200},
-            )
-
     def session_policy(self):
         try:
             policy = self.c.session_policy() or {}
@@ -875,6 +813,8 @@ class Api:
             ) or {}
             features = list(raw.get("features") or [])
 
+            # 일반 화면은 전체 bbox 1회로 끝낸다.
+            # 서버 limit에 실제로 도달한 경우에만 4분할한다.
             if len(features) < limit or depth >= max_depth:
                 return features
 
@@ -891,18 +831,7 @@ class Api:
                     merged[self._feature_key(feature)] = feature
             return list(merged.values())
 
-        merged = {}
-        mx = (west + east) / 2.0
-        my = (south + north) / 2.0
-        for cell in (
-            (west, south, mx, my),
-            (mx, south, east, my),
-            (west, my, mx, north),
-            (mx, my, east, north),
-        ):
-            for feature in fetch_cell(*cell):
-                merged[self._feature_key(feature)] = feature
-        return list(merged.values())
+        return fetch_cell(west, south, east, north)
 
     def _commit_bbox_cache(self, features, west, south, east, north):
         with self.cache_lock:
@@ -1102,8 +1031,8 @@ let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let lastFiberQueryLat=null,lastFiberQueryLng=null;
-let QUERY_RADIUS_METERS=500;
-let QUERY_RECENTER_METERS=200;
+const QUERY_RADIUS_METERS=500;
+const QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
 let nonFiberLoadTimer=null;
@@ -2623,7 +2552,7 @@ async function loadFiberViewport(force=false){{
   viewDiag.centerLat=cLat;
   viewDiag.centerLng=cLng;
   viewDiag.stage='광 좌표 조회';
-  viewDiag.progress='관리자 반경 '+String(QUERY_RADIUS_METERS)+'m';
+  viewDiag.progress='조회 반경 '+String(QUERY_RADIUS_METERS)+'m';
   setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
 
   const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
@@ -2649,14 +2578,8 @@ async function loadFiberViewport(force=false){{
     String(features.length)+'개 · '+(r.cache==='stale'?'서버 갱신중':String(r.cache||'network'));
   setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
 
-  // 캐시를 먼저 보여준 경우 서버 갱신 결과를 다시 읽어 화면에 반영한다.
-  if(r.refresh_pending){{
-    setTimeout(()=>{{
-      if(region===document.getElementById('region').value){{
-        loadFiberViewport(true).catch(()=>{{}});
-      }}
-    }},900);
-  }}
+  // 캐시가 있으면 즉시 표시하고 서버 갱신은 백그라운드 1회만 수행한다.
+  // 동일 위치에서 강제 재조회하지 않아 이동 반응을 막지 않는다.
   return rendered;
 }}
 
@@ -2994,7 +2917,7 @@ async function activateRegion(region){{
     viewDiag.progress=(info?info.name:region)+' · 현재 화면 도면 조회';
     setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
-    // 지역 전환 시 관리자 조회 기준(반경/이동거리)을 새 지역에서 다시 시작한다.
+    // 지역 전환 시 Viewer 고정 조회 기준(500m/200m)을 새 지역에서 다시 시작한다.
     lastFiberQueryLat=null;
     lastFiberQueryLng=null;
     lastQueryLat=null;
@@ -3018,12 +2941,12 @@ async function autoRegionForMapCenter(){{
 
   viewDiag.centerLat=lat;
   viewDiag.centerLng=lng;
-  viewDiag.stage='좌표 지역 확인';
+  viewDiag.stage='권한 지역 확인';
   viewDiag.progress='현재 중심좌표 기준';
   setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
-  // 1) 먼저 현재 중심좌표를 실제 포함하는 지역 bounds만 후보로 좁힌다.
-  // 주변의 다른 지역 도면은 후보에 넣지 않는다.
+  // 로그인 사용자의 권한 지역 bounds만 메모리에서 비교한다.
+  // 지역 판정 때문에 서버 도면 객체를 조회하지 않는다.
   const candidates=authorizedRegions
     .filter(x=>boundsContainsLatLng(x.bounds,center))
     .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
@@ -3035,63 +2958,26 @@ async function autoRegionForMapCenter(){{
       sel.value='';
     }}
     viewDiag.region='';
-    viewDiag.stage='좌표 지역 없음';
+    viewDiag.stage='권한 지역 없음';
     viewDiag.progress='';
     setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다 · '+currentCenterText());
     return false;
   }}
 
-  // 2) 단일 후보면 서버 검색 없이 즉시 확정한다.
-  if(candidates.length===1){{
-    const matched=candidates[0];
-    viewDiag.region=matched.id;
-    viewDiag.stage='좌표 지역 확정';
-    viewDiag.progress=matched.id;
-    if(sel.value===matched.id){{
-      setStatus('L'+map.getLevel()+' · '+viewDiagText());
-      return true;
-    }}
-    return await activateRegion(matched.id);
-  }}
-
-  // 3) bounds가 겹치는 경우에만 해당 후보들만 실제 객체 좌표로 판정한다.
-  let resolved=null;
-  try{{
-    resolved=await apiCall('region_at_point',{{
-      regions:candidates.map(x=>x.id),
-      lat:lat,
-      lng:lng,
-      radius_m:500
-    }});
-  }}catch(e){{resolved=null;}}
-
-  let matched=null;
-  if(resolved&&resolved.region){{
-    matched=candidates.find(x=>x.id===String(resolved.region))||null;
-  }}
-  // 겹친 위치에 객체가 없으면 더 작은 지역 bounds를 우선한다.
+  // bounds가 겹쳐도 현재 선택 지역이 계속 포함되면 그대로 유지한다.
+  // 불필요한 지역 전환과 추가 서버 조회를 모두 막는다.
+  let matched=candidates.find(x=>x.id===String(sel.value||''))||null;
   if(!matched)matched=candidates[0];
 
   viewDiag.region=matched.id;
-  viewDiag.stage='중복 bounds 지역 확정';
-  viewDiag.progress=matched.id+' · 후보 '+String(candidates.length);
+  viewDiag.stage=candidates.length>1?'권한 중복지역 유지/선택':'권한 지역 확정';
+  viewDiag.progress=matched.id+(candidates.length>1?' · 후보 '+String(candidates.length):'');
+
   if(sel.value===matched.id){{
     setStatus('L'+map.getLevel()+' · '+viewDiagText());
     return true;
   }}
   return await activateRegion(matched.id);
-}}
-
-async function loadMapDisplaySettings(){{
-  try{{
-    const r=await apiCall('map_display_settings');
-    if(r&&r.ok!==false){{
-      const radius=Number(r.radius_m||500);
-      const refresh=Number(r.refresh_distance_m||200);
-      QUERY_RADIUS_METERS=Math.max(100,Math.min(3000,radius));
-      QUERY_RECENTER_METERS=Math.max(25,Math.min(QUERY_RADIUS_METERS,refresh));
-    }}
-  }}catch(e){{}}
 }}
 
 async function bootstrapAuth(){{
@@ -3118,15 +3004,12 @@ function bindUi(){{
   document.getElementById('reload').onclick=async()=>{{
     const ok=await autoRegionForMapCenter();
     if(!ok)return;
-    const region=String(document.getElementById('region').value||'');
-    try{{
-      const fiber=await apiCall('fiber_all',{{force:true}});
-      if(region===document.getElementById('region').value && fiber && !fiber.error){{
-        const items=fiber.features||[];
-        renderFiberFeatures(items);
-        fiberDiag.cache=items.length;
-      }}
-    }}catch(e){{}}
+    lastFiberQueryLat=null;
+    lastFiberQueryLng=null;
+    lastQueryLat=null;
+    lastQueryLng=null;
+    lastDetailMode=null;
+    await loadFiberViewport(true);
     await loadObjects(true);
   }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
@@ -3304,8 +3187,7 @@ function initMap(){{
       }});
       centerMyLocation(false);
       setTimeout(async()=>{{
-        const ok=await autoRegionForMapCenter();
-        if(ok)loadObjects(true);
+        await autoRegionForMapCenter();
       }},250);
     }});
   }}catch(err){{
@@ -3331,7 +3213,6 @@ let authBootstrapped=false;
 async function runBootstrapOnce(){{
   if(authBootstrapped)return;
   authBootstrapped=true;
-  await loadMapDisplaySettings();
   const ok=await bootstrapAuth();
   if(!ok)return;
 
