@@ -2513,7 +2513,7 @@ function applyZoomVisibility(mapLevel){{
       // 광 선로 자체(kind 없음)는 기존처럼 계속 표시한다.
       if(visible && kind){{
         if(kind==='closure')visible=(mapLevel<=3);
-        else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);
+        else if(isDeviceOverlayKind(kind))visible=(mapLevel<=2);
         else visible=(mapLevel<=3);
       }}
     }}else if(group==='COAX' && kind==='cell_boundary'){{
