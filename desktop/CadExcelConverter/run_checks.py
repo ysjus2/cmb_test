@@ -200,6 +200,11 @@ assert "loadGeneration++" not in clear_group_block
 assert "let nonFiberLoadTimer=null;" in online_source
 assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
 assert "function bestRegionForMapCenter(center)" in online_source
+assert "function gridDiagText()" in online_source
+assert "function centerCellFromList(cells,lat,lng)" in online_source
+assert "'GRID '+String(gridDiag.centerGrid||'-')" in online_source
+assert "'STAGE '+String(gridDiag.stage||'대기')" in online_source
+assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(cells.length)" in online_source
 assert "regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds)" in online_source
 assert "' · REGION '+String(document.getElementById('region').value||'-')" in online_source
 assert "' · CELLS '+String(r.polemap_cells||0)" in online_source
