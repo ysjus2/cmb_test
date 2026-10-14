@@ -750,6 +750,11 @@ assert 'return self._request("GET", path, timeout=float(timeout))' in client_sou
 assert 'groups="FIBER",' in online_source
 assert "timeout=120" in online_source
 assert "timeout=60" in online_source
+assert 'if not fiber_version:' in online_source
+assert 'fiber_version = f"count:{region}:{int(expected_count)}"' in online_source
+assert '"광 전체수집 중단 · 서버 FIBER object_count 확인 실패"' in online_source
+assert 'return {"ok": True, "features": [], "cache": "empty", "version": ""}' not in online_source
+print("NO_FALSE_EMPTY_FIBER_SYNC_OK")
 print("FIBER_EXTENDED_TIMEOUT_OK")
 print("GROUP_FILTERED_FIBER_SYNC_OK")
 print("NEARBY_OBJECT_STALL_GUARD_OK")
