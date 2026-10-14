@@ -4119,33 +4119,19 @@ function bindUi(){{
 
 function scheduleFiberRecenter(force=false){{
   if(!map)return;
-  const c=map.getCenter();
-  const lat=Number(c.getLat()),lng=Number(c.getLng());
 
-  // 최초 실행 또는 기존 10km 기준점에서 8km 이상 이동했을 때만
-  // 1초 동안 추가 이동이 없는지 확인한 뒤 새 기준점을 만든다.
-  let needsFiberReload=force;
-  if(!Number.isFinite(lastFiberCacheLat)||!Number.isFinite(lastFiberCacheLng)){{
-    needsFiberReload=true;
-  }}else{{
-    const moved=distanceMeters(lastFiberCacheLat,lastFiberCacheLng,lat,lng);
-    needsFiberReload=needsFiberReload || moved>=FIBER_RECENTER_METERS;
-    if(!needsFiberReload){{
-      gridDiag.stage='기존 10km 광 유지';
-      gridDiag.progress='기준점 이동 '+Math.round(moved)+'m / 8000m';
-      setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-      // 5km 미만 이동은 광 재다운로드 없이 현재 화면의 동축/기기만 갱신한다.
-      queueNonFiberLoad(false,0);
-      return;
-    }}
-  }}
-
+  // 현재 위치와 GRID/캐시는 매 이동 정지마다 다시 연결한다.
+  // 거리 임계값으로 새 GRID 탐색을 생략하지 않는다.
   if(fiberRecenterTimer){{
     clearTimeout(fiberRecenterTimer);
     fiberRecenterTimer=null;
   }}
-  gridDiag.stage='광 기준점 대기';
-  gridDiag.progress='8km 이동 · 1초 후 10km 갱신';
+
+  const c=map.getCenter();
+  gridDiag.centerLat=Number(c.getLat());
+  gridDiag.centerLng=Number(c.getLng());
+  gridDiag.stage='현재 GRID 대기';
+  gridDiag.progress='이동 정지 후 위치→GRID→캐시 재연결';
   setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
 
   fiberRecenterTimer=setTimeout(async()=>{{
@@ -4153,17 +4139,17 @@ function scheduleFiberRecenter(force=false){{
     if(!map)return;
 
     const fixed=map.getCenter();
-    const fixedLat=Number(fixed.getLat()),fixedLng=Number(fixed.getLng());
-    gridDiag.centerLat=fixedLat;
-    gridDiag.centerLng=fixedLng;
-    gridDiag.stage='광 기준점 확정';
-    gridDiag.progress='10km 광 시작';
+    gridDiag.centerLat=Number(fixed.getLat());
+    gridDiag.centerLng=Number(fixed.getLng());
+    gridDiag.stage='현재 GRID 확인';
+    gridDiag.progress='중심좌표로 지역/GRID 재판정';
     setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
 
     const ok=await autoRegionForMapCenter();
     if(!ok)return;
 
-    // 현재 GRID 광 -> 10km 전체 광 -> 동축/기기 순서.
+    // 현재 위치→정확한 GRID→해당 GRID 캐시 즉시 표시.
+    // 캐시가 없으면 같은 GRID를 서버에서 받아 저장/표시한다.
     await loadFiberViewport(force);
     queueNonFiberLoad(force,0);
   }},FIBER_RECENTER_DELAY_MS);
@@ -4216,7 +4202,7 @@ function initMap(){{
         gridDiag.centerLat=Number(c.getLat());
         gridDiag.centerLng=Number(c.getLng());
         gridDiag.stage='지도 이동';
-        gridDiag.progress='5km 기준 확인';
+        gridDiag.progress='현재 GRID 재확인';
         setStatus('L'+map.getLevel()+' · '+gridDiagText());
         scheduleFiberRecenter(false);
       }});
