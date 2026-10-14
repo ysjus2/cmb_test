@@ -972,7 +972,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
   <div class='card' id='tools'>
     <div id='toolButtons'>
       <b>CMB 온라인 Viewer</b>
-      <select id='region' style='display:none' aria-hidden='true'><option value=''></option></select>
+      <select id='region' title='권한 지역 선택'><option value=''>지역 선택</option></select>
       <button class='layerBtn on' data-group='FIBER'>광</button>
       <button class='layerBtn on' data-group='COAX'>동축</button>
       <button class='layerBtn' data-group='CONDUIT'>관로</button>
@@ -1037,6 +1037,7 @@ let lastActivity=Date.now();
 let idleTimer=null;
 let nonFiberLoadTimer=null;
 let authorizedRegions=[];
+let activeRegionId='';
 let regionSwitching=false;
 let regionResolveTimer=null;
 let regionResolveGeneration=0;
@@ -2903,7 +2904,7 @@ async function loadRegions(){{
     name:String(x.name||x.id),
     bounds:x.bounds||null
   }}));
-  sel.innerHTML='<option value=""></option>';
+  sel.innerHTML='<option value="">지역 선택</option>';
   authorizedRegions.forEach(x=>{{
     const o=document.createElement('option');
     o.value=x.id;
@@ -2914,49 +2915,38 @@ async function loadRegions(){{
     setStatus('권한 지역 0개 · 관리자 지역 권한 설정을 확인하세요 · 등급 '+String(r.level||'?'));
     return;
   }}
-  setStatus('권한 지역 '+authorizedRegions.length+'개 · 지도 위치에 따라 자동 연결');
-}}
-
-function boundsContainsLatLng(bounds,latlng){{
-  if(!bounds||!latlng)return false;
-  const west=Number(bounds.west),south=Number(bounds.south);
-  const east=Number(bounds.east),north=Number(bounds.north);
-  if(![west,south,east,north].every(Number.isFinite))return false;
-  const lat=Number(latlng.getLat()),lng=Number(latlng.getLng());
-  return lat>=Math.min(south,north)&&lat<=Math.max(south,north)&&
-         lng>=Math.min(west,east)&&lng<=Math.max(west,east);
-}}
-
-function regionBoundsArea(bounds){{
-  if(!bounds)return Number.POSITIVE_INFINITY;
-  const west=Number(bounds.west),south=Number(bounds.south);
-  const east=Number(bounds.east),north=Number(bounds.north);
-  if(![west,south,east,north].every(Number.isFinite))return Number.POSITIVE_INFINITY;
-  return Math.abs((east-west)*(north-south));
+  setStatus('권한 지역 '+authorizedRegions.length+'개 · 지역을 선택하세요');
 }}
 
 async function activateRegion(region){{
   region=String(region||'');
   const sel=document.getElementById('region');
   if(!region||regionSwitching)return false;
-  if(sel.value===region)return true;
+  if(activeRegionId===region)return true;
 
   regionSwitching=true;
   try{{
     clearOverlays();
     document.getElementById('detail').style.display='none';
-    sel.value=region;
     const info=authorizedRegions.find(x=>x.id===region);
-    const r=await apiCall('select',{{region:region}});
-    if(!r.ok){{
-      sel.value='';
-      setStatus(r.error||'지역 자동 연결 실패');
+    if(!info){{
+      sel.value=activeRegionId||'';
+      setStatus('권한이 없는 지역입니다');
       return false;
     }}
 
+    const r=await apiCall('select',{{region:region}});
+    if(!r.ok){{
+      sel.value=activeRegionId||'';
+      setStatus(r.error||'지역 연결 실패');
+      return false;
+    }}
+
+    activeRegionId=region;
+    sel.value=region;
     viewDiag.region=region;
-    viewDiag.stage='지역 연결';
-    viewDiag.progress=(info?info.name:region)+' · 현재 화면 도면 조회';
+    viewDiag.stage='지역 선택';
+    viewDiag.progress=(info?info.name:region);
     setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
     // 지역 전환 시 동축 조회 기준(500m/200m)을 새 지역에서 다시 시작한다.
@@ -2964,61 +2954,14 @@ async function activateRegion(region){{
     lastQueryLng=null;
     lastDetailMode=null;
 
-    // 광은 거리 제한 없이 지역 전체 캐시를 즉시 표시하고 서버와 1회 동기화한다.
-    // 광 동기화가 끝난 뒤에만 현재 위치의 동축/기기를 500m 범위로 조회한다.
+    // 선택 지역의 광 전체 캐시를 즉시 표시하고 서버와 1회 동기화한다.
+    // 완료 후 현재 위치의 동축/기기만 500m 범위로 조회한다.
     await loadRegionFiber(false);
     await loadObjects(true);
     return true;
   }} finally {{
     regionSwitching=false;
   }}
-}}
-
-async function autoRegionForMapCenter(){{
-  if(!map||!authorizedRegions.length||regionSwitching)return false;
-  const center=map.getCenter();
-  const lat=Number(center.getLat()),lng=Number(center.getLng());
-  const sel=document.getElementById('region');
-
-  viewDiag.centerLat=lat;
-  viewDiag.centerLng=lng;
-  viewDiag.stage='권한 지역 확인';
-  viewDiag.progress='현재 중심좌표 기준';
-  setStatus('L'+map.getLevel()+' · '+viewDiagText());
-
-  // 로그인 사용자의 권한 지역 bounds만 메모리에서 비교한다.
-  // 지역 판정 때문에 서버 도면 객체를 조회하지 않는다.
-  const candidates=authorizedRegions
-    .filter(x=>boundsContainsLatLng(x.bounds,center))
-    .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
-
-  if(candidates.length===0){{
-    if(sel.value){{
-      clearOverlays();
-      await apiCall('select',{{region:''}});
-      sel.value='';
-    }}
-    viewDiag.region='';
-    viewDiag.stage='권한 지역 없음';
-    viewDiag.progress='';
-    setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다 · '+currentCenterText());
-    return false;
-  }}
-
-  // bounds가 겹쳐도 현재 선택 지역이 계속 포함되면 그대로 유지한다.
-  // 불필요한 지역 전환과 추가 서버 조회를 모두 막는다.
-  let matched=candidates.find(x=>x.id===String(sel.value||''))||null;
-  if(!matched)matched=candidates[0];
-
-  viewDiag.region=matched.id;
-  viewDiag.stage=candidates.length>1?'권한 중복지역 유지/선택':'권한 지역 확정';
-  viewDiag.progress=matched.id+(candidates.length>1?' · 후보 '+String(candidates.length):'');
-
-  if(sel.value===matched.id){{
-    setStatus('L'+map.getLevel()+' · '+viewDiagText());
-    return true;
-  }}
-  return await activateRegion(matched.id);
 }}
 
 async function bootstrapAuth(){{
@@ -3043,8 +2986,10 @@ async function bootstrapAuth(){{
 
 function bindUi(){{
   document.getElementById('reload').onclick=async()=>{{
-    const ok=await autoRegionForMapCenter();
-    if(!ok)return;
+    if(!activeRegionId){{
+      setStatus('먼저 지역을 선택하세요');
+      return;
+    }}
     lastQueryLat=null;
     lastQueryLng=null;
     lastDetailMode=null;
@@ -3134,7 +3079,14 @@ function bindUi(){{
     }};
   }});
 
-  document.getElementById('region').onchange=()=>{{}};
+  document.getElementById('region').onchange=async e=>{{
+    const region=String((e.target&&e.target.value)||'');
+    if(!region){{
+      e.target.value=activeRegionId||'';
+      return;
+    }}
+    await activateRegion(region);
+  }};
 
 }}
 
@@ -3175,22 +3127,14 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>{{
-        // 이동 중간 위치에서 지역/도면을 호출하지 않는다.
-        // 마지막 idle 후 잠깐 안정된 중심좌표만 사용한다.
+        // 지역은 사용자가 권한 목록에서 직접 선택한다.
+        // 지도 이동 중에는 조회하지 않고 마지막 idle 후 선택 지역의 동축/기기만 갱신한다.
         const generation=++regionResolveGeneration;
         if(regionResolveTimer)clearTimeout(regionResolveTimer);
         regionResolveTimer=setTimeout(async()=>{{
           regionResolveTimer=null;
-          if(generation!==regionResolveGeneration||!map)return;
-          const ok=await autoRegionForMapCenter();
-          if(!ok||generation!==regionResolveGeneration)return;
-
-          // activateRegion()이 새 지역 전환 시 이미 현재 bbox를 읽는다.
-          // 같은 지역에서 이동한 경우에만 현재 bbox를 갱신한다.
-          const region=String(document.getElementById('region').value||'');
-          if(region){{
-            await loadObjects(false);
-          }}
+          if(generation!==regionResolveGeneration||!map||!activeRegionId)return;
+          await loadObjects(false);
         }},REGION_SETTLE_DELAY_MS);
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
@@ -3217,9 +3161,6 @@ function initMap(){{
         );
       }});
       centerMyLocation(false);
-      setTimeout(async()=>{{
-        await autoRegionForMapCenter();
-      }},250);
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
@@ -3247,9 +3188,8 @@ async function runBootstrapOnce(){{
   const ok=await bootstrapAuth();
   if(!ok)return;
 
-  // 권한 지역 목록이 준비된 뒤 지도를 만든다.
-  // 이전에는 initMap()이 먼저 실행되어 첫 idle 이벤트 때 authorizedRegions가 비어
-  // 전주메타/grid 조회가 시작되지 않을 수 있었다.
+  // 권한 지역 목록을 먼저 준비한 뒤 지도를 만든다.
+  // 사용자는 이 목록에서 지역을 직접 선택한다.
   initMap();
 }}
 runBootstrapOnce();
