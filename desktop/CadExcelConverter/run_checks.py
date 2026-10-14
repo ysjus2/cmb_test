@@ -215,7 +215,7 @@ assert "function gridDiagText()" in online_source
 assert "function centerCellFromList(cells,lat,lng)" in online_source
 assert "'GRID '+String(gridDiag.centerGrid||'-')" in online_source
 assert "'STAGE '+String(gridDiag.stage||'대기')" in online_source
-assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(cells.length)" in online_source
+assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)" in online_source
 assert "regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds)" in online_source
 assert "'REGION '+region" in online_source
 assert "'CELLS '+String(gridDiag.cells||0)" in online_source
