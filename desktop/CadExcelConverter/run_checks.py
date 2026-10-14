@@ -236,6 +236,14 @@ assert "queueNonFiberLoad(false,0);" in online_source
 assert "const primary=ordered[0];" in online_source
 assert "if(moved<FIBER_RECENTER_METERS && hasFiberCache)" not in online_source
 assert "const FIBER_RECENTER_METERS=5000;" in online_source
+assert "const FIBER_RECENTER_DELAY_MS=1000;" in online_source
+assert "function scheduleFiberRecenter(force=false)" in online_source
+assert "moved>=FIBER_RECENTER_METERS" in online_source
+assert "fiberRecenterTimer=setTimeout(async()=>{" in online_source
+assert "gridDiag.stage='광 기준점 대기';" in online_source
+assert "gridDiag.stage='광 기준점 확정';" in online_source
+assert "10km 광 전체가 완료된 이 중심점을 다음 5km 이동 판정의 고정점으로 사용한다." in online_source
+assert "scheduleFiberRecenter(false);" in online_source
 assert "lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='';" in online_source
 assert "layers=None" in online_source
 assert "광 셀 조회는 /layers 메타데이터에 의존하지 않는다." in online_source
