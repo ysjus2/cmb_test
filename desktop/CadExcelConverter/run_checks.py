@@ -633,6 +633,11 @@ zoom_start = online_source.index("kakao.maps.event.addListener(map,'zoom_changed
 zoom_end = online_source.index("centerMyLocation(false);", zoom_start)
 zoom_block = online_source[zoom_start:zoom_end]
 assert "apiCall('objects'" not in zoom_block
+assert "if(kind==='closure')return mapLevel<=3;" in online_source
+assert "if(isDeviceOverlayKind(kind))return mapLevel<=1;" in online_source
+assert "if(kind==='closure')visible=(mapLevel<=3);" in online_source
+assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);" in online_source
+print("DEVICE_LOD_CLOSURE_L3_OTHERS_L1_OK")
 print("ZOOM_RESPONSIVE_DEVICE_SCALE_OK")
 
 # 서버는 Point/LineString만 허용하므로 multipart CAD geometry는 업로드 시 개별 LineString으로 분리한다.
