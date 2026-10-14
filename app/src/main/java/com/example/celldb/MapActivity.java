@@ -802,8 +802,42 @@ public class MapActivity extends Activity {
                         map.center(here,true);
                         if(!cacheState.records.isEmpty())status.setText("로컬 캐시 즉시 표시 · 서버 Revision 확인 완료");
                     }
+                    syncFullFiberRegion(client,dataset,box,generation);
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
+        });
+    }
+
+    private void syncFullFiberRegion(ServerApiClient client,String region,org.json.JSONObject box,int generation){
+        if(client==null||box==null)return;
+        double west=box.optDouble("west",Double.NaN),south=box.optDouble("south",Double.NaN);
+        double east=box.optDouble("east",Double.NaN),north=box.optDouble("north",Double.NaN);
+        if(!Double.isFinite(west)||!Double.isFinite(south)||!Double.isFinite(east)||!Double.isFinite(north)||west>=east||south>=north)return;
+        final MapViewport fullRegion=new MapViewport(west,south,east,north);
+        status.setText("광 전체 캐시 동기화 중…");
+        serverTask=serverWorker.submit(()->{
+            try{
+                ArrayList<CadRecord> rows=client.onlineObjectsByGroups(region,fullRegion,"FIBER");
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration||client!=server||!region.equals(serverDataset))return;
+                    ServerMapCache.replaceGroup(cacheState,rows,"FIBER");
+                    mapCache.save(region,cacheState);
+                    MapViewport visible=mapReady?map.viewport():null;
+                    if(visible!=null){
+                        MapPoint center=new MapPoint((visible.south+visible.north)/2.0,(visible.west+visible.east)/2.0);
+                        showCachedAround(center);
+                    }else if(currentLocation!=null){
+                        showCachedAround(new MapPoint(currentLocation));
+                    }
+                    markServerOnline();
+                    status.setText("광 전체 캐시 동기화 완료 · "+rows.size()+"개 레코드");
+                });
+            }catch(Exception error){
+                runOnUiThread(()->{
+                    if(destroyed||generation!=serverGeneration||client!=server)return;
+                    status.setText("광 전체 동기화 실패 · 기존 광 캐시 유지 · "+serverMessage(error));
+                });
+            }
         });
     }
 
@@ -811,7 +845,9 @@ public class MapActivity extends Activity {
         ArrayList<String> selected=new ArrayList<>();
         for(int i=0;i<serverLayers.length();i++){
             org.json.JSONObject info=serverLayers.optJSONObject(i);if(info==null)continue;
-            CadRecord r=new CadRecord();r.layer=info.optString("layer");r.category=info.optString("group_id").equals("POLE")?"FACILITY":info.optString("group_id");
+            String metadataGroup=info.optString("group_id","").trim().toUpperCase(Locale.ROOT);
+            if("FIBER".equals(metadataGroup))continue; // 광은 지역 전체 캐시에서 표시
+            CadRecord r=new CadRecord();r.layer=info.optString("layer");r.category=metadataGroup.equals("POLE")?"FACILITY":metadataGroup;
             String assigned=group(r);
             for(int j=0;j<categories.length;j++)if(categories[j].equals(assigned)&&layers[j]&&DrawingLevel.groupVisible(drawingLevel,assigned))selected.add(r.layer);
         }
@@ -921,13 +957,23 @@ public class MapActivity extends Activity {
         final int viewportRadius=radiusForViewport(visible);
         regionStatus.setText(serverRegion+" · "+DrawingLevel.label(drawingLevel));
 
-        String filter=serverLayerFilter();
-        if(filter.isEmpty())return;
-
         MapPoint center=new MapPoint(
                 (visible.south+visible.north)/2.0,
                 (visible.west+visible.east)/2.0
         );
+
+        String filter=serverLayerFilter();
+        if(filter.isEmpty()){
+            boolean movedFiberOnly=lastQueryCenter==null
+                    || lastQueryCenter.distanceToAsDouble(center)>=Math.max(25,refreshDistanceMeters);
+            if(movedFiberOnly||!drawingLevel.equals(lastQueryLevel)){
+                lastQueryCenter=center;
+                lastQueryFilter="";
+                lastQueryLevel=drawingLevel;
+                showCachedAround(center);
+            }
+            return;
+        }
 
         boolean moved=lastQueryCenter==null
                 || lastQueryCenter.distanceToAsDouble(center)>=Math.max(25,Math.min(refreshDistanceMeters,viewportRadius/4));
