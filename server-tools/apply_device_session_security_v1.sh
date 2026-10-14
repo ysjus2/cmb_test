@@ -4,7 +4,7 @@ SERVICE_NAME="${CMB_SERVICE_NAME:-cmb-cad-api}"
 [[ "${EUID}" -eq 0 ]] || { echo "ERROR: sudo bash $0 로 실행해주세요."; exit 1; }
 if ! systemctl cat "${SERVICE_NAME}" >/dev/null 2>&1; then SERVICE_NAME="cmb-server"; fi
 WORK_DIR="$(systemctl show -p WorkingDirectory --value "${SERVICE_NAME}")"
-[[ -n "${WORK_DIR}" && "${WORK_DIR}" != "[not set]" ]] || WORK_DIR="/home/ysjus/cmb-server"
+[[ -n "${WORK_DIR}" && "${WORK_DIR}" != "[not set]" ]] || WORK_DIR="/srv/CMB_Network/app"
 APP_DIR="${CMB_APP_DIR:-${WORK_DIR}}"
 PYTHON_BIN="${APP_DIR}/.venv/bin/python"; [[ -x "${PYTHON_BIN}" ]] || PYTHON_BIN="${APP_DIR}/venv/bin/python"; [[ -x "${PYTHON_BIN}" ]] || PYTHON_BIN="$(command -v python3)"
 EXEC_START="$(systemctl show -p ExecStart --value "${SERVICE_NAME}")"
@@ -141,8 +141,24 @@ def install(app):
         async def reset_device(user_id:int,request:Request):
             _admin(request)
             with _connect() as conn:
-                cur=conn.cursor(); cur.execute("DELETE FROM user_devices WHERE user_id=%s",(user_id,)); deleted=cur.rowcount; conn.commit()
-            return {"ok":True,"deleted":deleted}
+                cur=conn.cursor()
+                cur.execute("SELECT id FROM app_users WHERE id=%s",(user_id,))
+                if cur.fetchone() is None:
+                    raise HTTPException(404,"사용자를 찾을 수 없습니다.")
+                cur.execute("DELETE FROM user_devices WHERE user_id=%s",(user_id,))
+                deleted_devices=cur.rowcount
+                cur.execute("UPDATE auth_sessions SET revoked=TRUE WHERE user_id=%s AND revoked=FALSE",(user_id,))
+                revoked_sessions=cur.rowcount
+                cur.execute("DELETE FROM user_security_activity WHERE user_id=%s",(user_id,))
+                cleared_activity=cur.rowcount
+                conn.commit()
+            return {
+                "ok":True,
+                "deleted_devices":deleted_devices,
+                "revoked_sessions":revoked_sessions,
+                "cleared_activity":cleared_activity,
+                "relogin_required":True,
+            }
 
     if not _has(app,"/admin/users/{user_id}/level","POST"):
         @app.post("/admin/users/{user_id}/level")
