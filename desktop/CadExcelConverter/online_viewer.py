@@ -49,6 +49,7 @@ class Api:
         self.fiber_bbox_refreshing = set()
         self.fiber_cell_refreshing = set()
         self.object_cell_refreshing = set()
+        self.polemap_refreshing = set()
 
         # CMBServerClient()는 먼저 CMB_AUTH_STATE_PATH의 공용 세션 파일에서
         # 최신 access/refresh token을 읽는다. 장시간 업로드 중 refresh token이
@@ -725,15 +726,18 @@ class Api:
         except Exception:
             pass
 
-    def _polemap_cache_path(self):
+    def _polemap_cache_path_for(self, region):
         safe = "".join(
             ch if ch.isalnum() or ch in "._-" else "_"
-            for ch in str(self.region or "")
+            for ch in str(region or "")
         )
         return CACHE_DIR / "polemap" / f"{safe}.json.gz"
 
-    def _read_polemap_cache(self):
-        path = self._polemap_cache_path()
+    def _polemap_cache_path(self):
+        return self._polemap_cache_path_for(self.region)
+
+    def _read_polemap_cache_for(self, region):
+        path = self._polemap_cache_path_for(region)
         if not path.exists():
             return []
         try:
@@ -745,6 +749,9 @@ class Api:
             ]
         except Exception:
             return []
+
+    def _read_polemap_cache(self):
+        return self._read_polemap_cache_for(self.region)
 
     def _write_polemap_cache(self, cells):
         if not self.region or not cells:
@@ -788,11 +795,85 @@ class Api:
                 continue
         return out
 
+    def cached_region_probe(self, regions, lat, lng):
+        lat = float(lat); lng = float(lng)
+        region_ids = [
+            str(x or "").strip()
+            for x in (regions or [])
+            if str(x or "").strip()
+        ]
+        for region in region_ids:
+            cells = self._read_polemap_cache_for(region)
+            for cell in cells:
+                try:
+                    west = float(cell.get("west")); south = float(cell.get("south"))
+                    east = float(cell.get("east")); north = float(cell.get("north"))
+                except Exception:
+                    continue
+                if (
+                    lng >= min(west, east) and lng <= max(west, east)
+                    and lat >= min(south, north) and lat <= max(south, north)
+                ):
+                    return {
+                        "ok": True,
+                        "region": region,
+                        "grid_id": str(cell.get("grid_id") or "").strip().upper(),
+                        "cell": cell,
+                        "source": "cache",
+                    }
+        return {"ok": True, "region": "", "grid_id": "", "cell": None, "source": "cache"}
+
+    def _start_polemap_refresh(self, west, south, east, north):
+        key = (
+            str(self.region or ""),
+            round(float(west), 5), round(float(south), 5),
+            round(float(east), 5), round(float(north), 5),
+        )
+        with self.cache_lock:
+            if key in self.polemap_refreshing:
+                return False
+            self.polemap_refreshing.add(key)
+
+        region = str(self.region or "")
+
+        def worker():
+            try:
+                if not region or region != self.region:
+                    return
+                result = self.c.online_polemap(
+                    region,
+                    float(west), float(south), float(east), float(north),
+                ) or {}
+                cells = [x for x in (result.get("cells") or []) if isinstance(x, dict)]
+                if cells and region == self.region:
+                    self._write_polemap_cache(cells)
+            except Exception:
+                pass
+            finally:
+                with self.cache_lock:
+                    self.polemap_refreshing.discard(key)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
     def polemap(self, west, south, east, north):
         if not self.region:
             return {"ok": True, "cells": [], "cell_count": 0}
         west = float(west); south = float(south); east = float(east); north = float(north)
         cached = self._cached_polemap_cells(west, south, east, north)
+
+        # 현재 화면은 서버보다 로컬 Polemap 캐시를 먼저 사용한다.
+        # 캐시가 있으면 즉시 반환하고 서버 갱신은 백그라운드에서 수행한다.
+        if cached:
+            self._start_polemap_refresh(west, south, east, north)
+            return {
+                "ok": True,
+                "cells": cached,
+                "cell_count": len(cached),
+                "cache": "hit",
+                "refresh_pending": True,
+            }
+
         try:
             result = self.c.online_polemap(
                 self.region,
@@ -806,26 +887,10 @@ class Api:
                 self._write_polemap_cache(cells)
             return result
         except ServerError as exc:
-            if cached:
-                return {
-                    "ok": True,
-                    "cells": cached,
-                    "cell_count": len(cached),
-                    "cache": "stale",
-                    "warning": str(exc),
-                }
             if exc.status == 404:
                 return {"ok": True, "cells": [], "cell_count": 0, "legacy": True}
             return self._handle_error(exc, {"cells": [], "cell_count": 0})
         except Exception as exc:
-            if cached:
-                return {
-                    "ok": True,
-                    "cells": cached,
-                    "cell_count": len(cached),
-                    "cache": "stale",
-                    "warning": str(exc),
-                }
             return {"ok": False, "error": str(exc), "cells": [], "cell_count": 0}
 
     def polemap_probe(self, region, lat, lng, radius_m=2000):
@@ -3618,6 +3683,33 @@ function bestRegionForMapCenter(center){{
   return candidates.length?candidates[0]:null;
 }}
 
+async function cachedRegionForMapCenter(center){{
+  const lat=Number(center.getLat()),lng=Number(center.getLng());
+  gridDiag.stage='로컬 GRID 확인';
+  gridDiag.progress='캐시 우선';
+  setStatus('L'+map.getLevel()+' · '+gridDiagText());
+  try{{
+    const r=await apiCall('cached_region_probe',{{
+      regions:authorizedRegions.map(x=>x.id),
+      lat:lat,
+      lng:lng
+    }});
+    if(r&&r.region&&r.grid_id){{
+      const matched=authorizedRegions.find(x=>x.id===String(r.region));
+      if(matched){{
+        gridDiag.region=matched.id;
+        gridDiag.centerGrid=String(r.grid_id||'-');
+        gridDiag.cells=1;
+        gridDiag.stage='로컬 GRID 적중';
+        gridDiag.progress=matched.id+' · '+String(r.grid_id||'-');
+        setStatus('L'+map.getLevel()+' · '+gridDiagText());
+        return matched;
+      }}
+    }}
+  }}catch(e){{}}
+  return null;
+}}
+
 async function probeRegionForMapCenter(center){{
   const lat=Number(center.getLat()),lng=Number(center.getLng());
   const primary=authorizedRegions
@@ -3673,9 +3765,14 @@ async function autoRegionForMapCenter(){{
     return true;
   }}
 
-  let matched=await probeRegionForMapCenter(center);
+  let matched=await cachedRegionForMapCenter(center);
 
-  // 서버 Polemap 확인 자체가 불가능한 경우에만 기존 bounds 판정을 최후 폴백으로 사용한다.
+  // 로컬 캐시에 현재 중심 GRID가 없을 때만 서버 Polemap을 확인한다.
+  if(!matched){{
+    matched=await probeRegionForMapCenter(center);
+  }}
+
+  // 서버 Polemap 확인도 불가능한 경우에만 bounds 판정을 최후 폴백으로 사용한다.
   if(!matched){{
     matched=bestRegionForMapCenter(center);
   }}
@@ -4027,6 +4124,12 @@ def run_online_viewer():
                         data.get("south"),
                         data.get("east"),
                         data.get("north"),
+                    )
+                elif name == "cached_region_probe":
+                    result = api.cached_region_probe(
+                        data.get("regions") or [],
+                        data.get("lat"),
+                        data.get("lng"),
                     )
                 elif name == "polemap_probe":
                     result = api.polemap_probe(
