@@ -47,9 +47,6 @@ class Api:
         self.cache_lock = threading.RLock()
         self.bbox_refreshing = set()
         self.fiber_bbox_refreshing = set()
-        self.fiber_cell_refreshing = set()
-        self.object_cell_refreshing = set()
-        self.polemap_refreshing = set()
 
         # CMBServerClient()는 먼저 CMB_AUTH_STATE_PATH의 공용 세션 파일에서
         # 최신 access/refresh token을 읽는다. 장시간 업로드 중 refresh token이
@@ -539,7 +536,7 @@ class Api:
         return result
 
     def region_at_point(self, regions, lat, lng, radius_m=1200):
-        """Resolve the map center by actual lon/lat object presence, without GRID/Polemap."""
+        """Resolve the map center by actual lon/lat object presence, without 위·경도."""
         lat = float(lat); lng = float(lng)
         radius_m = max(200.0, min(3000.0, float(radius_m or 1200)))
         lat_delta = radius_m / 111320.0
@@ -729,461 +726,6 @@ class Api:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    def _fiber_cell_dir(self):
-        safe = "".join(
-            ch if ch.isalnum() or ch in "._-" else "_"
-            for ch in str(self.region or "")
-        )
-        return CACHE_DIR / "fiber_cells" / safe
-
-    def _fiber_cell_path(self, grid_id):
-        safe = "".join(
-            ch if ch.isalnum() or ch in "._-" else "_"
-            for ch in str(grid_id or "")
-        )
-        return self._fiber_cell_dir() / f"{safe}.json.gz"
-
-    def _read_fiber_cell_cache(self, grid_id):
-        path = self._fiber_cell_path(grid_id)
-        if not path.exists():
-            return None
-        try:
-            with gzip.open(path, "rt", encoding="utf-8") as fh:
-                raw = json.load(fh)
-            return {
-                "version": str(raw.get("version") or ""),
-                "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
-            }
-        except Exception:
-            return None
-
-    def _write_fiber_cell_cache(self, grid_id, version, features):
-        try:
-            path = self._fiber_cell_path(grid_id)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
-                json.dump(
-                    {
-                        "schema": 1,
-                        "grid_id": str(grid_id or ""),
-                        "version": str(version or ""),
-                        "features": list(features or []),
-                    },
-                    fh,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-            os.replace(tmp, path)
-        except Exception:
-            pass
-
-    def _polemap_cache_path_for(self, region):
-        safe = "".join(
-            ch if ch.isalnum() or ch in "._-" else "_"
-            for ch in str(region or "")
-        )
-        return CACHE_DIR / "polemap" / f"{safe}.json.gz"
-
-    def _polemap_cache_path(self):
-        return self._polemap_cache_path_for(self.region)
-
-    def _read_polemap_cache_for(self, region):
-        path = self._polemap_cache_path_for(region)
-        if not path.exists():
-            return []
-        try:
-            with gzip.open(path, "rt", encoding="utf-8") as fh:
-                raw = json.load(fh)
-            return [
-                x for x in (raw.get("cells") or [])
-                if isinstance(x, dict) and str(x.get("grid_id") or "").strip()
-            ]
-        except Exception:
-            return []
-
-    def _read_polemap_cache(self):
-        return self._read_polemap_cache_for(self.region)
-
-    def _write_polemap_cache(self, cells):
-        if not self.region or not cells:
-            return
-        try:
-            existing = {
-                str(x.get("grid_id") or "").strip().upper(): x
-                for x in self._read_polemap_cache()
-                if str(x.get("grid_id") or "").strip()
-            }
-            for cell in cells:
-                grid_id = str((cell or {}).get("grid_id") or "").strip().upper()
-                if grid_id:
-                    existing[grid_id] = dict(cell)
-            path = self._polemap_cache_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
-                json.dump(
-                    {"schema": 1, "cells": list(existing.values())},
-                    fh,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-            os.replace(tmp, path)
-        except Exception:
-            pass
-
-    def _cached_polemap_cells(self, west, south, east, north):
-        out = []
-        for cell in self._read_polemap_cache():
-            try:
-                if (
-                    float(cell.get("east")) >= float(west)
-                    and float(cell.get("west")) <= float(east)
-                    and float(cell.get("north")) >= float(south)
-                    and float(cell.get("south")) <= float(north)
-                ):
-                    out.append(cell)
-            except Exception:
-                continue
-        return out
-
-    def cached_region_probe(self, regions, lat, lng):
-        lat = float(lat); lng = float(lng)
-        region_ids = [
-            str(x or "").strip()
-            for x in (regions or [])
-            if str(x or "").strip()
-        ]
-        matches = []
-        for region in region_ids:
-            cells = self._read_polemap_cache_for(region)
-            for cell in cells:
-                try:
-                    west = float(cell.get("west")); south = float(cell.get("south"))
-                    east = float(cell.get("east")); north = float(cell.get("north"))
-                except Exception:
-                    continue
-                if (
-                    lng >= min(west, east) and lng <= max(west, east)
-                    and lat >= min(south, north) and lat <= max(south, north)
-                ):
-                    matches.append({
-                        "region": region,
-                        "grid_id": str(cell.get("grid_id") or "").strip().upper(),
-                        "cell": cell,
-                    })
-                    break
-
-        # 로컬 캐시는 한 지역만 정확히 포함할 때만 지역 판정에 사용한다.
-        # 둘 이상이면 과거/중복 Polemap 캐시 가능성이 있으므로 서버 GRID 판정으로 넘긴다.
-        if len(matches) == 1:
-            match = matches[0]
-            return {
-                "ok": True,
-                "region": match["region"],
-                "grid_id": match["grid_id"],
-                "cell": match["cell"],
-                "matches": matches,
-                "ambiguous": False,
-                "source": "cache",
-            }
-        return {
-            "ok": True,
-            "region": "",
-            "grid_id": "",
-            "cell": None,
-            "matches": matches,
-            "ambiguous": len(matches) > 1,
-            "source": "cache",
-        }
-
-    def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):
-        """Read every local fiber cache source first. Never contacts the server."""
-        if not self.region:
-            return {"ok": True, "features": [], "cells": [], "cache": "none"}
-
-        west = float(west); south = float(south); east = float(east); north = float(north)
-        cells = self._cached_polemap_cells(west, south, east, north)
-
-        # GRID 셀 캐시가 아직 없는 지역도 기존 지역 전체 fiber 캐시를 즉시 표시해야 한다.
-        # 최근 셀 캐시 전환 과정에서 이 경로가 빠져 있으면 캐시 파일이 있어도 화면이 완전히 빈다.
-        merged = {}
-        monolithic_count = 0
-        self._load_fiber_cache()
-        for feature in self._fiber_features():
-            if self._feature_intersects(feature, west, south, east, north):
-                merged[self._feature_key(feature)] = feature
-                monolithic_count += 1
-
-        try:
-            cx = float(center_lng)
-            cy = float(center_lat)
-        except Exception:
-            cx = (west + east) / 2.0
-            cy = (south + north) / 2.0
-
-        def contains(cell):
-            try:
-                cw = float(cell.get("west")); cs = float(cell.get("south"))
-                ce = float(cell.get("east")); cn = float(cell.get("north"))
-                return (
-                    cx >= min(cw, ce) and cx <= max(cw, ce)
-                    and cy >= min(cs, cn) and cy <= max(cs, cn)
-                )
-            except Exception:
-                return False
-
-        cells.sort(key=lambda c: (
-            0 if contains(c) else 1,
-            (
-                ((float(c.get("west")) + float(c.get("east"))) / 2.0 - cx) ** 2
-                + ((float(c.get("south")) + float(c.get("north"))) / 2.0 - cy) ** 2
-            ),
-        ))
-
-        used_cells = []
-        for cell in cells:
-            grid_id = str(cell.get("grid_id") or "").strip()
-            if not grid_id:
-                continue
-            cached = self._read_fiber_cell_cache(grid_id)
-            if not cached or not cached.get("features"):
-                continue
-            used_cells.append(grid_id)
-            for feature in cached.get("features") or []:
-                if self._feature_intersects(feature, west, south, east, north):
-                    merged[self._feature_key(feature)] = feature
-
-        return {
-            "ok": True,
-            "features": list(merged.values()),
-            "cells": cells,
-            "used_cells": used_cells,
-            "monolithic_count": monolithic_count,
-            "cell_feature_count": max(0, len(merged) - monolithic_count),
-            "cache": "hit" if merged else "miss",
-        }
-
-    def _start_polemap_refresh(self, west, south, east, north):
-        key = (
-            str(self.region or ""),
-            round(float(west), 5), round(float(south), 5),
-            round(float(east), 5), round(float(north), 5),
-        )
-        with self.cache_lock:
-            if key in self.polemap_refreshing:
-                return False
-            self.polemap_refreshing.add(key)
-
-        region = str(self.region or "")
-
-        def worker():
-            try:
-                if not region or region != self.region:
-                    return
-                result = self.c.online_polemap(
-                    region,
-                    float(west), float(south), float(east), float(north),
-                ) or {}
-                cells = [x for x in (result.get("cells") or []) if isinstance(x, dict)]
-                if cells and region == self.region:
-                    self._write_polemap_cache(cells)
-            except Exception:
-                pass
-            finally:
-                with self.cache_lock:
-                    self.polemap_refreshing.discard(key)
-
-        threading.Thread(target=worker, daemon=True).start()
-        return True
-
-    def polemap(self, west, south, east, north):
-        if not self.region:
-            return {"ok": True, "cells": [], "cell_count": 0}
-        west = float(west); south = float(south); east = float(east); north = float(north)
-        cached = self._cached_polemap_cells(west, south, east, north)
-
-        # 현재 화면은 서버보다 로컬 Polemap 캐시를 먼저 사용한다.
-        # 캐시가 있으면 즉시 반환하고 서버 갱신은 백그라운드에서 수행한다.
-        if cached:
-            self._start_polemap_refresh(west, south, east, north)
-            return {
-                "ok": True,
-                "cells": cached,
-                "cell_count": len(cached),
-                "cache": "hit",
-                "refresh_pending": True,
-            }
-
-        try:
-            result = self.c.online_polemap(
-                self.region,
-                west,
-                south,
-                east,
-                north,
-            ) or {}
-            cells = [x for x in (result.get("cells") or []) if isinstance(x, dict)]
-            if cells:
-                self._write_polemap_cache(cells)
-            return result
-        except ServerError as exc:
-            if exc.status == 404:
-                return {"ok": True, "cells": [], "cell_count": 0, "legacy": True}
-            return self._handle_error(exc, {"cells": [], "cell_count": 0})
-        except Exception as exc:
-            return {"ok": False, "error": str(exc), "cells": [], "cell_count": 0}
-
-    def polemap_probe(self, region, lat, lng, radius_m=2000):
-        region = str(region or "").strip()
-        if not region:
-            return {"ok": True, "region": "", "cells": [], "cell_count": 0}
-        lat = float(lat); lng = float(lng)
-        radius_m = max(250.0, min(5000.0, float(radius_m or 2000)))
-        lat_delta = radius_m / 111320.0
-        lng_scale = max(0.2, __import__("math").cos(lat * __import__("math").pi / 180.0))
-        lng_delta = radius_m / (111320.0 * lng_scale)
-        try:
-            result = self.c.online_polemap(
-                region,
-                lng - lng_delta,
-                lat - lat_delta,
-                lng + lng_delta,
-                lat + lat_delta,
-            ) or {}
-            cells = [x for x in (result.get("cells") or []) if isinstance(x, dict)]
-            return {
-                "ok": True,
-                "region": region,
-                "cells": cells,
-                "cell_count": len(cells),
-            }
-        except Exception as exc:
-            return {
-                "ok": False,
-                "region": region,
-                "cells": [],
-                "cell_count": 0,
-                "error": str(exc),
-            }
-
-    def _fiber_version(self, force=False):
-        self._refresh_versions_if_due(force=force)
-        return str((self.cache_state.get("versions") or {}).get("FIBER") or "")
-
-    def _start_fiber_cell_refresh(self, grid_id, west, south, east, north):
-        key = (str(self.region or ""), str(grid_id or ""))
-        with self.cache_lock:
-            if key in self.fiber_cell_refreshing:
-                return False
-            self.fiber_cell_refreshing.add(key)
-
-        region = str(self.region or "")
-
-        def worker():
-            try:
-                if region != self.region:
-                    return
-                version = self._fiber_version()
-                try:
-                    # Grid API는 셀 단위라 충분히 작다. 광 레이어 메타데이터가
-                    # 비거나 변경돼도 조회가 0건이 되지 않도록 서버에서는 셀 전체를 받고
-                    # 아래에서 group_id=FIBER만 필터링한다.
-                    raw = self.c.online_grid_objects(
-                        self.region,
-                        grid_id,
-                        limit=20000,
-                        layers=None,
-                    ) or {}
-                    features = [
-                        feature for feature in (raw.get("features") or [])
-                        if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
-                    ]
-                except ServerError as exc:
-                    if exc.status != 404:
-                        raise
-                    features = self._fetch_fiber_bbox_network(
-                        float(west), float(south), float(east), float(north)
-                    )
-                if region != self.region:
-                    return
-                self._write_fiber_cell_cache(grid_id, version, features)
-            except Exception:
-                pass
-            finally:
-                with self.cache_lock:
-                    self.fiber_cell_refreshing.discard(key)
-
-        threading.Thread(target=worker, daemon=True).start()
-        return True
-
-    def fiber_cell(self, grid_id, west, south, east, north, force=False):
-        if not self.region:
-            return {"ok": True, "features": [], "cache": "none", "refresh_pending": False}
-        grid_id = str(grid_id or "").strip()
-        if not grid_id:
-            return {"ok": False, "error": "Polemap grid_id 없음", "features": []}
-        try:
-            west = float(west); south = float(south); east = float(east); north = float(north)
-            cached = self._read_fiber_cell_cache(grid_id)
-
-            if cached and cached.get("features") and not force:
-                cached_features = [
-                    feature for feature in (cached.get("features") or [])
-                    if self._feature_intersects(feature, west, south, east, north)
-                ]
-                # 화면이 멈추면 로컬 GRID 캐시를 서버/버전 확인보다 먼저 즉시 반환한다.
-                # 버전 확인과 새 데이터 갱신은 백그라운드에서 수행한다.
-                # 이렇게 해야 중심 GRID와 주변 GRID의 광선/광기기가 네트워크 지연 없이 바로 보인다.
-                if cached_features:
-                    self._start_fiber_cell_refresh(grid_id, west, south, east, north)
-                    return {
-                        "ok": True,
-                        "grid_id": grid_id,
-                        "features": cached_features,
-                        "cache": "hit",
-                        "refresh_pending": True,
-                    }
-
-            version = self._fiber_version(force=force)
-            try:
-                # 광 셀 조회는 /layers 메타데이터에 의존하지 않는다.
-                raw = self.c.online_grid_objects(
-                    self.region,
-                    grid_id,
-                    limit=20000,
-                    layers=None,
-                ) or {}
-                fresh = [
-                    feature for feature in (raw.get("features") or [])
-                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
-                ]
-            except ServerError as exc:
-                if exc.status != 404:
-                    raise
-                fresh = self._fetch_fiber_bbox_network(west, south, east, north)
-            self._write_fiber_cell_cache(grid_id, version, fresh)
-            return {
-                "ok": True,
-                "grid_id": grid_id,
-                "features": fresh,
-                "cache": "network",
-                "refresh_pending": False,
-            }
-        except Exception as exc:
-            cached = self._read_fiber_cell_cache(grid_id)
-            if cached and cached.get("features"):
-                return {
-                    "ok": True,
-                    "grid_id": grid_id,
-                    "features": cached.get("features") or [],
-                    "cache": "stale",
-                    "refresh_pending": False,
-                    "warning": str(exc),
-                }
-            return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
-
-
     def _fiber_layers(self):
         try:
             meta = self.c.online_layers(self.region) or {}
@@ -1320,138 +862,6 @@ class Api:
         except Exception as exc:
             return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
 
-
-    def _object_cell_dir(self):
-        safe = "".join(
-            ch if ch.isalnum() or ch in "._-" else "_"
-            for ch in str(self.region or "")
-        )
-        return CACHE_DIR / "object_cells" / safe
-
-    def _object_cell_path(self, grid_id):
-        safe = "".join(
-            ch if ch.isalnum() or ch in "._-" else "_"
-            for ch in str(grid_id or "")
-        )
-        return self._object_cell_dir() / f"{safe}.json.gz"
-
-    def _read_object_cell_cache(self, grid_id):
-        path = self._object_cell_path(grid_id)
-        if not path.exists():
-            return None
-        try:
-            with gzip.open(path, "rt", encoding="utf-8") as fh:
-                raw = json.load(fh)
-            return {
-                "version": str(raw.get("version") or ""),
-                "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
-            }
-        except Exception:
-            return None
-
-    def _write_object_cell_cache(self, grid_id, version, features):
-        try:
-            path = self._object_cell_path(grid_id)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
-                json.dump(
-                    {
-                        "schema": 1,
-                        "grid_id": str(grid_id or ""),
-                        "version": str(version or ""),
-                        "features": list(features or []),
-                    },
-                    fh,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-            os.replace(tmp, path)
-        except Exception:
-            pass
-
-    def _cell_object_features(self, cell, version_signature):
-        grid_id = str(cell.get("grid_id") or "")
-        west = float(cell.get("west"))
-        south = float(cell.get("south"))
-        east = float(cell.get("east"))
-        north = float(cell.get("north"))
-
-        cached = self._read_object_cell_cache(grid_id)
-        if cached and cached.get("features") and (
-            not version_signature or cached.get("version") == version_signature
-        ):
-            cached_features = [
-                feature for feature in (cached.get("features") or [])
-                if self._feature_intersects(feature, west, south, east, north)
-            ]
-            if cached_features:
-                return cached_features, "hit"
-
-        try:
-            raw = self.c.online_grid_objects(
-                self.region,
-                grid_id,
-                limit=20000,
-            ) or {}
-            features = [
-                feature for feature in (raw.get("features") or [])
-                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
-            ]
-            self._write_object_cell_cache(grid_id, version_signature, features)
-            return features, "network"
-        except ServerError as exc:
-            # 서버 실패 시 버전이 오래됐더라도 기존 셀 캐시는 절대 버리지 않는다.
-            if cached and cached.get("features"):
-                stale = [
-                    feature for feature in (cached.get("features") or [])
-                    if self._feature_intersects(feature, west, south, east, north)
-                ]
-                if stale:
-                    return stale, "stale"
-            if exc.status == 404:
-                features = [
-                    feature for feature in self._fetch_bbox_network(west, south, east, north)
-                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
-                ]
-                self._write_object_cell_cache(grid_id, version_signature, features)
-                return features, "network"
-            raise
-        except Exception:
-            if cached and cached.get("features"):
-                stale = [
-                    feature for feature in (cached.get("features") or [])
-                    if self._feature_intersects(feature, west, south, east, north)
-                ]
-                if stale:
-                    return stale, "stale"
-            raise
-
-    def _start_object_cell_refresh(self, cell, version_signature):
-        grid_id = str(cell.get("grid_id") or "").strip().upper()
-        if not grid_id:
-            return False
-        key = (str(self.region or ""), grid_id, str(version_signature or ""))
-        with self.cache_lock:
-            if key in self.object_cell_refreshing:
-                return False
-            self.object_cell_refreshing.add(key)
-
-        region = str(self.region or "")
-
-        def worker():
-            try:
-                if region != self.region:
-                    return
-                self._cell_object_features(cell, version_signature)
-            except Exception:
-                pass
-            finally:
-                with self.cache_lock:
-                    self.object_cell_refreshing.discard(key)
-
-        threading.Thread(target=worker, daemon=True).start()
-        return True
 
     def _fetch_bbox_network(self, west, south, east, north):
         limit = 2000
@@ -1692,7 +1102,6 @@ let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
-const FIBER_QUERY_RADIUS_METERS=10000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
@@ -1700,7 +1109,6 @@ let nonFiberLoadTimer=null;
 let authorizedRegions=[];
 let regionSwitching=false;
 let fiberViewportGeneration=0;
-let lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='',lastFiberGridId='';
 let authenticated=false;
 let lastServerTouch=0;
 let fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
@@ -1714,54 +1122,26 @@ let currentPointFeatures=[];
 let currentFiberPointFeatures=[];
 let currentLineFeatures=[];
 let currentDevices=[];
-let gridDiag={{region:'',centerLat:null,centerLng:null,centerGrid:'-',cells:0,stage:'대기',progress:''}};
+let viewDiag={{region:'',centerLat:null,centerLng:null,stage:'대기',progress:''}};
 let lastRegionResolveLat=null,lastRegionResolveLng=null,lastRegionResolveId='';
 
 function currentCenterText(){{
   if(!map)return 'CENTER -';
   const c=map.getCenter();
   const lat=Number(c.getLat()),lng=Number(c.getLng());
-  gridDiag.centerLat=lat; gridDiag.centerLng=lng;
+  viewDiag.centerLat=lat; viewDiag.centerLng=lng;
   return 'CENTER '+lat.toFixed(5)+','+lng.toFixed(5);
 }}
 
-function gridDiagText(){{
-  const region=String((document.getElementById('region')||{{value:''}}).value||gridDiag.region||'-');
+function viewDiagText(){{
+  const region=String((document.getElementById('region')||{{value:''}}).value||viewDiag.region||'-');
   const parts=[
     'REGION '+region,
     currentCenterText(),
-    'STAGE '+String(gridDiag.stage||'대기')
+    'STAGE '+String(viewDiag.stage||'대기')
   ];
-  if(gridDiag.progress)parts.push(String(gridDiag.progress));
+  if(viewDiag.progress)parts.push(String(viewDiag.progress));
   return parts.join(' · ');
-}}
-
-function containingCellFromList(cells,lat,lng){{
-  const list=Array.isArray(cells)?cells:[];
-  for(const cell of list){{
-    const west=Number(cell.west),south=Number(cell.south),east=Number(cell.east),north=Number(cell.north);
-    if([west,south,east,north].every(Number.isFinite) &&
-       lng>=Math.min(west,east)&&lng<=Math.max(west,east)&&
-       lat>=Math.min(south,north)&&lat<=Math.max(south,north)){{
-      return cell;
-    }}
-  }}
-  return null;
-}}
-
-function centerCellFromList(cells,lat,lng){{
-  const list=Array.isArray(cells)?cells:[];
-  const containing=containingCellFromList(list,lat,lng);
-  if(containing)return containing;
-  let best=null,bestDist=Number.POSITIVE_INFINITY;
-  for(const cell of list){{
-    const cx=(Number(cell.west)+Number(cell.east))/2;
-    const cy=(Number(cell.south)+Number(cell.north))/2;
-    if(!Number.isFinite(cx)||!Number.isFinite(cy))continue;
-    const d=(cx-lng)*(cx-lng)+(cy-lat)*(cy-lat);
-    if(d<bestDist){{bestDist=d;best=cell;}}
-  }}
-  return best;
 }}
 
 function fiberDiagText(){{
@@ -1957,7 +1337,7 @@ function showDetail(p){{
   const pole=f._cmb_pole_info||{{}};
   const polePos=f._cmb_pole_position||{{}};
   if(polePos.pole_no)add('전주번호',polePos.pole_no);
-  if(polePos.grid_id)add('Polemap 격자',polePos.grid_id);
+  if(polePos.grid_id)add('전주 격자정보(상세)',polePos.grid_id);
   Object.keys(f).sort().forEach(k=>{{
     if(!k.startsWith('_cmb_')) add(k,f[k]);
   }});
@@ -3214,14 +2594,14 @@ async function loadFiberViewport(force=false){{
   const cLat=Number(center.getLat()),cLng=Number(center.getLng());
   const generation=++fiberViewportGeneration;
 
-  gridDiag.region=region;
-  gridDiag.centerLat=cLat;
-  gridDiag.centerLng=cLng;
-  gridDiag.stage='광 좌표 조회';
-  gridDiag.progress='현재 화면 bbox';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+  viewDiag.region=region;
+  viewDiag.centerLat=cLat;
+  viewDiag.centerLng=cLng;
+  viewDiag.stage='광 좌표 조회';
+  viewDiag.progress='현재 화면 bbox';
+  setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
 
-  // 광도 GRID/Polemap 없이 현재 지도 화면의 위·경도 bbox만 사용한다.
+  // 광도 위·경도 없이 현재 지도 화면의 위·경도 bbox만 사용한다.
   let west,south,east,north;
   try{{
     const bounds=map.getBounds();
@@ -3259,10 +2639,10 @@ async function loadFiberViewport(force=false){{
     fiberDiag.cache=features.length;
   }}
 
-  gridDiag.stage=r.refresh_pending?'광 캐시 표시':'광 좌표 완료';
-  gridDiag.progress=
+  viewDiag.stage=r.refresh_pending?'광 캐시 표시':'광 좌표 완료';
+  viewDiag.progress=
     String(features.length)+'개 · '+(r.cache==='stale'?'서버 갱신중':String(r.cache||'network'));
-  setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+  setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
 
   // 캐시를 먼저 보여준 경우 서버 갱신 결과를 다시 읽어 화면에 반영한다.
   if(r.refresh_pending){{
@@ -3331,12 +2711,12 @@ async function loadObjects(force=false){{
     north=queryLat+latDelta;
   }}
 
-  gridDiag.region=region;
-  gridDiag.centerLat=queryLat;
-  gridDiag.centerLng=queryLng;
-  gridDiag.stage='OBJECT 조회';
-  gridDiag.progress='COAX/CONDUIT/POLE';
-  setStatus('L'+mapLevelNow+' · '+gridDiagText());
+  viewDiag.region=region;
+  viewDiag.centerLat=queryLat;
+  viewDiag.centerLng=queryLng;
+  viewDiag.stage='OBJECT 조회';
+  viewDiag.progress='COAX/CONDUIT/POLE';
+  setStatus('L'+mapLevelNow+' · '+viewDiagText());
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
@@ -3535,12 +2915,11 @@ async function loadObjects(force=false){{
     return g+' 선:'+s.line+'/점:'+s.point;
   }}).join(' · ');
 
-  gridDiag.cells=Number(r.polemap_cells||gridDiag.cells||0);
-  gridDiag.stage=r.refresh_pending?'OBJECT 캐시+갱신':'OBJECT 완료';
-  gridDiag.progress='PENDING '+String(r.pending_cells||0);
+  viewDiag.stage=r.refresh_pending?'OBJECT 캐시+갱신':'OBJECT 완료';
+  viewDiag.progress='PENDING '+String(r.pending_cells||0);
   setStatus(
     'L'+map.getLevel()+
-    ' · '+gridDiagText()+
+    ' · '+viewDiagText()+
     ' · '+(r.cache==='stale'?'기존 캐시 즉시 표시 · 서버 갱신중':'캐시/서버 반영')+
     ' · 서버 '+allFeatures.length+'개 ['+rawText+']'+
     ' · '+cableDiag+
@@ -3665,11 +3044,11 @@ async function autoRegionForMapCenter(){{
   const lat=Number(center.getLat()),lng=Number(center.getLng());
   const sel=document.getElementById('region');
 
-  gridDiag.centerLat=lat;
-  gridDiag.centerLng=lng;
-  gridDiag.stage='좌표 지역 확인';
-  gridDiag.progress='현재 위치 주변 도면 검색';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText());
+  viewDiag.centerLat=lat;
+  viewDiag.centerLng=lng;
+  viewDiag.stage='좌표 지역 확인';
+  viewDiag.progress='현재 위치 주변 도면 검색';
+  setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
   // 1순위: 현재 위·경도 주변에 실제 도면 객체가 존재하는 지역을 찾는다.
   // region bounds가 서로 겹쳐도 실제 geometry 좌표 기준으로 선택한다.
@@ -3686,11 +3065,11 @@ async function autoRegionForMapCenter(){{
   if(resolved&&resolved.region){{
     const matched=authorizedRegions.find(x=>x.id===String(resolved.region));
     if(matched){{
-      gridDiag.region=matched.id;
-      gridDiag.stage='좌표 지역 확정';
-      gridDiag.progress=matched.id+' · 주변 객체 '+String(resolved.count||0);
+      viewDiag.region=matched.id;
+      viewDiag.stage='좌표 지역 확정';
+      viewDiag.progress=matched.id+' · 주변 객체 '+String(resolved.count||0);
       if(sel.value===matched.id){{
-        setStatus('L'+map.getLevel()+' · '+gridDiagText());
+        setStatus('L'+map.getLevel()+' · '+viewDiagText());
         return true;
       }}
       return await activateRegion(matched.id);
@@ -3708,15 +3087,15 @@ async function autoRegionForMapCenter(){{
       await apiCall('select',{{region:''}});
       sel.value='';
     }}
-    gridDiag.region='';
-    gridDiag.stage='좌표 지역 없음';
-    gridDiag.progress='';
+    viewDiag.region='';
+    viewDiag.stage='좌표 지역 없음';
+    viewDiag.progress='';
     setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다 · '+currentCenterText());
     return false;
   }}
-  gridDiag.region=matched.id;
-  gridDiag.stage='지역 bounds 폴백';
-  gridDiag.progress=matched.id;
+  viewDiag.region=matched.id;
+  viewDiag.stage='지역 bounds 폴백';
+  viewDiag.progress=matched.id;
   if(sel.value===matched.id)return true;
   return await activateRegion(matched.id);
 }}
@@ -3964,7 +3343,7 @@ async function runBootstrapOnce(){{
 
   // 권한 지역 목록이 준비된 뒤 지도를 만든다.
   // 이전에는 initMap()이 먼저 실행되어 첫 idle 이벤트 때 authorizedRegions가 비어
-  // Polemap/grid 조회가 시작되지 않을 수 있었다.
+  // 전주메타/grid 조회가 시작되지 않을 수 있었다.
   initMap();
 }}
 runBootstrapOnce();
@@ -4034,44 +3413,6 @@ def run_online_viewer():
                     result = api.select(data.get("region"))
                 elif name == "fiber_cached":
                     result = api.cached_fiber()
-                elif name == "fiber_cached_viewport":
-                    result = api.fiber_cached_viewport(
-                        data.get("west"),
-                        data.get("south"),
-                        data.get("east"),
-                        data.get("north"),
-                        data.get("center_lat"),
-                        data.get("center_lng"),
-                    )
-                elif name == "polemap":
-                    result = api.polemap(
-                        data.get("west"),
-                        data.get("south"),
-                        data.get("east"),
-                        data.get("north"),
-                    )
-                elif name == "cached_region_probe":
-                    result = api.cached_region_probe(
-                        data.get("regions") or [],
-                        data.get("lat"),
-                        data.get("lng"),
-                    )
-                elif name == "polemap_probe":
-                    result = api.polemap_probe(
-                        data.get("region"),
-                        data.get("lat"),
-                        data.get("lng"),
-                        data.get("radius_m", 2000),
-                    )
-                elif name == "fiber_cell":
-                    result = api.fiber_cell(
-                        data.get("grid_id"),
-                        data.get("west"),
-                        data.get("south"),
-                        data.get("east"),
-                        data.get("north"),
-                        force=bool(data.get("force")),
-                    )
                 elif name == "fiber_bbox":
                     result = api.fiber_bbox(
                         data.get("west"),
