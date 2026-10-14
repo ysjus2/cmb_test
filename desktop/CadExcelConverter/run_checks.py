@@ -637,7 +637,7 @@ assert "apiCall('objects'" not in zoom_block
 assert "'onu','amp','amp_input_arrow'," in online_source
 assert "'tap','pi','generic','coax_main_cable','coax_tap_cable'" in online_source
 assert "if(kind==='closure')visible=(mapLevel<=3);" in online_source
-assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);" in online_source
+assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=2);" in online_source
 print("FIBER_CLOSURE_L3_OTHER_DEVICES_L2_COAX_UNCHANGED_OK")
 print("ZOOM_RESPONSIVE_DEVICE_SCALE_OK")
 
