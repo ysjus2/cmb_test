@@ -1503,18 +1503,34 @@ function showDetail(p){{
   const d=document.getElementById('detail');
   const rows=[];
   const add=(k,v)=>{{if(v!==null&&v!==undefined&&String(v).trim()!=='') rows.push([k,String(v)])}};
+  const a=p.attributes||{{}};
+  const f=a.fields||a;
+
+  // 전주는 서버 최소저장 정책에 맞춰 전주번호만 표시한다.
+  if(String(p.group_id||'').toUpperCase()==='POLE'){{
+    const polePos=f._cmb_pole_position||{{}};
+    const refs=f._cmb_pole_refs||[];
+    let poleNo=String(f._cmb_pole_no||polePos.pole_no||'').trim();
+    if(!poleNo&&Array.isArray(refs)){{
+      const ref=refs.find(x=>x&&x.pole_no);
+      if(ref)poleNo=String(ref.pole_no||'').trim();
+    }}
+    add('전주번호',poleNo);
+    if(!rows.length){{d.style.display='none';return}}
+    d.innerHTML=rows.map(x=>'<div class="row"><div class="key">'+esc(x[0])+'</div><div>'+esc(x[1])+'</div></div>').join('');
+    d.style.display='block';
+    return;
+  }}
+
   add('그룹',p.group_id);
   add('레이어',p.layer);
   add('객체종류',p.entity_type);
   add('블록',p.block_name);
   add('객체 ID',p.regional_object_id||p.entity_id);
-  const a=p.attributes||{{}};
-  const f=a.fields||a;
   const dxf=f._cmb_dxf_data||{{}};
   const pole=f._cmb_pole_info||{{}};
   const polePos=f._cmb_pole_position||{{}};
   if(polePos.pole_no)add('전주번호',polePos.pole_no);
-  if(polePos.grid_id)add('전주 격자정보(상세)',polePos.grid_id);
   Object.keys(f).sort().forEach(k=>{{
     if(!k.startsWith('_cmb_')) add(k,f[k]);
   }});
