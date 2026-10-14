@@ -828,6 +828,39 @@ class Api:
                 }
             return {"ok": False, "error": str(exc), "cells": [], "cell_count": 0}
 
+    def polemap_probe(self, region, lat, lng, radius_m=2000):
+        region = str(region or "").strip()
+        if not region:
+            return {"ok": True, "region": "", "cells": [], "cell_count": 0}
+        lat = float(lat); lng = float(lng)
+        radius_m = max(250.0, min(5000.0, float(radius_m or 2000)))
+        lat_delta = radius_m / 111320.0
+        lng_scale = max(0.2, __import__("math").cos(lat * __import__("math").pi / 180.0))
+        lng_delta = radius_m / (111320.0 * lng_scale)
+        try:
+            result = self.c.online_polemap(
+                region,
+                lng - lng_delta,
+                lat - lat_delta,
+                lng + lng_delta,
+                lat + lat_delta,
+            ) or {}
+            cells = [x for x in (result.get("cells") or []) if isinstance(x, dict)]
+            return {
+                "ok": True,
+                "region": region,
+                "cells": cells,
+                "cell_count": len(cells),
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "region": region,
+                "cells": [],
+                "cell_count": 0,
+                "error": str(exc),
+            }
+
     def _fiber_version(self, force=False):
         self._refresh_versions_if_due(force=force)
         return str((self.cache_state.get("versions") or {}).get("FIBER") or "")
@@ -1550,6 +1583,7 @@ let currentFiberPointFeatures=[];
 let currentLineFeatures=[];
 let currentDevices=[];
 let gridDiag={{region:'',centerLat:null,centerLng:null,centerGrid:'-',cells:0,stage:'대기',progress:''}};
+let lastRegionResolveLat=null,lastRegionResolveLng=null,lastRegionResolveId='';
 
 function currentCenterText(){{
   if(!map)return 'CENTER -';
@@ -3584,28 +3618,89 @@ function bestRegionForMapCenter(center){{
   return candidates.length?candidates[0]:null;
 }}
 
+async function probeRegionForMapCenter(center){{
+  const lat=Number(center.getLat()),lng=Number(center.getLng());
+  const primary=authorizedRegions
+    .filter(x=>boundsContainsLatLng(x.bounds,center))
+    .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
+  const primaryIds=new Set(primary.map(x=>x.id));
+  const ordered=primary.concat(authorizedRegions.filter(x=>!primaryIds.has(x.id)));
+
+  for(let i=0;i<ordered.length;i++){{
+    const candidate=ordered[i];
+    gridDiag.stage='지역 GRID 탐색';
+    gridDiag.progress=String(i+1)+'/'+String(ordered.length)+' '+candidate.id;
+    setStatus('L'+map.getLevel()+' · '+gridDiagText());
+    let r=null;
+    try{{
+      r=await apiCall('polemap_probe',{{
+        region:candidate.id,
+        lat:lat,
+        lng:lng,
+        radius_m:2000
+      }});
+    }}catch(e){{
+      r=null;
+    }}
+    const cells=(r&&r.cells)||[];
+    if(cells.length){{
+      const centerCell=centerCellFromList(cells,lat,lng);
+      gridDiag.region=candidate.id;
+      gridDiag.cells=cells.length;
+      gridDiag.centerGrid=centerCell?String(centerCell.grid_id||'-'):'-';
+      gridDiag.stage='지역 GRID 확인';
+      gridDiag.progress=candidate.id+' · '+String(cells.length)+'셀';
+      return candidate;
+    }}
+  }}
+  return null;
+}}
+
 async function autoRegionForMapCenter(){{
   if(!map||!authorizedRegions.length||regionSwitching)return false;
   const center=map.getCenter();
+  const lat=Number(center.getLat()),lng=Number(center.getLng());
   const sel=document.getElementById('region');
-  const matched=bestRegionForMapCenter(center);
+
+  // 같은 위치 부근에서는 이미 실제 Polemap으로 확인한 지역을 재사용한다.
+  if(
+    lastRegionResolveId &&
+    sel.value===lastRegionResolveId &&
+    Number.isFinite(lastRegionResolveLat) &&
+    Number.isFinite(lastRegionResolveLng) &&
+    distanceMeters(lastRegionResolveLat,lastRegionResolveLng,lat,lng)<1000
+  ){{
+    return true;
+  }}
+
+  let matched=await probeRegionForMapCenter(center);
+
+  // 서버 Polemap 확인 자체가 불가능한 경우에만 기존 bounds 판정을 최후 폴백으로 사용한다.
+  if(!matched){{
+    matched=bestRegionForMapCenter(center);
+  }}
 
   if(!matched){{
     if(sel.value){{
-      // 영역 밖으로 이동해도 기존 캐시 파일은 삭제하지 않는다.
       clearOverlays();
       await apiCall('select',{{region:''}});
       sel.value='';
     }}
+    lastRegionResolveLat=null;
+    lastRegionResolveLng=null;
+    lastRegionResolveId='';
     setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다');
     return false;
   }}
 
-  // 여러 지역 bounds가 겹칠 때 현재 선택값을 무조건 유지하지 않는다.
-  // 현재 좌표를 포함하는 가장 작은 영역을 항상 우선한다.
   if(sel.value!==matched.id){{
-    return await activateRegion(matched.id);
+    const ok=await activateRegion(matched.id);
+    if(!ok)return false;
   }}
+
+  lastRegionResolveLat=lat;
+  lastRegionResolveLng=lng;
+  lastRegionResolveId=matched.id;
   return true;
 }}
 
@@ -3932,6 +4027,13 @@ def run_online_viewer():
                         data.get("south"),
                         data.get("east"),
                         data.get("north"),
+                    )
+                elif name == "polemap_probe":
+                    result = api.polemap_probe(
+                        data.get("region"),
+                        data.get("lat"),
+                        data.get("lng"),
+                        data.get("radius_m", 2000),
                     )
                 elif name == "fiber_cell":
                     result = api.fiber_cell(
