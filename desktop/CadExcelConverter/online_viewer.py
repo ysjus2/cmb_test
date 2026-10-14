@@ -725,22 +725,107 @@ class Api:
         except Exception:
             pass
 
+    def _polemap_cache_path(self):
+        safe = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in str(self.region or "")
+        )
+        return CACHE_DIR / "polemap" / f"{safe}.json.gz"
+
+    def _read_polemap_cache(self):
+        path = self._polemap_cache_path()
+        if not path.exists():
+            return []
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                raw = json.load(fh)
+            return [
+                x for x in (raw.get("cells") or [])
+                if isinstance(x, dict) and str(x.get("grid_id") or "").strip()
+            ]
+        except Exception:
+            return []
+
+    def _write_polemap_cache(self, cells):
+        if not self.region or not cells:
+            return
+        try:
+            existing = {
+                str(x.get("grid_id") or "").strip().upper(): x
+                for x in self._read_polemap_cache()
+                if str(x.get("grid_id") or "").strip()
+            }
+            for cell in cells:
+                grid_id = str((cell or {}).get("grid_id") or "").strip().upper()
+                if grid_id:
+                    existing[grid_id] = dict(cell)
+            path = self._polemap_cache_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with gzip.open(tmp, "wt", encoding="utf-8") as fh:
+                json.dump(
+                    {"schema": 1, "cells": list(existing.values())},
+                    fh,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            os.replace(tmp, path)
+        except Exception:
+            pass
+
+    def _cached_polemap_cells(self, west, south, east, north):
+        out = []
+        for cell in self._read_polemap_cache():
+            try:
+                if (
+                    float(cell.get("east")) >= float(west)
+                    and float(cell.get("west")) <= float(east)
+                    and float(cell.get("north")) >= float(south)
+                    and float(cell.get("south")) <= float(north)
+                ):
+                    out.append(cell)
+            except Exception:
+                continue
+        return out
+
     def polemap(self, west, south, east, north):
         if not self.region:
             return {"ok": True, "cells": [], "cell_count": 0}
+        west = float(west); south = float(south); east = float(east); north = float(north)
+        cached = self._cached_polemap_cells(west, south, east, north)
         try:
-            return self.c.online_polemap(
+            result = self.c.online_polemap(
                 self.region,
-                float(west),
-                float(south),
-                float(east),
-                float(north),
-            )
+                west,
+                south,
+                east,
+                north,
+            ) or {}
+            cells = [x for x in (result.get("cells") or []) if isinstance(x, dict)]
+            if cells:
+                self._write_polemap_cache(cells)
+            return result
         except ServerError as exc:
+            if cached:
+                return {
+                    "ok": True,
+                    "cells": cached,
+                    "cell_count": len(cached),
+                    "cache": "stale",
+                    "warning": str(exc),
+                }
             if exc.status == 404:
                 return {"ok": True, "cells": [], "cell_count": 0, "legacy": True}
             return self._handle_error(exc, {"cells": [], "cell_count": 0})
         except Exception as exc:
+            if cached:
+                return {
+                    "ok": True,
+                    "cells": cached,
+                    "cell_count": len(cached),
+                    "cache": "stale",
+                    "warning": str(exc),
+                }
             return {"ok": False, "error": str(exc), "cells": [], "cell_count": 0}
 
     def _fiber_version(self, force=False):
@@ -1082,15 +1167,34 @@ class Api:
                 feature for feature in (raw.get("features") or [])
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
             ]
+            self._write_object_cell_cache(grid_id, version_signature, features)
+            return features, "network"
         except ServerError as exc:
-            if exc.status != 404:
-                raise
-            features = [
-                feature for feature in self._fetch_bbox_network(west, south, east, north)
-                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
-            ]
-        self._write_object_cell_cache(grid_id, version_signature, features)
-        return features, "network"
+            # 서버 실패 시 버전이 오래됐더라도 기존 셀 캐시는 절대 버리지 않는다.
+            if cached and cached.get("features"):
+                stale = [
+                    feature for feature in (cached.get("features") or [])
+                    if self._feature_intersects(feature, west, south, east, north)
+                ]
+                if stale:
+                    return stale, "stale"
+            if exc.status == 404:
+                features = [
+                    feature for feature in self._fetch_bbox_network(west, south, east, north)
+                    if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+                ]
+                self._write_object_cell_cache(grid_id, version_signature, features)
+                return features, "network"
+            raise
+        except Exception:
+            if cached and cached.get("features"):
+                stale = [
+                    feature for feature in (cached.get("features") or [])
+                    if self._feature_intersects(feature, west, south, east, north)
+                ]
+                if stale:
+                    return stale, "stale"
+            raise
 
     def _start_object_cell_refresh(self, cell, version_signature):
         grid_id = str(cell.get("grid_id") or "").strip().upper()
