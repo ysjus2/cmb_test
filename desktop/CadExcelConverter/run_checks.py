@@ -718,10 +718,9 @@ assert "raw_count = len(raw_features)" in online_source
 assert "if raw_count < limit:" in online_source
 assert "fiber_count={len(features)}" in online_source
 assert "광 전체 동기화 실패" in online_source
-assert "def _nonfiber_layers(self):" in online_source
-assert 'allowed_groups = {"COAX", "CONDUIT", "POLE", "USER"}' in online_source
 assert "limit = 5000" in online_source
-assert "layers=layer_filter" in online_source
+assert 'group_filter = "COAX,CONDUIT,POLE,USER"' in online_source
+assert "groups=group_filter" in online_source
 assert "if(level>5)" in online_source
 assert "loadGeneration++" in online_source
 assert "광 캐시 표시'+fiberDiagText(),100,false" in online_source
