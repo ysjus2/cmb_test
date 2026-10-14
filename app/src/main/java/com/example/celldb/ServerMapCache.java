@@ -181,6 +181,18 @@ final class ServerMapCache {
         while(state.coverage.size()>200)state.coverage.remove(0);
     }
 
+    static void replaceGroup(State state,ArrayList<CadRecord> rows,String group) {
+        String target=group==null?"":group.trim().toUpperCase(Locale.ROOT);
+        state.records.removeIf(r->target.equals(group(r)));
+        LinkedHashMap<String,CadRecord> merged=new LinkedHashMap<>();
+        for(CadRecord r:state.records)merged.put(r.stableKey(),r);
+        for(CadRecord r:rows)merged.put(r.stableKey(),r);
+        state.records.clear();
+        state.records.addAll(merged.values());
+        // 그룹 전체 교체 후 주변조회 coverage는 다시 검증한다.
+        state.coverage.clear();
+    }
+
     static boolean applyVersions(State state,Map<String,String> serverVersions) {
         HashSet<String> changed=new HashSet<>();
         for(Map.Entry<String,String> e:serverVersions.entrySet()){
