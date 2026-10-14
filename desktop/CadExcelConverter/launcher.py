@@ -175,6 +175,9 @@ class Launcher(tk.Tk):
             return
         try:
             user = self.client.login(username, password)
+            if password == "cmb15443434":
+                self._force_password_change(password)
+                return
             self.user = user
             self.password.set("")
             level = int(user.get("level", 5))
@@ -233,6 +236,67 @@ class Launcher(tk.Tk):
                 display_msg = msg
                 self.login_status.set("로그인 오류")
             messagebox.showerror("로그인 오류", display_msg, parent=self)
+
+    def _force_password_change(self, current_password):
+        win = tk.Toplevel(self)
+        win.title("비밀번호 변경 필수")
+        win.geometry("440x280")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        frame = ttk.Frame(win, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(
+            frame,
+            text="최초 비밀번호는 cmb15443434 입니다.\n암호를 변경하고 사용하세요.",
+            justify="left",
+        ).pack(anchor="w", pady=(0, 14))
+
+        p1 = tk.StringVar()
+        p2 = tk.StringVar()
+        ttk.Label(frame, text="새 비밀번호").pack(anchor="w")
+        e1 = ttk.Entry(frame, textvariable=p1, show="*")
+        e1.pack(fill="x", pady=(2, 8))
+        ttk.Label(frame, text="새 비밀번호 확인").pack(anchor="w")
+        e2 = ttk.Entry(frame, textvariable=p2, show="*")
+        e2.pack(fill="x", pady=(2, 12))
+
+        status = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=status).pack(anchor="w")
+
+        def apply_change():
+            new_password = p1.get()
+            if len(new_password) < 10:
+                status.set("새 비밀번호는 10자 이상으로 입력해주세요.")
+                return
+            if new_password == "cmb15443434":
+                status.set("초기 비밀번호와 다른 비밀번호를 사용해주세요.")
+                return
+            if new_password != p2.get():
+                status.set("새 비밀번호 확인이 일치하지 않습니다.")
+                return
+            try:
+                self.client.change_password(current_password, new_password)
+                try:
+                    self.client.logout()
+                except Exception:
+                    pass
+                win.destroy()
+                self._reset_login_state("비밀번호가 변경되었습니다. 새 비밀번호로 로그인해주세요.")
+                messagebox.showinfo(
+                    "비밀번호 변경 완료",
+                    "비밀번호가 변경되었습니다.\n새 비밀번호로 다시 로그인해주세요.",
+                    parent=self,
+                )
+            except Exception as exc:
+                status.set(str(exc))
+
+        ttk.Button(frame, text="비밀번호 변경", command=apply_change).pack(fill="x", pady=(8, 0))
+        self.password.set("")
+        self.login_status.set("비밀번호 변경이 필요합니다.")
+        win.wait_window()
 
     def logout(self):
         try:
