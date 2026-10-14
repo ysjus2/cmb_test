@@ -78,7 +78,7 @@ public class MapActivity extends Activity {
     private ServerApiClient server;
     private String serverDataset="",serverRegion="";
     private org.json.JSONArray serverLayers=new org.json.JSONArray();
-    private Button serverButton, logoutButton;
+    private Button serverButton, regionButton, logoutButton;
     private TextView connectionStatus;
     private long lastVerified, lastConnectionCheck;
     private final ExecutorService serverWorker=Executors.newSingleThreadExecutor();
@@ -102,7 +102,6 @@ public class MapActivity extends Activity {
     private final ArrayList<MapPoint> serverBounds=new ArrayList<>();
     private final ArrayList<String> authorizedRegionIds=new ArrayList<>();
     private final ArrayList<String> authorizedRegionTitles=new ArrayList<>();
-    private boolean waitingForAutoRegion;
     private final Runnable serverPoll=new Runnable(){public void run(){
         if(!foreground||destroyed)return;
         checkServerConnection();pollServerViewport();serverHandler.postDelayed(this,400);
@@ -232,6 +231,8 @@ public class MapActivity extends Activity {
         selectionStatus.setPadding(dp(12),dp(4),dp(12),dp(4));menu.addView(selectionStatus);
         serverButton=new Button(this);serverButton.setText("서버 로그인");
         serverButton.setOnClickListener(v->showServerLogin());menu.addView(serverButton);
+        regionButton=new Button(this);regionButton.setText("지역 선택");regionButton.setEnabled(false);
+        regionButton.setOnClickListener(v->showRegionSelection());menu.addView(regionButton);
         logoutButton=new Button(this);logoutButton.setText("로그아웃");logoutButton.setEnabled(false);
         logoutButton.setOnClickListener(v->disconnectServer());menu.addView(logoutButton);
         connectionStatus=new TextView(this);connectionStatus.setPadding(dp(12),dp(2),dp(12),dp(2));connectionStatus.setTextSize(11);connectionStatus.setMaxLines(1);
@@ -683,6 +684,7 @@ public class MapActivity extends Activity {
         logoutButton.setEnabled(false);connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");
         allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
         regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
+        if(regionButton!=null)regionButton.setEnabled(false);
         if(previous!=null)serverWorker.execute(previous::logout);
         loadMarkers();stopLocation();
         if(ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
@@ -692,9 +694,10 @@ public class MapActivity extends Activity {
     private void chooseServerDataset(){
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
         lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
-        authorizedRegionIds.clear();authorizedRegionTitles.clear();waitingForAutoRegion=true;
+        authorizedRegionIds.clear();authorizedRegionTitles.clear();
+        if(regionButton!=null)regionButton.setEnabled(false);
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
-        status.setText("현재 위치에 맞는 권한 지역을 찾는 중…");
+        status.setText("권한 지역 목록을 불러오는 중…");
         serverTask=serverWorker.submit(()->{
             try{
                 org.json.JSONArray regions=client.regions();
@@ -709,62 +712,40 @@ public class MapActivity extends Activity {
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
                     if(authorizedRegionIds.isEmpty()){
-                        waitingForAutoRegion=false;
                         status.setText("배정된 지역 권한이 없습니다.");
                         regionStatus.setText("시설 도면 없음");
                         return;
                     }
-                    if(currentLocation!=null)autoSelectRegionForLocation(new MapPoint(currentLocation));
-                    else {
-                        waitingForAutoRegion=true;
-                        centerOnFix=true;
-                        requestLocation();
-                        status.setText("현재 위치 확인 중 · 권한 지역 자동 연결");
-                    }
-                });
-            }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){waitingForAutoRegion=false;markServerOffline();status.setText(serverMessage(error));}});}
-        });
-    }
-
-    private static boolean pointInsideBounds(MapPoint p,org.json.JSONObject box){
-        if(p==null||box==null)return false;
-        double south=box.optDouble("south",Double.NaN),north=box.optDouble("north",Double.NaN);
-        double west=box.optDouble("west",Double.NaN),east=box.optDouble("east",Double.NaN);
-        if(!Double.isFinite(south)||!Double.isFinite(north)||!Double.isFinite(west)||!Double.isFinite(east))return false;
-        return p.getLatitude()>=Math.min(south,north)&&p.getLatitude()<=Math.max(south,north)
-                &&p.getLongitude()>=Math.min(west,east)&&p.getLongitude()<=Math.max(west,east);
-    }
-
-    private void autoSelectRegionForLocation(MapPoint here){
-        if(server==null||authorizedRegionIds.isEmpty()||here==null)return;
-        waitingForAutoRegion=false;
-        cancelServerRequest();
-        final ServerApiClient client=server;final int generation=serverGeneration;
-        status.setText("현재 위치의 권한 지역 확인 중…");
-        serverTask=serverWorker.submit(()->{
-            try{
-                String matchedId=null,matchedTitle=null;
-                for(int i=0;i<authorizedRegionIds.size();i++){
-                    if(Thread.currentThread().isInterrupted())return;
-                    String id=authorizedRegionIds.get(i);
-                    org.json.JSONObject metadata=client.onlineLayers(id);
-                    if(pointInsideBounds(here,metadata.optJSONObject("bounds"))){
-                        matchedId=id;matchedTitle=authorizedRegionTitles.get(i);break;
-                    }
-                }
-                final String id=matchedId,title=matchedTitle;
-                runOnUiThread(()->{
-                    if(destroyed||generation!=serverGeneration||client!=server)return;
-                    if(id!=null){
-                        status.setText("현재 위치 권한 지역 · "+title);
-                        selectServerDataset(client,id,title);
-                    }else{
-                        regionStatus.setText("현재 위치에 배정된 지역 도면 없음");
-                        status.setText("현재 위치가 권한 지역 도면 범위에 포함되지 않습니다.");
-                    }
+                    if(regionButton!=null)regionButton.setEnabled(true);
+                    regionStatus.setText("지역을 선택하세요.");
+                    status.setText("권한 지역 "+authorizedRegionIds.size()+"개 · 지역 선택 필요");
+                    showRegionSelection();
                 });
             }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
         });
+    }
+
+    private void showRegionSelection(){
+        if(server==null){
+            Toast.makeText(this,"먼저 서버에 로그인하세요.",Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if(authorizedRegionIds.isEmpty()){
+            Toast.makeText(this,"선택 가능한 권한 지역이 없습니다.",Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] items=authorizedRegionTitles.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("지역 선택")
+                .setItems(items,(dialog,which)->{
+                    if(which<0||which>=authorizedRegionIds.size())return;
+                    String id=authorizedRegionIds.get(which);
+                    String title=authorizedRegionTitles.get(which);
+                    status.setText("선택 지역 연결 · "+title);
+                    selectServerDataset(server,id,title);
+                })
+                .setNegativeButton("취소",null)
+                .show();
     }
 
     private LinkedHashMap<String,String> versionMap(org.json.JSONObject json){
@@ -1197,9 +1178,6 @@ public class MapActivity extends Activity {
         if (centerOnFix && mapReady) {
             map.center(point, true);
             centerOnFix = false;
-        }
-        if(waitingForAutoRegion && server!=null && serverDataset.isEmpty() && !authorizedRegionIds.isEmpty()){
-            autoSelectRegionForLocation(point);
         }
     }
 
