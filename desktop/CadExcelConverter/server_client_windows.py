@@ -15,7 +15,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-BASE_URL = "https://192.168.246.54"
+BASE_URL = "https://192.168.246.54:8443"
 
 
 def resource_path(name):
