@@ -704,7 +704,7 @@ print("REGIONAL_FIBER_PLUS_COAX_BBOX_POLICY_OK")
 assert "def cached_fiber(self):" in online_source
 assert "def ensure_fiber_all(self, force=False):" in online_source
 assert "self._refresh_versions_if_due(force=force)" in online_source
-assert "self._fetch_all_region_features()" in online_source
+assert "self._fetch_all_region_features(region, generation)" in online_source
 assert "apiCall('fiber_all'" in region_fiber_block
 print("REGION_FIBER_CACHE_SYNC_OK")
 
