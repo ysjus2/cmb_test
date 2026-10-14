@@ -736,7 +736,7 @@ assert "GENERAL_CACHE_SCHEMA = 3" in online_source
 assert "FIBER_CACHE_SCHEMA = 3" in online_source
 assert 'CACHE_BASIS = "coordinate_region"' in online_source
 assert 'cache_region = str(raw.get("region") or "")' in online_source
-assert "cache_region != str(self.region or "")" in online_source
+assert 'cache_region != str(self.region or "")' in online_source
 assert "cache_basis != CACHE_BASIS" in online_source
 assert '"region": str(self.region or "")' in online_source
 assert '"cache_basis": CACHE_BASIS' in online_source
