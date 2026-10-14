@@ -853,7 +853,7 @@ if __name__ == "__main__":
         assert "<select id='region' title='권한 지역 선택'>" in page
         assert "async function loadRegionFiber(syncForce=false)" in page
         assert "apiCall('fiber_cached')" in page
-        assert "apiCall('fiber_all',{{force:!!syncForce}})" in page
+        assert "apiCall('fiber_all',{force:!!syncForce})" in page
         assert "async function autoRegionForMapCenter()" not in page
         transformer = pyproj.Transformer.from_crs(5174, 4326, always_xy=True)
         lng, lat = transformer.transform(200000, 300000)
