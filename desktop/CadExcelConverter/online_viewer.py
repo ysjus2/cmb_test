@@ -2537,24 +2537,28 @@ async function loadRegionFiber(syncForce=false){{
   const region=document.getElementById('region').value;
   if(!region||!groupEnabled.FIBER)return 0;
 
-  // 1) 현재 지역의 디스크 캐시를 서버 대기 없이 즉시 표시한다.
-  try{{
-    const cached=await apiCall('fiber_cached');
-    if(region!==document.getElementById('region').value)return 0;
-    const cachedFeatures=(cached&&cached.features)||[];
-    if(cachedFeatures.length){{
-      renderFiberFeatures(cachedFeatures);
-      fiberDiag.cache=cachedFeatures.length;
-      viewDiag.stage='광 지역 캐시 표시';
-      viewDiag.progress=String(cachedFeatures.length)+'개';
-      setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
-    }}
-  }}catch(e){{}}
+  // 자동 지역 진입은 기존 지역 광 캐시를 즉시 표시한다.
+  // 수동 새로고침(syncForce=true)은 끊긴/불완전 캐시를 다시 그리지 않고
+  // 서버의 지역 광 전체를 강제로 재수신한 뒤 정상 수신본으로 교체한다.
+  if(!syncForce){{
+    try{{
+      const cached=await apiCall('fiber_cached');
+      if(region!==document.getElementById('region').value)return 0;
+      const cachedFeatures=(cached&&cached.features)||[];
+      if(cachedFeatures.length){{
+        renderFiberFeatures(cachedFeatures);
+        fiberDiag.cache=cachedFeatures.length;
+        viewDiag.stage='광 지역 캐시 표시';
+        viewDiag.progress=String(cachedFeatures.length)+'개';
+        setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+      }}
+    }}catch(e){{}}
+  }}
 
-  // 2) 서버 revision과 동기화한다. 최신 캐시면 재다운로드하지 않고,
-  //    변경된 경우에만 지역 광 전체를 받아 영구 캐시를 갱신한다.
-  viewDiag.stage='광 지역 동기화';
-  viewDiag.progress='서버 최신상태 확인';
+  // 서버 revision과 동기화한다.
+  // syncForce=true이면 revision 동일 여부와 관계없이 지역 광 전체를 다시 받는다.
+  viewDiag.stage=syncForce?'광 전체 강제 재수신':'광 지역 동기화';
+  viewDiag.progress=syncForce?'기존 캐시 무시 · 서버 전체 재조회':'서버 최신상태 확인';
   setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
 
   const fresh=await apiCall('fiber_all',{{force:!!syncForce}});
@@ -2569,7 +2573,7 @@ async function loadRegionFiber(syncForce=false){{
     renderFiberFeatures(features);
     fiberDiag.cache=features.length;
   }}
-  viewDiag.stage='광 지역 동기화 완료';
+  viewDiag.stage=syncForce?'광 전체 새로고침 완료':'광 지역 동기화 완료';
   viewDiag.progress=String(features.length)+'개 · '+String(fresh.cache||'network');
   setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
   return features.length;
