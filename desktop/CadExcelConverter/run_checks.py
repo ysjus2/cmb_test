@@ -195,6 +195,10 @@ clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[
 assert "loadGeneration++" not in clear_group_block
 assert "let nonFiberLoadTimer=null;" in online_source
 assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
+bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
+assert "const ok=await bootstrapAuth();" in bootstrap_tail
+assert "initMap();" in bootstrap_tail
+assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
 assert "await loadFiberViewport(false);" in online_source
 assert "queueNonFiberLoad(false,140);" in online_source
 assert "queueNonFiberLoad(true,140);" in online_source
