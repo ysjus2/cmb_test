@@ -97,13 +97,14 @@ assert _api.session_ended is True
 assert SESSION_ENDED_EXIT_CODE == 41
 print("SESSION_EXPIRED_VIEWER_EXIT_OK")
 
-# Windows 온라인 Viewer는 서버 공통 지도 설정을 사용하고 기본값은 500m/200m이다.
+# Windows 온라인 Viewer 조회 정책은 서버 관리자 설정과 분리된 고정 500m/200m이다.
 page = html("test-kakao-key", "test-local-token")
-assert "let QUERY_RADIUS_METERS=500;" in page
-assert "let QUERY_RECENTER_METERS=200;" in page
-assert "apiCall('map_display_settings')" in page
+assert "const QUERY_RADIUS_METERS=500;" in page
+assert "const QUERY_RECENTER_METERS=200;" in page
+assert "apiCall('map_display_settings')" not in page
+assert "loadMapDisplaySettings" not in page
 assert "myLat=lat;" in page and "myLng=lng;" in page
-print("ONLINE_SHARED_MAP_DISPLAY_SETTINGS_OK")
+print("ONLINE_FIXED_VIEWER_QUERY_POLICY_OK")
 
 
 # Windows 온라인 Viewer는 지역별 gzip 영구 캐시와 Revision 확인을 사용한다.
@@ -156,6 +157,8 @@ assert "지역 삭제" in admin_users_source
 assert "도면 Revision과 객체" in admin_users_source
 assert "SYMBOL 데이터" in admin_users_source
 assert "사용자-지역 권한 연결" in admin_users_source
+assert "지도 표시 설정" not in admin_users_source
+assert "edit_map_display_settings" not in admin_users_source
 print("REGION_EDIT_DELETE_UI_OK")
 
 
@@ -194,8 +197,8 @@ assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
 assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
-assert "apiCall('region_at_point'" in online_source
-assert "def region_at_point(self, regions, lat, lng, radius_m=1200):" in online_source
+assert "apiCall('region_at_point'" not in online_source
+assert "def region_at_point(" not in online_source
 assert "async function autoRegionForMapCenter()" in online_source
 activate_block = online_source.split("async function activateRegion(region){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
 assert "apiCall('fiber_all'" not in activate_block
@@ -203,9 +206,11 @@ assert "await loadFiberViewport(true);" in activate_block
 assert "await loadObjects(true);" in activate_block
 assert activate_block.index("await loadFiberViewport(true);") < activate_block.index("await loadObjects(true);")
 assert "lastFiberQueryLat=null;" in activate_block
-auto_region_block2 = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function loadMapDisplaySettings",1)[0]
-assert "candidates.length===1" in auto_region_block2
-assert "radius_m:500" in auto_region_block2
+auto_region_block2 = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function bootstrapAuth(){{",1)[0]
+assert "authorizedRegions" in auto_region_block2
+assert "boundsContainsLatLng" in auto_region_block2
+assert "candidates.find(x=>x.id===String(sel.value||''))" in auto_region_block2
+assert "apiCall('region_at_point'" not in auto_region_block2
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
 assert "kakao.maps.event.addListener(map,'idle',()=>{{" in init_block
 assert "REGION_SETTLE_DELAY_MS=700" in online_source
@@ -216,9 +221,14 @@ assert "if(region){{" in init_block
 assert "await loadFiberViewport(false);" in init_block
 assert "await loadObjects(false);" in init_block
 assert init_block.index("await loadFiberViewport(false);") < init_block.index("await loadObjects(false);")
+reload_block = online_source.split("document.getElementById('reload').onclick=async()=>{{",1)[1].split("document.getElementById('myLocation')",1)[0]
+assert "apiCall('fiber_all'" not in reload_block
+assert "await loadFiberViewport(true);" in reload_block
+assert "await loadObjects(true);" in reload_block
+assert reload_block.index("await loadFiberViewport(true);") < reload_block.index("await loadObjects(true);")
 assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
-assert "apiCall('fiber_all',{{force:false}})" in online_source
+assert "apiCall('fiber_all',{{force:false}})" not in online_source
 assert "apiCall('objects',{{west:west,south:south,east:east,north:north}})" in online_source
 assert "def polemap(" not in online_source
 assert "def polemap_probe(" not in online_source
@@ -651,7 +661,7 @@ fiber_view_block = online_source.split("async function loadFiberViewport(force=f
 assert "apiCall('fiber_bbox'" in fiber_view_block
 assert "queryBoundsFromCenter(cLat,cLng)" in fiber_view_block
 assert "moved<QUERY_RECENTER_METERS" in fiber_view_block
-assert "관리자 반경 '+String(QUERY_RADIUS_METERS)+'m" in fiber_view_block
+assert "조회 반경 '+String(QUERY_RADIUS_METERS)+'m" in fiber_view_block
 assert "apiCall('polemap'" not in fiber_view_block
 assert "apiCall('fiber_cell'" not in fiber_view_block
 assert "GRID" not in fiber_view_block
@@ -660,6 +670,10 @@ assert "scheduleFiberRecenter" not in online_source
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
 assert "loadFiberViewport(false)" in init_block
 assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
+fetch_bbox_block = online_source.split("    def _fetch_bbox_network(self, west, south, east, north):",1)[1].split("    def _commit_bbox_cache",1)[0]
+assert "return fetch_cell(west, south, east, north)" in fetch_bbox_block
+assert "for cell in (" in fetch_bbox_block
+assert "loadFiberViewport(true).catch" not in fiber_view_block
 assert "def _commit_bbox_cache(self, features, west, south, east, north):" in online_source
 assert "def objects(self, west, south, east, north):" in online_source
 objects_block = online_source.split("    def objects(self, west, south, east, north):",1)[1].split("\n\ndef html",1)[0]
@@ -680,27 +694,28 @@ assert "fields._cmb_pole_refs" not in stored_block
 assert "전주번호, _cmb_pole_position, _cmb_pole_refs는 상세정보용 메타데이터로만 유지한다." in stored_block
 print("COORDINATE_BBOX_AND_GEOMETRY_POSITION_OK")
 
-# 기존 지역 전체 광 캐시는 즉시 사용하고 서버 revision 확인은 뒤에서 수행한다.
-assert "def cached_fiber(self):" in online_source
-assert "def ensure_fiber_all(self, force=False):" in online_source
+# 광은 현재 500m bbox 캐시를 우선 사용하고 Viewer 런타임에서 지역 전체 광을 호출하지 않는다.
 assert "self._load_fiber_cache()" in online_source
-assert "renderFiberFeatures(cachedFeatures)" in online_source
-print("REGION_FIBER_CACHE_IMMEDIATE_OK")
+assert "def fiber_bbox(self, west, south, east, north, force=False):" in online_source
+assert "apiCall('fiber_bbox'" in online_source
+assert "apiCall('fiber_all'" not in online_source
+print("FIBER_CURRENT_BBOX_CACHE_ONLY_OK")
 
-# 지역 자동 전환도 GRID가 아니라 서버 지역 bounds의 위경도로만 결정한다.
+# 지역 자동 전환은 로그인 사용자의 권한 지역 bounds만 메모리에서 비교한다.
 assert "authorizedRegions=[]" in online_source
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
-auto_region_block = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function loadMapDisplaySettings",1)[0]
-assert "apiCall('region_at_point'" in auto_region_block
-assert "boundsContainsLatLng" in auto_region_block
+auto_region_block = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function bootstrapAuth(){{",1)[0]
+assert ".filter(x=>boundsContainsLatLng(x.bounds,center))" in auto_region_block
+assert "candidates.find(x=>x.id===String(sel.value||''))" in auto_region_block
+assert "apiCall('region_at_point'" not in auto_region_block
 assert "cached_region_probe" not in auto_region_block
 assert "polemap_probe" not in auto_region_block
 assert "'GRID '+String(viewDiag.centerGrid||'-')" not in online_source
 assert "'CELLS '+String(viewDiag.cells||0)" not in online_source
 assert "style='display:none'" in online_source
 assert "지도 위치에 따라 자동 연결" in online_source
-print("AUTO_REGION_BY_LATLNG_BOUNDS_OK")
+print("AUTHORIZED_REGION_BOUNDS_ONLY_OK")
 
 # 케이블 선택 시 기기 위로 올려 강조하고 다른 선택/해제 시 원상복구한다.
 assert "function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5)" in online_source
