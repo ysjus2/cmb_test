@@ -948,8 +948,14 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
 #tools{{display:flex;gap:6px;align-items:center;min-width:0;width:100%}}
 #toolButtons{{display:flex;gap:6px;align-items:center;flex:0 0 auto;white-space:nowrap}}
 #tools select,#tools button{{height:30px}}
-#statusWrap{{flex:1 1 auto;min-width:0;overflow:hidden;padding-left:4px}}
-#status{{display:block;font-size:12px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
+#statusWrap{{flex:1 1 auto;min-width:0;overflow:hidden;padding-left:4px;display:flex;flex-direction:column;gap:3px}}
+#statusLine{{display:flex;align-items:center;gap:8px;min-width:0}}
+#status{{display:block;flex:1 1 auto;font-size:12px;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
+#progressText{{flex:0 0 auto;min-width:38px;text-align:right;font-size:11px;font-weight:700;color:#334155}}
+#progressTrack{{height:5px;background:#e2e8f0;border-radius:999px;overflow:hidden}}
+#progressBar{{height:100%;width:0%;background:#2563eb;transition:width .2s ease}}
+#progressBar.busy{{background:linear-gradient(90deg,#2563eb 0%,#60a5fa 50%,#2563eb 100%);background-size:200% 100%;animation:progressPulse 1.2s linear infinite}}
+@keyframes progressPulse{{from{{background-position:200% 0}}to{{background-position:0 0}}}}
 #measureBox{{display:flex;flex-direction:column;gap:2px;align-items:stretch}}
 #measureBox button{{height:22px!important;padding:0 8px;font-size:11px}}
 #measureDistance.on{{background:#0f766e;color:#fff;border:1px solid #115e59}}
@@ -987,7 +993,13 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
         <button id='measureDistance' title='거리 측정 시작'>거리</button>
       </div>
     </div>
-    <div id='statusWrap'><span id='status' title='현재 상태'>세션 확인 중</span></div>
+    <div id='statusWrap'>
+      <div id='statusLine'>
+        <span id='status' title='현재 상태'>세션 확인 중</span>
+        <span id='progressText'>0%</span>
+      </div>
+      <div id='progressTrack'><div id='progressBar'></div></div>
+    </div>
   </div>
 </div>
 
@@ -1150,6 +1162,20 @@ function detailLevel(){{
 }}
 
 function setStatus(t){{document.getElementById('status').textContent=t||''}}
+function setProgress(percent,busy=false){{
+  const p=Math.max(0,Math.min(100,Math.round(Number(percent)||0)));
+  const bar=document.getElementById('progressBar');
+  const textEl=document.getElementById('progressText');
+  if(bar){{
+    bar.style.width=String(p)+'%';
+    bar.classList.toggle('busy',!!busy && p<100);
+  }}
+  if(textEl)textEl.textContent=String(p)+'%';
+}}
+function setWorkStatus(text,percent,busy=false){{
+  setStatus(text);
+  setProgress(percent,busy);
+}}
 
 function noteActivity(){{
   if(!authenticated)return;
@@ -1198,6 +1224,7 @@ function registerOverlay(overlay,group,kind=''){{
 function clearOverlays(){{
   restoreSelectedCable();
   loadGeneration++;
+  fiberViewportGeneration++;
   overlays.forEach(x=>{{
     try{{x.setMap(null);}}catch(e){{}}
     overlayGroups.delete(x);
@@ -1206,6 +1233,13 @@ function clearOverlays(){{
   overlays=[];
   cableArrows.clear();
   selectedOverlay=null;
+  selectedCable=null;
+  selectedCableArrows=[];
+  currentPointFeatures=[];
+  currentFiberPointFeatures=[];
+  currentLineFeatures=[];
+  currentDevices=[];
+  fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
 }}
 
 function clearNonFiberOverlays(){{
@@ -2542,6 +2576,7 @@ async function loadRegionFiber(syncForce=false){{
   // 서버의 지역 광 전체를 강제로 재수신한 뒤 정상 수신본으로 교체한다.
   if(!syncForce){{
     try{{
+      setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 새 지역 광 캐시 확인',10,true);
       const cached=await apiCall('fiber_cached');
       if(region!==document.getElementById('region').value)return 0;
       const cachedFeatures=(cached&&cached.features)||[];
@@ -2550,7 +2585,7 @@ async function loadRegionFiber(syncForce=false){{
         fiberDiag.cache=cachedFeatures.length;
         viewDiag.stage='광 지역 캐시 표시';
         viewDiag.progress=String(cachedFeatures.length)+'개';
-        setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+        setWorkStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText(),25,false);
       }}
     }}catch(e){{}}
   }}
@@ -2559,12 +2594,12 @@ async function loadRegionFiber(syncForce=false){{
   // syncForce=true이면 revision 동일 여부와 관계없이 지역 광 전체를 다시 받는다.
   viewDiag.stage=syncForce?'광 전체 강제 재수신':'광 지역 동기화';
   viewDiag.progress=syncForce?'기존 캐시 무시 · 서버 전체 재조회':'서버 최신상태 확인';
-  setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+  setWorkStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText(),syncForce?35:40,true);
 
   const fresh=await apiCall('fiber_all',{{force:!!syncForce}});
   if(region!==document.getElementById('region').value)return 0;
   if(!fresh||fresh.ok===false){{
-    if(fresh&&fresh.error)setStatus(fresh.error+' · 기존 광 캐시 유지');
+    if(fresh&&fresh.error)setWorkStatus(fresh.error+' · 기존 광 캐시 유지',100,false);
     return 0;
   }}
 
@@ -2575,7 +2610,7 @@ async function loadRegionFiber(syncForce=false){{
   }}
   viewDiag.stage=syncForce?'광 전체 새로고침 완료':'광 지역 동기화 완료';
   viewDiag.progress=String(features.length)+'개 · '+String(fresh.cache||'network');
-  setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+  setWorkStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText(),75,false);
   return features.length;
 }}
 
@@ -2662,7 +2697,14 @@ async function loadObjects(force=false){{
 
   if(!force && Number.isFinite(lastQueryLat) && Number.isFinite(lastQueryLng)){{
     const moved=distanceMeters(lastQueryLat,lastQueryLng,queryLat,queryLng);
-    if(moved<QUERY_RECENTER_METERS && lastDetailMode===detailMode)return;
+    if(moved<QUERY_RECENTER_METERS && lastDetailMode===detailMode){{
+      setWorkStatus(
+        'L'+mapLevelNow+' · REGION '+region+' · 이동 '+Math.round(moved)+'m / '+QUERY_RECENTER_METERS+'m · 기존 동축 캐시 유지',
+        100,
+        false
+      );
+      return;
+    }}
   }}
 
   const myGeneration=++loadGeneration;
@@ -2674,7 +2716,7 @@ async function loadObjects(force=false){{
   viewDiag.centerLng=queryLng;
   viewDiag.stage='OBJECT 조회';
   viewDiag.progress='COAX/CONDUIT/POLE';
-  setStatus('L'+mapLevelNow+' · '+viewDiagText());
+  setWorkStatus('L'+mapLevelNow+' · '+viewDiagText(),85,true);
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
@@ -2931,6 +2973,7 @@ async function activateRegion(region){{
   regionSwitching=true;
   try{{
     clearOverlays();
+    setWorkStatus('지역 전환 · 기존 지역 숨김 · '+region,5,true);
     document.getElementById('detail').style.display='none';
     const info=authorizedRegions.find(x=>x.id===region);
     if(!info){{
@@ -2951,7 +2994,7 @@ async function activateRegion(region){{
     viewDiag.region=region;
     viewDiag.stage='지역 선택';
     viewDiag.progress=(info?info.name:region);
-    setStatus('L'+map.getLevel()+' · '+viewDiagText());
+    setWorkStatus('L'+map.getLevel()+' · '+viewDiagText(),8,true);
 
     // 지역 전환 시 동축 조회 기준(500m/200m)을 새 지역에서 다시 시작한다.
     lastQueryLat=null;
@@ -2961,7 +3004,9 @@ async function activateRegion(region){{
     // 선택 지역의 광 전체 캐시를 즉시 표시하고 서버와 1회 동기화한다.
     // 완료 후 현재 위치의 동축/기기만 500m 범위로 조회한다.
     await loadRegionFiber(false);
+    setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 동축/기기 조회 시작',80,true);
     await loadObjects(true);
+    setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 완료',100,false);
     return true;
   }} finally {{
     regionSwitching=false;
@@ -2997,8 +3042,11 @@ function bindUi(){{
     lastQueryLat=null;
     lastQueryLng=null;
     lastDetailMode=null;
+    setWorkStatus('L'+map.getLevel()+' · REGION '+activeRegionId+' · STAGE 광 전체 강제 새로고침 시작',5,true);
     await loadRegionFiber(true);
+    setWorkStatus('L'+map.getLevel()+' · REGION '+activeRegionId+' · STAGE 동축/기기 새로고침',80,true);
     await loadObjects(true);
+    setWorkStatus('L'+map.getLevel()+' · REGION '+activeRegionId+' · STAGE 새로고침 완료',100,false);
   }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
   document.getElementById('mapHybrid').onclick=()=>{{
