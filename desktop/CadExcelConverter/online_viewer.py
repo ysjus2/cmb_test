@@ -2480,7 +2480,7 @@ function coaxKindVisibleAtLevel(kind,mapLevel){{
   // 케이블 LOD는 기존 유지. 기기는 광함체를 제외하고 L1에서만 표시한다.
   if(kind==='coax_main_cable')return mapLevel<=3;
   if(kind==='coax_tap_cable')return mapLevel<=2;
-  if(kind==='closure')return mapLevel<=3;
+  // COAX 포함 비광 기기는 전부 L1에서만 표시한다.
   if(isDeviceOverlayKind(kind))return mapLevel<=1;
 
   // 입력방향 화살표는 연결 기기와 같은 수준에서만 표시한다.
