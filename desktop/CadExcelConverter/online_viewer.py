@@ -3402,6 +3402,8 @@ async function loadObjects(force=false){{
 
   setStatus(
     'L'+map.getLevel()+
+    ' · REGION '+String(document.getElementById('region').value||'-')+
+    ' · CELLS '+String(r.polemap_cells||0)+
     ' · '+(r.cache==='stale'?'기존 캐시 즉시 표시 · 서버 갱신중':'캐시/서버 반영')+
     ' · 서버 '+allFeatures.length+'개 ['+rawText+']'+
     ' · '+cableDiag+
@@ -3498,16 +3500,30 @@ async function activateRegion(region){{
   }}
 }}
 
+function regionBoundsArea(bounds){{
+  if(!bounds)return Number.POSITIVE_INFINITY;
+  const west=Number(bounds.west),south=Number(bounds.south);
+  const east=Number(bounds.east),north=Number(bounds.north);
+  if(![west,south,east,north].every(Number.isFinite))return Number.POSITIVE_INFINITY;
+  return Math.abs((east-west)*(north-south));
+}}
+
+function bestRegionForMapCenter(center){{
+  const candidates=authorizedRegions
+    .filter(x=>boundsContainsLatLng(x.bounds,center))
+    .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
+  return candidates.length?candidates[0]:null;
+}}
+
 async function autoRegionForMapCenter(){{
   if(!map||!authorizedRegions.length||regionSwitching)return false;
   const center=map.getCenter();
   const sel=document.getElementById('region');
-  const current=authorizedRegions.find(x=>x.id===sel.value);
-  if(current&&boundsContainsLatLng(current.bounds,center))return true;
+  const matched=bestRegionForMapCenter(center);
 
-  const matched=authorizedRegions.find(x=>boundsContainsLatLng(x.bounds,center));
   if(!matched){{
     if(sel.value){{
+      // 영역 밖으로 이동해도 기존 캐시 파일은 삭제하지 않는다.
       clearOverlays();
       await apiCall('select',{{region:''}});
       sel.value='';
@@ -3515,7 +3531,13 @@ async function autoRegionForMapCenter(){{
     setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다');
     return false;
   }}
-  return await activateRegion(matched.id);
+
+  // 여러 지역 bounds가 겹칠 때 현재 선택값을 무조건 유지하지 않는다.
+  // 현재 좌표를 포함하는 가장 작은 영역을 항상 우선한다.
+  if(sel.value!==matched.id){{
+    return await activateRegion(matched.id);
+  }}
+  return true;
 }}
 
 async function loadMapDisplaySettings(){{
@@ -3552,6 +3574,8 @@ async function bootstrapAuth(){{
 
 function bindUi(){{
   document.getElementById('reload').onclick=async()=>{{
+    const ok=await autoRegionForMapCenter();
+    if(!ok)return;
     await loadFiberViewport(true);
     queueNonFiberLoad(true,140);
   }};
@@ -3658,9 +3682,14 @@ function centerMyLocation(loadAfter){{
       map.setCenter(new kakao.maps.LatLng(lat,lng));
       map.setLevel(3);
       setStatus('현재 위치 · 반경 '+QUERY_RADIUS_METERS+'m');
-      if(loadAfter){{
-        loadFiberViewport(true).then(()=>queueNonFiberLoad(true,140));
-      }}
+      (async()=>{{
+        const ok=await autoRegionForMapCenter();
+        if(!ok)return;
+        if(loadAfter){{
+          await loadFiberViewport(true);
+          queueNonFiberLoad(true,140);
+        }}
+      }})();
     }},
     err=>{{
       setStatus('현재 위치 확인 실패');
