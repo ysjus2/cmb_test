@@ -199,6 +199,10 @@ clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[
 assert "loadGeneration++" not in clear_group_block
 assert "let nonFiberLoadTimer=null;" in online_source
 assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
+assert "function bestRegionForMapCenter(center)" in online_source
+assert "regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds)" in online_source
+assert "' · REGION '+String(document.getElementById('region').value||'-')" in online_source
+assert "' · CELLS '+String(r.polemap_cells||0)" in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
