@@ -57,4 +57,70 @@ public class MobileWindowsParityTest {
         assertEquals(1,state.records.size());
         assertEquals("new",state.records.get(0).id);
     }
+
+    @Test public void fiberClosureIsL3AndOtherFiberDevicesAreL2() {
+        CadRecord closure=new CadRecord();
+        closure.category="EQUIPMENT";
+        closure.fields.put("__serverGroup","FIBER");
+        closure.fields.put("__symbol","FIBER_CLOSURE:0");
+
+        CadRecord terminal=new CadRecord();
+        terminal.category="EQUIPMENT";
+        terminal.fields.put("__serverGroup","FIBER");
+        terminal.fields.put("__symbol","FIBER_TERMINAL:0");
+
+        assertTrue(DrawingLevel.recordVisible("L3",closure));
+        assertFalse(DrawingLevel.recordVisible("L3",terminal));
+        assertTrue(DrawingLevel.recordVisible("L2",terminal));
+    }
+
+    @Test public void fullFiberReplacementKeepsNonFiberCache() {
+        ServerMapCache.State state=new ServerMapCache.State();
+
+        CadRecord oldFiber=new CadRecord();
+        oldFiber.category="FIBER";oldFiber.id="old-fiber";
+        oldFiber.fields.put("__serverGroup","FIBER");
+        oldFiber.latitude=35.0;oldFiber.longitude=126.0;
+
+        CadRecord coax=new CadRecord();
+        coax.category="COAX";coax.id="coax";
+        coax.fields.put("__serverGroup","COAX");
+        coax.latitude=35.0;coax.longitude=126.0;
+
+        state.records.add(oldFiber);
+        state.records.add(coax);
+
+        CadRecord freshFiber=new CadRecord();
+        freshFiber.category="FIBER";freshFiber.id="fresh-fiber";
+        freshFiber.fields.put("__serverGroup","FIBER");
+        freshFiber.latitude=35.1;freshFiber.longitude=126.1;
+
+        ArrayList<CadRecord> rows=new ArrayList<>();
+        rows.add(freshFiber);
+        ServerMapCache.replaceGroup(state,rows,"FIBER");
+
+        assertEquals(2,state.records.size());
+        assertTrue(state.records.stream().anyMatch(r->"coax".equals(r.id)));
+        assertTrue(state.records.stream().anyMatch(r->"fresh-fiber".equals(r.id)));
+        assertFalse(state.records.stream().anyMatch(r->"old-fiber".equals(r.id)));
+    }
+
+    @Test public void minimalPoleNumberIsExposedToAndroidDetails() throws Exception {
+        org.json.JSONObject feature=new org.json.JSONObject()
+                .put("geometry",new org.json.JSONObject()
+                        .put("type","Point")
+                        .put("coordinates",new org.json.JSONArray().put(126.8).put(35.1)))
+                .put("properties",new org.json.JSONObject()
+                        .put("group_id","POLE")
+                        .put("entity_id","P1")
+                        .put("layer","CN_L_Pole")
+                        .put("entity_type","INSERT")
+                        .put("block_name","")
+                        .put("attributes",new org.json.JSONObject().put("_cmb_pole_no","7792A141")));
+
+        CadRecord record=ServerCadParser.feature("CMB_GN_HP",feature).get(0);
+        assertEquals("7792A141",record.fields.get("전주번호"));
+        assertEquals("7792A141",CadObjectInfo.pole(record));
+    }
+
 }
