@@ -936,20 +936,48 @@ class Api:
             return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
 
 
+    def _nonfiber_layers(self):
+        """Return only runtime non-FIBER map layers for nearby object queries."""
+        try:
+            meta = self.c.online_layers(self.region) or {}
+            rows = meta.get("layers") or meta.get("items") or []
+            allowed_groups = {"COAX", "CONDUIT", "POLE", "USER"}
+            result = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                group = str(row.get("group_id") or "").strip().upper()
+                if group not in allowed_groups:
+                    continue
+                layer = str(row.get("layer") or "").strip()
+                if layer:
+                    result.append(layer)
+            return sorted(set(result))
+        except Exception:
+            return []
+
     def _fetch_bbox_network(self, west, south, east, north):
-        limit = 2000
+        # 운영 서버는 이제 layers SQL 필터를 지원한다.
+        # 주변 객체 조회에서 FIBER/SYMBOL을 다시 받지 않고 필요한 비광 레이어만 받는다.
+        limit = 5000
         max_depth = 5
+        layers = self._nonfiber_layers()
+        layer_filter = ",".join(layers) if layers else None
 
         def fetch_cell(cw, cs, ce, cn, depth=0):
             raw = self.c.online_objects(
                 self.region,
                 f"{cw},{cs},{ce},{cn}",
                 limit=limit,
+                layers=layer_filter,
             ) or {}
-            features = list(raw.get("features") or [])
+            features = [
+                feature for feature in (raw.get("features") or [])
+                if str(((feature.get("properties") or {}).get("group_id") or "")).upper() != "FIBER"
+            ]
 
-            # 일반 화면은 전체 bbox 1회로 끝낸다.
-            # 서버 limit에 실제로 도달한 경우에만 4분할한다.
+            # 서버가 필요한 비광 layer만 반환하므로 5,000 미만이면 이 셀은 완료다.
+            # 5,000에 도달한 경우에만 실제 밀집 셀로 보고 4분할한다.
             if len(features) < limit or depth >= max_depth:
                 return features
 
@@ -2869,7 +2897,8 @@ async function loadObjects(force=false){{
     lastQueryLat=queryLat;
     lastQueryLng=queryLng;
     lastDetailMode=false;
-    setStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText());
+    loadGeneration++;
+    setWorkStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText(),100,false);
     return;
   }}
 
@@ -3392,11 +3421,23 @@ function initMap(){{
           redrawFiberArrowsForZoom();
         }}
         lastDetailMode=(level<=3);
-        setStatus(
-          'L'+level+
-          (level<=3 ? ' · 캐시 레벨 즉시 적용' : ' · 광만 표시')+
-          fiberDiagText()
-        );
+
+        if(level>5){{
+          // L5 이하에서 시작된 주변 COAX/기기 조회가 늦게 끝나더라도
+          // 현재 광 전용 화면을 덮어쓰지 못하게 결과 세대를 폐기한다.
+          loadGeneration++;
+          setWorkStatus(
+            'L'+level+' · 광 캐시 표시'+fiberDiagText(),
+            100,
+            false
+          );
+        }}else{{
+          setStatus(
+            'L'+level+
+            (level<=3 ? ' · 캐시 레벨 즉시 적용' : ' · 광만 표시')+
+            fiberDiagText()
+          );
+        }}
       }});
       centerMyLocation(false);
     }});
