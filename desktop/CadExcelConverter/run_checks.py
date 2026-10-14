@@ -199,8 +199,10 @@ assert "def region_at_point(self, regions, lat, lng, radius_m=1200):" in online_
 assert "async function autoRegionForMapCenter()" in online_source
 activate_block = online_source.split("async function activateRegion(region){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
 assert "apiCall('fiber_all'" not in activate_block
-assert "loadFiberViewport(false)" in activate_block
-assert "loadObjects(true)" in activate_block
+assert "await loadFiberViewport(true);" in activate_block
+assert "await loadObjects(true);" in activate_block
+assert activate_block.index("await loadFiberViewport(true);") < activate_block.index("await loadObjects(true);")
+assert "lastFiberQueryLat=null;" in activate_block
 auto_region_block2 = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function loadMapDisplaySettings",1)[0]
 assert "candidates.length===1" in auto_region_block2
 assert "radius_m:500" in auto_region_block2
@@ -210,8 +212,9 @@ assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
 assert "if(ok){{" in init_block
-assert "loadFiberViewport(false)" in init_block
-assert "loadObjects(false)" in init_block
+assert "await loadFiberViewport(false);" in init_block
+assert "await loadObjects(false);" in init_block
+assert init_block.index("await loadFiberViewport(false);") < init_block.index("await loadObjects(false);")
 assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
 assert "apiCall('fiber_all',{{force:false}})" in online_source
@@ -645,6 +648,9 @@ print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 fiber_view_block = online_source.split("async function loadFiberViewport(force=false){{",1)[1].split("function queueNonFiberLoad",1)[0]
 assert "apiCall('fiber_bbox'" in fiber_view_block
+assert "queryBoundsFromCenter(cLat,cLng)" in fiber_view_block
+assert "moved<QUERY_RECENTER_METERS" in fiber_view_block
+assert "관리자 반경 '+String(QUERY_RADIUS_METERS)+'m" in fiber_view_block
 assert "apiCall('polemap'" not in fiber_view_block
 assert "apiCall('fiber_cell'" not in fiber_view_block
 assert "GRID" not in fiber_view_block
@@ -659,6 +665,9 @@ objects_block = online_source.split("    def objects(self, west, south, east, no
 assert "self._cache_covers(west, south, east, north)" in objects_block
 assert "self._cached_features(west, south, east, north)" in objects_block
 assert "self._fetch_bbox_network(west, south, east, north)" in objects_block
+js_objects_block = online_source.split("async function loadObjects(force=false){{",1)[1].split("async function loadRegions(){{",1)[0]
+assert "queryBoundsFromCenter(queryLat,queryLng)" in js_objects_block
+assert "moved<QUERY_RECENTER_METERS" in js_objects_block
 assert "self.polemap(" not in objects_block
 assert "self._read_object_cell_cache" not in objects_block
 assert "part_index = str(" in online_source
