@@ -700,6 +700,10 @@ assert "authorizedRegions=[]" in online_source
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
 assert "async function activateRegion(region)" in online_source
+assert "function containingCellFromList(cells,lat,lng)" in online_source
+assert "const centerCell=containingCellFromList(cells,lat,lng);" in online_source
+assert "if(!centerCell)continue;" in online_source
+assert "인접 지역(예: 함평/나주)의 2km probe 결과가 서로 섞여 지역이 뒤바뀌는 것을 방지한다." in online_source
 assert "style='display:none'" in online_source
 assert "지도 위치에 따라 자동 연결" in online_source
 print("AUTO_REGION_BY_MAP_POSITION_OK")
