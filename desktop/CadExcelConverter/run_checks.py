@@ -669,6 +669,9 @@ assert "function loadFiberViewport(force=false)" in online_source
 assert "loadFiberViewport(false);" in online_source
 assert "apiCall('polemap',query)" in online_source
 assert "apiCall('fiber_cell'" in online_source
+assert "화면이 멈추면 로컬 GRID 캐시를 서버/버전 확인보다 먼저 즉시 반환한다." in online_source
+assert "self._start_fiber_cell_refresh(grid_id, west, south, east, north)" in online_source
+assert "if(typeof r!=='undefined' && r && r.cache!=='hit')" in online_source
 assert "const ordered=" in online_source
 assert "const primary=ordered[0];" in online_source
 assert "gridDiag.stage=cells.length?'POLEMAP 수신':'POLEMAP 0셀';" in online_source
