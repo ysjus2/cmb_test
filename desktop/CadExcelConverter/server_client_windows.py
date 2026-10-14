@@ -650,8 +650,8 @@ class CMBServerClient:
             "/admin/users",
             {
                 "username": str(username).strip(),
-                "name": str(name).strip() or None,
-                "department": str(department).strip() or None,
+                "name": str(name).strip(),
+                "department": str(department).strip(),
                 "level": int(level),
             },
         )
@@ -668,11 +668,35 @@ class CMBServerClient:
             f"/admin/users/{int(user_id)}/activate",
         )
 
-    def reset_user_password(self, user_id, new_password):
+    def reset_user_password(self, user_id, new_password="cmb15443434"):
         return self._request(
             "POST",
             f"/admin/users/{int(user_id)}/reset-password",
             {"new_password": str(new_password)},
+        )
+
+    def reset_user_device(self, user_id):
+        return self._request(
+            "POST",
+            f"/admin/users/{int(user_id)}/reset-device",
+            {},
+        )
+
+    def set_user_level(self, user_id, level):
+        return self._request(
+            "POST",
+            f"/admin/users/{int(user_id)}/level",
+            {"level": int(level)},
+        )
+
+    def change_password(self, current_password, new_password):
+        return self._request(
+            "POST",
+            "/auth/change-password",
+            {
+                "current_password": str(current_password),
+                "new_password": str(new_password),
+            },
         )
 
     def admin_regions(self):
