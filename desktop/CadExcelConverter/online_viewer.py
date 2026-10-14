@@ -138,9 +138,49 @@ class Api:
         ys = [p[1] for p in points]
         return min(xs), min(ys), max(xs), max(ys)
 
+    @staticmethod
+    def _stored_point_position(feature):
+        """Return authoritative viewer position for Point devices when stored pole coordinates exist."""
+        try:
+            props = (feature or {}).get("properties") or {}
+            attrs = props.get("attributes") or {}
+            fields = attrs.get("fields") if isinstance(attrs, dict) else None
+            if not isinstance(fields, dict):
+                fields = attrs if isinstance(attrs, dict) else {}
+
+            direct = fields.get("_cmb_pole_position") or {}
+            if isinstance(direct, dict):
+                lon = float(direct.get("lon"))
+                lat = float(direct.get("lat"))
+                if -180 <= lon <= 180 and -90 <= lat <= 90:
+                    return lon, lat
+
+            refs = fields.get("_cmb_pole_refs") or []
+            if isinstance(refs, list):
+                for ref in refs:
+                    if not isinstance(ref, dict):
+                        continue
+                    lon = float(ref.get("lon"))
+                    lat = float(ref.get("lat"))
+                    if -180 <= lon <= 180 and -90 <= lat <= 90:
+                        return lon, lat
+        except Exception:
+            pass
+        return None
+
     @classmethod
     def _feature_intersects(cls, feature, west, south, east, north):
-        bounds = cls._geometry_bounds(feature.get("geometry") or {})
+        geometry = (feature or {}).get("geometry") or {}
+        # Device rendering uses _cmb_pole_position as the authoritative position.
+        # Cache viewport filtering must use the same coordinate or a cached device can be
+        # removed before it reaches the JavaScript renderer.
+        if str(geometry.get("type") or "") == "Point":
+            stored = cls._stored_point_position(feature)
+            if stored:
+                lon, lat = stored
+                return west <= lon <= east and south <= lat <= north
+
+        bounds = cls._geometry_bounds(geometry)
         if not bounds:
             return False
         fw, fs, fe, fn = bounds
@@ -1438,6 +1478,21 @@ class Api:
                     ((float(c.get("west")) + float(c.get("east"))) / 2.0 - cx) ** 2
                     + ((float(c.get("south")) + float(c.get("north"))) / 2.0 - cy) ** 2
                 ))
+
+                # 일반 객체도 광과 동일하게 현재 화면 중심점을 실제 포함하는 GRID를 최우선으로 읽는다.
+                # 인접 GRID의 중심거리가 더 짧다는 이유로 현재 GRID가 백그라운드로 밀리는 것을 방지한다.
+                center_index = next(
+                    (
+                        i for i, cell in enumerate(cells)
+                        if cx >= min(float(cell.get("west")), float(cell.get("east")))
+                        and cx <= max(float(cell.get("west")), float(cell.get("east")))
+                        and cy >= min(float(cell.get("south")), float(cell.get("north")))
+                        and cy <= max(float(cell.get("south")), float(cell.get("north")))
+                    ),
+                    None,
+                )
+                if center_index not in (None, 0):
+                    cells.insert(0, cells.pop(center_index))
 
                 # 빠른 첫 표시:
                 # 중앙 셀만 필요 시 동기 조회하고, 주변 셀은 캐시가 있는 것만 즉시 병합한다.
