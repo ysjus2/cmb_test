@@ -744,9 +744,17 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
                             if pole_no:
                                 break
 
+            source_fields = attrs.get("fields") if isinstance(attrs.get("fields"), dict) else attrs
+            source_id = ""
+            if isinstance(source_fields, dict):
+                source_id = str(source_fields.get("ID") or source_fields.get("id") or "").strip()
+            source_id = source_id.strip("() ").upper()
+
+            display_no = pole_no or source_id
+
             obj["attributes"] = (
-                {"_cmb_pole_no": pole_no}
-                if pole_no else {}
+                {"_cmb_pole_no": display_no}
+                if display_no else {}
             )
             obj["xdata"] = {}
             # POLE 렌더링은 group/Point geometry 기준이므로 블록 상세는 저장하지 않는다.
