@@ -37,7 +37,7 @@ public class ServerIntegrationTest {
 
     @Test public void rejectsBadServerCoordinatesAndInsecureUrls() throws Exception {
         try{ServerCadParser.feature("hp",new JSONObject(point("bad",999)));fail();}catch(Exception expected){}
-        assertEquals("https://192.168.246.54",ServerApiClient.BASE_URL);
+        assertEquals("https://192.168.246.54:8443",ServerApiClient.BASE_URL);
         assertTrue(new MapViewport(126,35,126.1,35.1).queryable());
         assertFalse(new MapViewport(126,35,127,36).queryable());
         assertFalse(new MapViewport(Double.NaN,35,126,36).queryable());
@@ -55,7 +55,7 @@ public class ServerIntegrationTest {
             ServerApiClient client=new ServerApiClient(url -> {
                 assertEquals("https",url.getProtocol());
                 assertEquals("192.168.246.54",url.getHost());
-                assertEquals(-1,url.getPort());
+                assertEquals(8443,url.getPort());
                 return (java.net.HttpURLConnection)mock.url(url.getFile()).url().openConnection();
             });
             client.login("alice","test-password");
