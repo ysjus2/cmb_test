@@ -669,6 +669,10 @@ assert "function loadFiberViewport(force=false)" in online_source
 assert "loadFiberViewport(false);" in online_source
 assert "apiCall('polemap',query)" in online_source
 assert "def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):" in online_source
+assert "self._load_fiber_cache()" in online_source
+assert "for feature in self._fiber_features():" in online_source
+assert '"monolithic_count": monolithic_count' in online_source
+assert "REGIONCACHE" in online_source
 assert "Read Polemap + fiber cell files only. Never contacts the server." in online_source
 assert "apiCall('fiber_cached_viewport'" in online_source
 assert "gridDiag.stage='로컬 광 캐시 표시';" in online_source
