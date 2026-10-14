@@ -227,11 +227,14 @@ assert "await loadFiberViewport(false);" in online_source
 assert "queueNonFiberLoad(false,140);" in online_source
 assert "queueNonFiberLoad(true,140);" in online_source
 assert "const FIBER_QUERY_RADIUS_METERS=20000;" in online_source
+assert "gridDiag.stage='현재 GRID 광';" in online_source
+assert "gridDiag.stage='현재 GRID 광 표시';" in online_source
+assert "gridDiag.stage='주변 GRID 광 보충';" in online_source
+assert "const primary=ordered[0];" in online_source
+assert "loadFiberViewport()는 여기서 즉시 반환하므로 동축/기기 로딩이 지연되지 않는다." in online_source
+assert "if(moved<FIBER_RECENTER_METERS && hasFiberCache)" not in online_source
 assert "const FIBER_RECENTER_METERS=10000;" in online_source
 assert "lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='';" in online_source
-assert "if(moved<FIBER_RECENTER_METERS)" not in online_source
-assert "if(moved<FIBER_RECENTER_METERS && hasFiberCache)" in online_source
-assert "const hasFiberCache=" in online_source
 assert "layers=None" in online_source
 assert "광 셀 조회는 /layers 메타데이터에 의존하지 않는다." in online_source
 assert "lastFiberCacheLat=null;" in online_source
