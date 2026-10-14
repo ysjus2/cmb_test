@@ -768,7 +768,7 @@ assert "ident = feature_id" in online_source
 upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
 assert 'payload["pole_storage_schema"] = "minimal-v1"' in upload_source
 assert 'obj["attributes"] = (' in upload_source
-assert '{"_cmb_pole_no": pole_no}' in upload_source
+assert '{"_cmb_pole_no": display_no}' in upload_source
 assert 'obj["xdata"] = {}' in upload_source
 assert 'payload["symbol_library"] = []' in upload_source
 assert "if(String(p.group_id||'').toUpperCase()==='POLE')" in online_source
