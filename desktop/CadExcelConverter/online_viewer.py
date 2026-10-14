@@ -886,14 +886,22 @@ class Api:
         }
 
     def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):
-        """Read Polemap + fiber cell files only. Never contacts the server."""
+        """Read every local fiber cache source first. Never contacts the server."""
         if not self.region:
             return {"ok": True, "features": [], "cells": [], "cache": "none"}
 
         west = float(west); south = float(south); east = float(east); north = float(north)
         cells = self._cached_polemap_cells(west, south, east, north)
-        if not cells:
-            return {"ok": True, "features": [], "cells": [], "cache": "miss"}
+
+        # GRID 셀 캐시가 아직 없는 지역도 기존 지역 전체 fiber 캐시를 즉시 표시해야 한다.
+        # 최근 셀 캐시 전환 과정에서 이 경로가 빠져 있으면 캐시 파일이 있어도 화면이 완전히 빈다.
+        merged = {}
+        monolithic_count = 0
+        self._load_fiber_cache()
+        for feature in self._fiber_features():
+            if self._feature_intersects(feature, west, south, east, north):
+                merged[self._feature_key(feature)] = feature
+                monolithic_count += 1
 
         try:
             cx = float(center_lng)
@@ -921,7 +929,6 @@ class Api:
             ),
         ))
 
-        merged = {}
         used_cells = []
         for cell in cells:
             grid_id = str(cell.get("grid_id") or "").strip()
@@ -940,6 +947,8 @@ class Api:
             "features": list(merged.values()),
             "cells": cells,
             "used_cells": used_cells,
+            "monolithic_count": monolithic_count,
+            "cell_feature_count": max(0, len(merged) - monolithic_count),
             "cache": "hit" if merged else "miss",
         }
 
@@ -3336,7 +3345,10 @@ async function loadFiberViewport(force=false){{
       if(cachedCenter)gridDiag.centerGrid=String(cachedCenter.grid_id||'-');
       gridDiag.cells=cachedCells.length;
       gridDiag.stage='로컬 광 캐시 표시';
-      gridDiag.progress=String((cachedView.used_cells||[]).length)+' GRID · '+String(cachedFeatures.length)+'개';
+      gridDiag.progress=
+        String((cachedView.used_cells||[]).length)+' GRID · '+
+        String(cachedFeatures.length)+'개'+
+        ' · REGIONCACHE '+String(cachedView.monolithic_count||0);
       setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
     }}
   }}catch(e){{}}
