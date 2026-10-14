@@ -733,6 +733,17 @@ assert "west, south, east, north = -180.0, -90.0, 180.0, 90.0" in online_source
 assert "meta = self.c.online_layers(region) or {}" not in online_source.split("def _fetch_all_region_features",1)[1].split("def ensure_fiber_all",1)[0]
 assert "setWorkStatus('L'+level+' · 광 캐시 표시'+fiberDiagText(),100,false)" not in online_source
 assert "setWorkStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText(),100,false)" not in online_source
+assert "GENERAL_CACHE_SCHEMA = 3" in online_source
+assert "FIBER_CACHE_SCHEMA = 3" in online_source
+assert 'CACHE_BASIS = "coordinate_region"' in online_source
+assert 'cache_region = str(raw.get("region") or "")' in online_source
+assert "cache_region != str(self.region or "")" in online_source
+assert "cache_basis != CACHE_BASIS" in online_source
+assert '"region": str(self.region or "")' in online_source
+assert '"cache_basis": CACHE_BASIS' in online_source
+assert "self._delete_fiber_cache()" in online_source
+assert "self._delete_cache_file()" in online_source
+print("REGION_SCOPED_CACHE_INVALIDATION_OK")
 print("FULL_FIBER_GLOBAL_BBOX_AND_PROGRESS_GUARD_OK")
 print("GROUP_FILTERED_FIBER_SYNC_OK")
 print("NEARBY_OBJECT_STALL_GUARD_OK")
