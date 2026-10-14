@@ -863,6 +863,64 @@ class Api:
                     }
         return {"ok": True, "region": "", "grid_id": "", "cell": None, "source": "cache"}
 
+    def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):
+        """Read Polemap + fiber cell files only. Never contacts the server."""
+        if not self.region:
+            return {"ok": True, "features": [], "cells": [], "cache": "none"}
+
+        west = float(west); south = float(south); east = float(east); north = float(north)
+        cells = self._cached_polemap_cells(west, south, east, north)
+        if not cells:
+            return {"ok": True, "features": [], "cells": [], "cache": "miss"}
+
+        try:
+            cx = float(center_lng)
+            cy = float(center_lat)
+        except Exception:
+            cx = (west + east) / 2.0
+            cy = (south + north) / 2.0
+
+        def contains(cell):
+            try:
+                cw = float(cell.get("west")); cs = float(cell.get("south"))
+                ce = float(cell.get("east")); cn = float(cell.get("north"))
+                return (
+                    cx >= min(cw, ce) and cx <= max(cw, ce)
+                    and cy >= min(cs, cn) and cy <= max(cs, cn)
+                )
+            except Exception:
+                return False
+
+        cells.sort(key=lambda c: (
+            0 if contains(c) else 1,
+            (
+                ((float(c.get("west")) + float(c.get("east"))) / 2.0 - cx) ** 2
+                + ((float(c.get("south")) + float(c.get("north"))) / 2.0 - cy) ** 2
+            ),
+        ))
+
+        merged = {}
+        used_cells = []
+        for cell in cells:
+            grid_id = str(cell.get("grid_id") or "").strip()
+            if not grid_id:
+                continue
+            cached = self._read_fiber_cell_cache(grid_id)
+            if not cached or not cached.get("features"):
+                continue
+            used_cells.append(grid_id)
+            for feature in cached.get("features") or []:
+                if self._feature_intersects(feature, west, south, east, north):
+                    merged[self._feature_key(feature)] = feature
+
+        return {
+            "ok": True,
+            "features": list(merged.values()),
+            "cells": cells,
+            "used_cells": used_cells,
+            "cache": "hit" if merged else "miss",
+        }
+
     def _start_polemap_refresh(self, west, south, east, north):
         key = (
             str(self.region or ""),
@@ -3238,6 +3296,29 @@ async function loadFiberViewport(force=false){{
     north:cLat+fiberLatDelta
   }};
 
+  // 0) 가장 먼저 로컬 Polemap + fiber cell 캐시만 읽어 즉시 표시한다.
+  // 서버/버전/Polemap 네트워크 응답을 기다리지 않는다.
+  try{{
+    const cachedView=await apiCall('fiber_cached_viewport',{{
+      west:query.west,south:query.south,east:query.east,north:query.north,
+      center_lat:cLat,center_lng:cLng
+    }});
+    if(generation!==fiberViewportGeneration)return 0;
+    if(region!==document.getElementById('region').value)return 0;
+    const cachedFeatures=(cachedView&&cachedView.features)||[];
+    if(cachedFeatures.length){{
+      const cachedRendered=renderFiberFeatures(cachedFeatures);
+      fiberDiag.cache=cachedFeatures.length;
+      const cachedCells=(cachedView&&cachedView.cells)||[];
+      const cachedCenter=centerCellFromList(cachedCells,cLat,cLng);
+      if(cachedCenter)gridDiag.centerGrid=String(cachedCenter.grid_id||'-');
+      gridDiag.cells=cachedCells.length;
+      gridDiag.stage='로컬 광 캐시 표시';
+      gridDiag.progress=String((cachedView.used_cells||[]).length)+' GRID · '+String(cachedFeatures.length)+'개';
+      setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+    }}
+  }}catch(e){{}}
+
   let polemap=null;
   try{{polemap=await apiCall('polemap',query);}}catch(e){{polemap=null;}}
   if(generation!==fiberViewportGeneration)return 0;
@@ -4234,6 +4315,15 @@ def run_online_viewer():
                     result = api.select(data.get("region"))
                 elif name == "fiber_cached":
                     result = api.cached_fiber()
+                elif name == "fiber_cached_viewport":
+                    result = api.fiber_cached_viewport(
+                        data.get("west"),
+                        data.get("south"),
+                        data.get("east"),
+                        data.get("north"),
+                        data.get("center_lat"),
+                        data.get("center_lng"),
+                    )
                 elif name == "polemap":
                     result = api.polemap(
                         data.get("west"),
