@@ -280,19 +280,11 @@ class Api:
         max_depth = 14
 
         meta = self.c.online_layers(region) or {}
-        bounds = meta.get("bounds") if isinstance(meta, dict) else None
-        try:
-            west = float((bounds or {}).get("west"))
-            south = float((bounds or {}).get("south"))
-            east = float((bounds or {}).get("east"))
-            north = float((bounds or {}).get("north"))
-            if not (-180 <= west <= 180 and -180 <= east <= 180 and
-                    -90 <= south <= 90 and -90 <= north <= 90 and
-                    west < east and south < north):
-                raise ValueError("invalid region bounds")
-        except Exception:
-            # 메타 bounds가 없는 구형 서버만 기존 전역 bbox로 폴백한다.
-            west, south, east, north = -180.0, -90.0, 180.0, 90.0
+        # 광 전체동기화는 /layers 메타의 bounds를 신뢰하지 않는다.
+        # 운영 서버가 region_code + groups=FIBER를 직접 SQL 필터하므로
+        # WGS84 전체 bbox로 요청해도 해당 지역 FIBER만 반환된다.
+        # 이렇게 해야 잘못되거나 부분적인 메타 bounds 때문에 광이 끊기는 일을 막을 수 있다.
+        west, south, east, north = -180.0, -90.0, 180.0, 90.0
 
         progress_seen = {}
 
@@ -488,6 +480,8 @@ class Api:
                 "region": region,
             }
 
+        # 여기까지 왔다는 것은 expected_count 검증까지 통과했다는 뜻이다.
+        # 불완전 수신본은 절대 정상 캐시로 교체하지 않는다.
         self.fiber_cache = {"version": fiber_version, "features": fiber_features}
         self._save_fiber_cache()
         self.fiber_synced_regions.add(region)
@@ -2859,7 +2853,7 @@ async function loadObjects(force=false){{
     lastQueryLng=queryLng;
     lastDetailMode=false;
     loadGeneration++;
-    setWorkStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText(),100,false);
+    setStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText());
     return;
   }}
 
@@ -3388,13 +3382,11 @@ function initMap(){{
         lastDetailMode=(level<=3);
 
         if(level>5){{
-          // L5 이하에서 시작된 주변 COAX/기기 조회가 늦게 끝나더라도
-          // 현재 광 전용 화면을 덮어쓰지 못하게 결과 세대를 폐기한다.
+          // L5 이하에서 시작된 주변 COAX/기기 조회 결과만 폐기한다.
+          // 광 전체동기화 완료 여부와 진행률은 여기서 조작하지 않는다.
           loadGeneration++;
-          setWorkStatus(
-            'L'+level+' · 광 캐시 표시'+fiberDiagText(),
-            100,
-            false
+          setStatus(
+            'L'+level+' · 광 캐시 표시'+fiberDiagText()
           );
         }}else{{
           setStatus(
