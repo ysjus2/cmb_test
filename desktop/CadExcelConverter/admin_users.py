@@ -1540,7 +1540,7 @@ class UserAdminWindow(tk.Toplevel):
         username = str(user.get("username") or "").strip()
         if not messagebox.askyesno(
             "단말 초기화",
-            f"{username} 사용자의 등록 단말을 초기화하시겠습니까?\n\n다음 로그인 단말이 새 단말로 등록됩니다.",
+            f"{username} 사용자의 등록 단말을 초기화하시겠습니까?\n\n등록 단말과 기존 로그인 세션이 모두 해제됩니다.\n다음 로그인 단말이 새 단말로 등록됩니다.",
             parent=self,
         ):
             return
@@ -1549,7 +1549,7 @@ class UserAdminWindow(tk.Toplevel):
             self.status.set(f"{username} 단말 초기화 완료")
             messagebox.showinfo(
                 "단말 초기화",
-                "등록 단말을 초기화했습니다.\n다음 정상 로그인 단말이 새 단말로 등록됩니다.",
+                "등록 단말과 기존 로그인 세션을 모두 초기화했습니다.\n다음 정상 로그인 단말이 새 단말로 등록됩니다.",
                 parent=self,
             )
         except Exception as exc:
