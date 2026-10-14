@@ -52,6 +52,7 @@ class Api:
         self.cache_lock = threading.RLock()
         self.bbox_refreshing = set()
         self.fiber_bbox_refreshing = set()
+        self.region_bounds = {}
 
         # CMBServerClient()는 먼저 CMB_AUTH_STATE_PATH의 공용 세션 파일에서
         # 최신 access/refresh token을 읽는다. 장시간 업로드 중 refresh token이
@@ -295,11 +296,29 @@ class Api:
         limit = 5000
         max_depth = 14
 
-        # 광 전체동기화는 /layers 메타의 bounds/레이어 목록을 사용하지 않는다.
-        # 운영 서버가 region_code + groups=FIBER를 직접 SQL 필터하므로
-        # WGS84 전체 bbox로 요청해도 해당 지역 FIBER만 반환된다.
-        # 이렇게 해야 잘못되거나 부분적인 메타 bounds 때문에 광이 끊기는 일을 막을 수 있다.
-        west, south, east, north = -180.0, -90.0, 180.0, 90.0
+        # 권한 지역 조회에서 확인한 실제 지역 bounds를 사용한다.
+        # 전세계 bbox는 불필요하게 큰 범위를 조회해 첫 GeoJSON 응답을 지연시킨다.
+        bounds = self.region_bounds.get(region) or {}
+        try:
+            west = float(bounds["west"])
+            south = float(bounds["south"])
+            east = float(bounds["east"])
+            north = float(bounds["north"])
+        except Exception:
+            meta = self.c.online_layers(region) or {}
+            raw_bounds = meta.get("bounds") if isinstance(meta, dict) else None
+            if not isinstance(raw_bounds, dict):
+                raise RuntimeError("FIBER_REGION_BOUNDS_MISSING")
+            west = float(raw_bounds["west"])
+            south = float(raw_bounds["south"])
+            east = float(raw_bounds["east"])
+            north = float(raw_bounds["north"])
+            self.region_bounds[region] = {
+                "west": west,
+                "south": south,
+                "east": east,
+                "north": north,
+            }
 
         progress_seen = {}
 
@@ -770,6 +789,8 @@ class Api:
                 except Exception:
                     bounds = None
                 items.append({"id": region_id, "name": name or region_id, "bounds": bounds})
+                if bounds:
+                    self.region_bounds[region_id] = dict(bounds)
 
             return {
                 "ok": True,
