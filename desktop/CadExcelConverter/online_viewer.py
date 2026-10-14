@@ -280,20 +280,6 @@ class Api:
         max_depth = 14
 
         meta = self.c.online_layers(region) or {}
-        layer_rows = meta.get("layers") or meta.get("items") or []
-        fiber_layers = []
-        for row in layer_rows:
-            if not isinstance(row, dict):
-                continue
-            if str(row.get("group_id") or "").strip().upper() != "FIBER":
-                continue
-            layer = str(row.get("layer") or "").strip()
-            if layer:
-                fiber_layers.append(layer)
-
-        if not fiber_layers:
-            return []
-
         bounds = meta.get("bounds") if isinstance(meta, dict) else None
         try:
             west = float((bounds or {}).get("west"))
@@ -308,7 +294,6 @@ class Api:
             # 메타 bounds가 없는 구형 서버만 기존 전역 bbox로 폴백한다.
             west, south, east, north = -180.0, -90.0, 180.0, 90.0
 
-        layer_filter = ",".join(sorted(set(fiber_layers)))
         progress_seen = {}
 
         def update_progress(features, stage="receiving"):
@@ -338,7 +323,7 @@ class Api:
                 region,
                 f"{w},{s},{e},{n}",
                 limit=limit,
-                layers=layer_filter,
+                groups="FIBER",
             ) or {}
             ensure_current()
 
@@ -823,17 +808,15 @@ class Api:
         ]
 
     def _fetch_fiber_bbox_network(self, west, south, east, north):
-        layers = self._fiber_layers()
         limit = 5000
         max_depth = 14
-        layer_filter = ",".join(layers) if layers else None
 
         def fetch_cell(cw, cs, ce, cn, depth=0):
             raw = self.c.online_objects(
                 self.region,
                 f"{cw},{cs},{ce},{cn}",
                 limit=limit,
-                layers=layer_filter,
+                groups="FIBER",
             ) or {}
             features = [
                 feature for feature in (raw.get("features") or [])
@@ -936,40 +919,18 @@ class Api:
             return self._handle_error(exc, {"features": [], "cache": "error", "refresh_pending": False})
 
 
-    def _nonfiber_layers(self):
-        """Return only runtime non-FIBER map layers for nearby object queries."""
-        try:
-            meta = self.c.online_layers(self.region) or {}
-            rows = meta.get("layers") or meta.get("items") or []
-            allowed_groups = {"COAX", "CONDUIT", "POLE", "USER"}
-            result = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                group = str(row.get("group_id") or "").strip().upper()
-                if group not in allowed_groups:
-                    continue
-                layer = str(row.get("layer") or "").strip()
-                if layer:
-                    result.append(layer)
-            return sorted(set(result))
-        except Exception:
-            return []
-
     def _fetch_bbox_network(self, west, south, east, north):
-        # 운영 서버는 이제 layers SQL 필터를 지원한다.
-        # 주변 객체 조회에서 FIBER/SYMBOL을 다시 받지 않고 필요한 비광 레이어만 받는다.
+        # 주변 조회는 FIBER와 분리하여 비광 그룹만 요청한다.
         limit = 5000
         max_depth = 5
-        layers = self._nonfiber_layers()
-        layer_filter = ",".join(layers) if layers else None
+        group_filter = "COAX,CONDUIT,POLE,USER"
 
         def fetch_cell(cw, cs, ce, cn, depth=0):
             raw = self.c.online_objects(
                 self.region,
                 f"{cw},{cs},{ce},{cn}",
                 limit=limit,
-                layers=layer_filter,
+                groups=group_filter,
             ) or {}
             features = [
                 feature for feature in (raw.get("features") or [])
@@ -2797,16 +2758,16 @@ async function loadRegionFiber(syncForce=false){{
     if(region===document.getElementById('region').value){{
       setWorkStatus('광 전체 동기화 실패 · '+msg+' · 기존 광 캐시 유지',100,false);
     }}
-    return 0;
+    return -1;
   }}finally{{
     progressToken.active=false;
     await progressPromise.catch(()=>{{}});
   }}
   if(region!==document.getElementById('region').value)return 0;
   if(!fresh||fresh.ok===false){{
-    if(fresh&&fresh.cancelled)return 0;
+    if(fresh&&fresh.cancelled)return -1;
     if(fresh&&fresh.error)setWorkStatus(fresh.error+' · 기존 광 캐시 유지',100,false);
-    return 0;
+    return -1;
   }}
 
   const features=(fresh.features||[]);
@@ -3214,8 +3175,12 @@ async function activateRegion(region){{
     lastDetailMode=null;
 
     // 새 지역 광 캐시를 먼저 표시하고, 이전 지역 전체수집은 backend generation으로 취소된다.
-    await loadRegionFiber(false);
+    const fiberResult=await loadRegionFiber(false);
     if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
+    if(fiberResult<0){{
+      // 광 전체 동기화 실패 상태를 동축/기기 85% 메시지가 덮어쓰지 않게 한다.
+      return false;
+    }}
 
     setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 동축/기기 조회 시작',80,true);
     await loadObjects(true);
