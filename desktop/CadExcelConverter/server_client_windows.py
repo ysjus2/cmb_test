@@ -224,6 +224,8 @@ class CMBServerClient:
                 detail = parsed.get("detail") or detail
             except Exception:
                 pass
+            if exc.code == 403 and str(detail).strip() in ("DEVICE_NOT_APPROVED", "DEVICE_REQUIRED"):
+                detail = "등록된 기기와 다릅니다. 관리자에게 문의하세요."
             raise ServerError(f"HTTP {exc.code}: {detail or exc.reason}", status=exc.code) from exc
         except urllib.error.URLError as exc:
             raise ServerError(f"서버 연결 실패: {exc.reason}") from exc
@@ -300,6 +302,8 @@ class CMBServerClient:
                 detail = parsed.get("detail") or detail
             except Exception:
                 pass
+            if exc.code == 403 and str(detail).strip() in ("DEVICE_NOT_APPROVED", "DEVICE_REQUIRED"):
+                detail = "등록된 기기와 다릅니다. 관리자에게 문의하세요."
             raise ServerError(f"HTTP {exc.code}: {detail or exc.reason}", status=exc.code) from exc
         except urllib.error.URLError as exc:
             raise ServerError(f"서버 연결 실패: {exc.reason}") from exc
