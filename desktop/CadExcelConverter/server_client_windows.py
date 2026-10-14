@@ -469,7 +469,37 @@ class CMBServerClient:
                 path += "&layers=" + urllib.parse.quote(layers, safe=",")
         return self._request("GET", path, timeout=15)
 
+    def online_grid_direct_objects(self, grid_id, limit=20000, groups=None, layers=None):
+        g = urllib.parse.quote(str(grid_id).strip().upper(), safe="")
+        path = f"/online/grid/{g}/objects?limit={int(limit)}"
+        if groups:
+            if isinstance(groups, (list, tuple, set)):
+                groups = ",".join(str(x).strip().upper() for x in groups if str(x).strip())
+            groups = str(groups or "").strip()
+            if groups:
+                path += "&groups=" + urllib.parse.quote(groups, safe=",")
+        if layers:
+            if isinstance(layers, (list, tuple, set)):
+                layers = ",".join(str(x).strip() for x in layers if str(x).strip())
+            layers = str(layers or "").strip()
+            if layers:
+                path += "&layers=" + urllib.parse.quote(layers, safe=",")
+        return self._request("GET", path, timeout=15)
+
     def online_grid_objects(self, region, grid_id, limit=20000, layers=None):
+        # 신규 서버는 GRID 자체가 1차 조회키다.
+        # 구버전 서버 호환을 위해 새 API가 없을 때만 region+grid 경로로 폴백한다.
+        try:
+            return self.online_grid_direct_objects(
+                grid_id,
+                limit=limit,
+                groups=None,
+                layers=layers,
+            )
+        except ServerError as exc:
+            if exc.status != 404:
+                raise
+
         q = urllib.parse.quote(str(region).strip(), safe="")
         g = urllib.parse.quote(str(grid_id).strip().upper(), safe="")
         path = f"/online/{q}/grid/{g}/objects?limit={int(limit)}"
