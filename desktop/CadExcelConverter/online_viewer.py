@@ -1624,8 +1624,8 @@ let idleMinutes=10;
 let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
-const FIBER_QUERY_RADIUS_METERS=20000;
-const FIBER_RECENTER_METERS=10000;
+const FIBER_QUERY_RADIUS_METERS=10000;
+const FIBER_RECENTER_METERS=5000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
@@ -3164,7 +3164,7 @@ async function loadFiberViewport(force=false){{
   gridDiag.centerLat=cLat;
   gridDiag.centerLng=cLng;
   gridDiag.stage='POLEMAP 요청';
-  gridDiag.progress='광 20km';
+  gridDiag.progress='광 10km';
   setStatus('L'+map.getLevel()+' · '+gridDiagText());
 
   // 지도 이동 시 거리 기준으로 광 조회를 생략하지 않는다.
@@ -3173,7 +3173,7 @@ async function loadFiberViewport(force=false){{
   const generation=++fiberViewportGeneration;
 
   // 광은 일반 객체의 500m 조회반경과 완전히 분리한다.
-  // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 20km를 Polemap 조회 범위로 사용한다.
+  // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 10km를 Polemap 조회 범위로 사용한다.
   const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;
   const fiberLngScale=Math.max(0.2,Math.cos(cLat*Math.PI/180));
   const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);
@@ -3257,40 +3257,40 @@ async function loadFiberViewport(force=false){{
     gridDiag.progress=primaryGrid+' · '+String(merged.size)+'개';
     setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
 
-    // 2) 현재 GRID가 표시된 뒤 주변 광은 백그라운드로 순차 보충한다.
-    // loadFiberViewport()는 여기서 즉시 반환하므로 동축/기기 로딩이 지연되지 않는다.
-    if(ordered.length>1){{
-      (async()=>{{
-        for(let i=1;i<ordered.length;i++){{
-          if(generation!==fiberViewportGeneration)return;
-          if(region!==document.getElementById('region').value)return;
-          const cell=ordered[i];
-          try{{
-            const r=await apiCall('fiber_cell',{{
-              grid_id:String(cell.grid_id||''),
-              west:Number(cell.west),south:Number(cell.south),
-              east:Number(cell.east),north:Number(cell.north),
-              force:false
-            }});
-            if(generation!==fiberViewportGeneration)return;
-            addFeatures((r&&r.features)||[]);
-            if(merged.size){{
-              rendered=renderFiberFeatures([...merged.values()]);
-              fiberDiag.cache=merged.size;
-              gridDiag.stage='주변 GRID 광 보충';
-              gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)+' · '+String(cell.grid_id||'-');
-              setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-            }}
-          }}catch(e){{}}
-          await new Promise(resolve=>setTimeout(resolve,20));
+    // 2) 현재 GRID 광을 먼저 보여준 뒤, 중심 기준 10km의 나머지 광을 모두 완료한다.
+    // 이 함수가 끝난 뒤에만 호출부가 동축/기기 조회를 시작한다.
+    for(let i=1;i<ordered.length;i++){{
+      if(generation!==fiberViewportGeneration)return rendered;
+      if(region!==document.getElementById('region').value)return rendered;
+      const cell=ordered[i];
+      gridDiag.stage='10km 광 로딩';
+      gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)+' · '+String(cell.grid_id||'-');
+      setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+      try{{
+        const r=await apiCall('fiber_cell',{{
+          grid_id:String(cell.grid_id||''),
+          west:Number(cell.west),south:Number(cell.south),
+          east:Number(cell.east),north:Number(cell.north),
+          force:false
+        }});
+        if(generation!==fiberViewportGeneration)return rendered;
+        addFeatures((r&&r.features)||[]);
+        if(merged.size){{
+          rendered=renderFiberFeatures([...merged.values()]);
+          fiberDiag.cache=merged.size;
+          setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
         }}
-      }})();
+      }}catch(e){{}}
+      await new Promise(resolve=>setTimeout(resolve,20));
     }}
 
+    gridDiag.stage='10km 광 완료';
+    gridDiag.progress=String(ordered.length)+' GRID · '+String(merged.size)+'개';
+    setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
     return rendered;
   }}
 
-  // Polemap 미등록 지역도 광은 동일하게 중심 반경 20km bbox를 사용한다.
+  // Polemap 미등록 지역도 광은 동일하게 중심 반경 10km bbox를 사용한다.
   const west=query.west;
   const south=query.south;
   const east=query.east;
@@ -3634,7 +3634,7 @@ async function loadRegions(){{
     const ok=await autoRegionForMapCenter();
     if(ok){{
       await loadFiberViewport(false);
-      queueNonFiberLoad(true,140);
+      queueNonFiberLoad(true,0);
     }}
   }}
 }}
@@ -3677,7 +3677,7 @@ async function activateRegion(region){{
 
     await loadFiberViewport(false);
     // 광을 먼저 실제 지도에 표시한 뒤 동축/기기는 후순위로 조회한다.
-    queueNonFiberLoad(true,140);
+    queueNonFiberLoad(true,0);
     return true;
   }} finally {{
     regionSwitching=false;
@@ -3854,7 +3854,7 @@ function bindUi(){{
     const ok=await autoRegionForMapCenter();
     if(!ok)return;
     await loadFiberViewport(true);
-    queueNonFiberLoad(true,140);
+    queueNonFiberLoad(true,0);
   }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
   document.getElementById('mapHybrid').onclick=()=>{{
@@ -3964,7 +3964,7 @@ function centerMyLocation(loadAfter){{
         if(!ok)return;
         if(loadAfter){{
           await loadFiberViewport(true);
-          queueNonFiberLoad(true,140);
+          queueNonFiberLoad(true,0);
         }}
       }})();
     }},
@@ -3995,10 +3995,12 @@ function initMap(){{
         setStatus('L'+map.getLevel()+' · '+gridDiagText());
         const ok=await autoRegionForMapCenter();
         if(ok){{
-          // 지도 이동 시 광이 항상 최우선이다.
-          // 중앙 광 셀을 표시한 다음 동축/기기는 후순위로 시작한다.
+          // 로딩 순서 고정:
+          // 1) 현재 GRID 광 즉시 표시
+          // 2) 중심 기준 10km 광 전체 완료
+          // 3) 그 다음 동축/기기
           await loadFiberViewport(false);
-          queueNonFiberLoad(false,140);
+          queueNonFiberLoad(false,0);
         }}
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
@@ -4031,7 +4033,7 @@ function initMap(){{
         const ok=await autoRegionForMapCenter();
         if(ok){{
           await loadFiberViewport(false);
-          queueNonFiberLoad(true,140);
+          queueNonFiberLoad(true,0);
         }}
       }},250);
     }});
