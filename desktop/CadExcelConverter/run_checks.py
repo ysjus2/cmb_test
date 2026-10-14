@@ -681,6 +681,10 @@ assert 'polemap = self.polemap(west, south, east, north)' in online_source
 assert 'polemap_cells": len(cells)' in online_source
 assert 'self._read_object_cell_cache(grid_id)' in online_source
 assert 'self._write_object_cell_cache(grid_id, version_signature, features)' in online_source
+assert "def _stored_point_position(feature):" in online_source
+assert 'fields.get("_cmb_pole_position")' in online_source
+assert "if center_index not in (None, 0):" in online_source
+assert "cells.insert(0, cells.pop(center_index))" in online_source
 print("ALL_GROUP_POLEMAP_CELL_CACHE_OK")
 assert "const visibleBounds=map.getBounds();" in online_source
 assert "const latPad=(ne.getLat()-sw.getLat())*0.12;" in online_source
