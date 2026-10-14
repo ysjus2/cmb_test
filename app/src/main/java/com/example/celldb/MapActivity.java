@@ -534,8 +534,17 @@ public class MapActivity extends Activity {
             loadServerDetails(r,point);return;
         }
         if (mapReady) map.center(point, false);
-        StringBuilder details = new StringBuilder();
         String pole=CadObjectInfo.pole(r),address=CadObjectInfo.address(r);
+        String serverGroup=String.valueOf(r.fields.get("__serverGroup")).trim().toUpperCase(Locale.ROOT);
+        if("POLE".equals(serverGroup)||"FACILITY".equals(r.category)){
+            new AlertDialog.Builder(this)
+                    .setTitle("전주")
+                    .setMessage("전주번호: "+(pole.isEmpty()?"자료 없음":pole))
+                    .setPositiveButton("확인", null)
+                    .show();
+            return;
+        }
+        StringBuilder details = new StringBuilder();
         details.append("속성\n레이어: ").append(r.layer.isEmpty()?r.category:r.layer)
                 .append("\n전주정보: ").append(pole.isEmpty()?"자료 없음":pole)
                 .append("\n주소: ").append(address.isEmpty()?"자료 없음":address)
