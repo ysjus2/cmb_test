@@ -13,25 +13,19 @@ class UserAdminWindow(tk.Toplevel):
         self.current_user = current_user
         self.users = []
 
-        self.title("관리자 · 사용자 관리")
+        self.title("사용자 · 도면 관리")
         self.geometry("1240x620")
         self.minsize(1080, 520)
 
         root = ttk.Frame(self, padding=12)
         root.pack(fill="both", expand=True)
 
-        ttk.Label(root, text="사용자 관리", font=("Malgun Gothic", 16, "bold")).pack(anchor="w")
+        ttk.Label(root, text="사용자 · 도면 관리", font=("Malgun Gothic", 16, "bold")).pack(anchor="w")
         ttk.Label(root, text="1등급 관리자 전용").pack(anchor="w", pady=(2, 10))
 
         self.login_status = tk.StringVar(value="")
         session_line = ttk.Label(root, textvariable=self.login_status)
         session_line.pack(anchor="w", pady=(0, 2))
-
-        self.session_timeout_text = tk.StringVar(value="로그인 유지시간: 조회 전")
-        ttk.Label(
-            root,
-            textvariable=self.session_timeout_text,
-        ).pack(anchor="w", pady=(0, 2))
 
         self.backup_retention_text = tk.StringVar(value="도면 백업 보관: 조회 전")
         ttk.Label(
@@ -39,7 +33,7 @@ class UserAdminWindow(tk.Toplevel):
             textvariable=self.backup_retention_text,
         ).pack(anchor="w", pady=(0, 8))
 
-        # 관리자 기능을 한 줄에 몰지 않고 3개 업무 그룹으로 분리한다.
+        # 사용자/권한/도면을 3개 업무 그룹으로 정리한다.
         groups = ttk.Frame(root)
         groups.pack(fill="x", pady=(10, 8))
         groups.columnconfigure(0, weight=1)
@@ -48,12 +42,12 @@ class UserAdminWindow(tk.Toplevel):
 
         user_group = ttk.LabelFrame(groups, text="사용자 관리", padding=8)
         user_group.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        region_group = ttk.LabelFrame(groups, text="지역 관리", padding=8)
-        region_group.grid(row=0, column=1, sticky="nsew", padx=3)
+        registration_group = ttk.LabelFrame(groups, text="등록 / 권한 관리", padding=8)
+        registration_group.grid(row=0, column=1, sticky="nsew", padx=3)
         drawing_group = ttk.LabelFrame(groups, text="도면 관리", padding=8)
         drawing_group.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
 
-        # 사용자 관리
+        # 1열: 사용자 관리
         search_row = ttk.Frame(user_group)
         search_row.pack(fill="x", pady=(0, 6))
         self.search_var = tk.StringVar()
@@ -67,45 +61,50 @@ class UserAdminWindow(tk.Toplevel):
         )
         self.lookup_btn.pack(fill="x", pady=2)
 
-        self.new_btn = ttk.Button(
-            user_group, text="신규 등록", command=self.create_user, state="disabled"
-        )
-        self.new_btn.pack(fill="x", pady=2)
-
         self.reset_btn = ttk.Button(
             user_group, text="비밀번호 초기화", command=self.reset_password, state="disabled"
         )
         self.reset_btn.pack(fill="x", pady=2)
 
-        self.deactivate_btn = ttk.Button(
-            user_group, text="퇴사처리", command=self.deactivate_user, state="disabled"
+        self.device_reset_btn = ttk.Button(
+            user_group, text="단말 초기화", command=self.reset_device, state="disabled"
         )
-        self.deactivate_btn.pack(fill="x", pady=2)
+        self.device_reset_btn.pack(fill="x", pady=2)
+
+        self.level_btn = ttk.Button(
+            user_group, text="등급 설정", command=self.set_level, state="disabled"
+        )
+        self.level_btn.pack(fill="x", pady=2)
 
         self.activate_btn = ttk.Button(
-            user_group, text="재입사/재사용", command=self.activate_user, state="disabled"
+            user_group, text="계정 활성화", command=self.activate_user, state="disabled"
         )
         self.activate_btn.pack(fill="x", pady=2)
 
-        self.region_btn = ttk.Button(
-            user_group, text="사용자 지역/권한", command=self.edit_regions, state="disabled"
+        self.deactivate_btn = ttk.Button(
+            user_group, text="계정 비활성화", command=self.deactivate_user, state="disabled"
         )
-        self.region_btn.pack(fill="x", pady=2)
+        self.deactivate_btn.pack(fill="x", pady=2)
 
-        self.session_btn = ttk.Button(
-            user_group, text="로그인 유지시간", command=self.edit_session_timeout, state="disabled"
+        # 2열: 등록 / 권한 관리
+        self.new_btn = ttk.Button(
+            registration_group, text="신규 사용자 등록", command=self.create_user, state="disabled"
         )
-        self.session_btn.pack(fill="x", pady=2)
+        self.new_btn.pack(fill="x", pady=2)
 
-        # 지역 관리
         self.region_register_btn = ttk.Button(
-            region_group, text="지역 등록/수정/삭제", command=self.register_region, state="disabled"
+            registration_group, text="지역 등록", command=self.register_region, state="disabled"
         )
         self.region_register_btn.pack(fill="x", pady=2)
 
+        self.region_btn = ttk.Button(
+            registration_group, text="지역 권한 등록", command=self.edit_regions, state="disabled"
+        )
+        self.region_btn.pack(fill="x", pady=2)
+
         ttk.Label(
-            region_group,
-            text="지역코드 등록, 지역명 수정, 지역 자체 삭제를 관리합니다.",
+            registration_group,
+            text="신규 사용자는 기본 5등급으로 등록됩니다.",
             wraplength=300,
             justify="left",
         ).pack(fill="x", pady=(8, 0))
@@ -176,25 +175,17 @@ class UserAdminWindow(tk.Toplevel):
         self.lookup_btn.configure(state="normal")
         self.new_btn.configure(state="normal")
         self.reset_btn.configure(state="normal")
+        self.device_reset_btn.configure(state="normal")
+        self.level_btn.configure(state="normal")
         self.deactivate_btn.configure(state="normal")
         self.activate_btn.configure(state="normal")
         self.region_btn.configure(state="normal")
         self.region_register_btn.configure(state="normal")
         self.drawing_status_btn.configure(state="normal")
         self.drawing_delete_btn.configure(state="normal")
-        self.session_btn.configure(state="normal")
         self.backup_btn.configure(state="normal")
-        self._refresh_session_timeout_display()
         self._refresh_backup_retention_display()
         self.status.set("사용자 조회 버튼을 눌러 목록을 불러오세요.")
-
-    def _refresh_session_timeout_display(self):
-        try:
-            result = self.client.admin_session_timeout() or {}
-            minutes = int(result.get("minutes", 10))
-            self.session_timeout_text.set(f"로그인 유지시간: {minutes}분")
-        except Exception:
-            self.session_timeout_text.set("로그인 유지시간: 조회 실패")
 
     def _refresh_backup_retention_display(self):
         try:
@@ -242,7 +233,6 @@ class UserAdminWindow(tk.Toplevel):
                 user["_region_names"] = ", ".join(names) if names else "-"
 
             self.apply_filter()
-            self._refresh_session_timeout_display()
             self._refresh_backup_retention_display()
             self.status.set(f"사용자 {len(self.users)}명 조회 완료")
         except Exception as exc:
@@ -548,14 +538,10 @@ class UserAdminWindow(tk.Toplevel):
                         "사용자는 등록되었지만 사용자 ID를 확인하지 못해 지역 권한을 저장하지 못했습니다."
                     )
 
+                self.client.reset_user_password(new_user_id, "cmb15443434")
                 self.client.set_user_regions(
                     new_user_id,
                     selected_regions,
-                )
-
-                temp = str(
-                    (result or {}).get("temporary_password")
-                    or ""
                 )
 
                 win.destroy()
@@ -564,12 +550,9 @@ class UserAdminWindow(tk.Toplevel):
                 msg = (
                     f"{u} 사용자가 등록되었습니다.\n"
                     f"지역 권한: {len(selected_regions)}개"
+                    "\n\n최초 비밀번호는 cmb15443434 입니다."
+                    "\n암호를 변경하고 사용하세요."
                 )
-                if temp:
-                    msg += (
-                        f"\n\n임시 비밀번호: {temp}"
-                        "\n\n이 비밀번호는 지금 한 번만 표시됩니다."
-                    )
 
                 messagebox.showinfo(
                     "신규 등록 완료",
@@ -1548,6 +1531,58 @@ class UserAdminWindow(tk.Toplevel):
         except Exception as exc:
             messagebox.showerror("백업 보관 설정", str(exc), parent=self)
 
+    def reset_device(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("단말 초기화", "사용자를 선택해주세요.", parent=self)
+            return
+        user_id = user.get("id")
+        username = str(user.get("username") or "").strip()
+        if not messagebox.askyesno(
+            "단말 초기화",
+            f"{username} 사용자의 등록 단말을 초기화하시겠습니까?\n\n다음 로그인 단말이 새 단말로 등록됩니다.",
+            parent=self,
+        ):
+            return
+        try:
+            self.client.reset_user_device(user_id)
+            self.status.set(f"{username} 단말 초기화 완료")
+            messagebox.showinfo(
+                "단말 초기화",
+                "등록 단말을 초기화했습니다.\n다음 정상 로그인 단말이 새 단말로 등록됩니다.",
+                parent=self,
+            )
+        except Exception as exc:
+            messagebox.showerror("단말 초기화 오류", str(exc), parent=self)
+
+    def set_level(self):
+        user = self._selected_user()
+        if not user:
+            messagebox.showinfo("등급 설정", "사용자를 선택해주세요.", parent=self)
+            return
+        user_id = user.get("id")
+        username = str(user.get("username") or "").strip()
+        try:
+            current = int(user.get("level") or 5)
+        except Exception:
+            current = 5
+        level = simpledialog.askinteger(
+            "등급 설정",
+            f"{username} 사용자의 등급을 선택해주세요.\n\n1=관리자(2시간) / 3=추출사용자(1시간) / 5=일반(30분)",
+            initialvalue=current,
+            minvalue=1,
+            maxvalue=5,
+            parent=self,
+        )
+        if level is None:
+            return
+        try:
+            self.client.set_user_level(user_id, level)
+            self.load_users()
+            self.status.set(f"{username} 등급 {level}로 변경 완료")
+        except Exception as exc:
+            messagebox.showerror("등급 설정 오류", str(exc), parent=self)
+
     def reset_password(self):
         user = self._selected_user()
         if not user:
@@ -1559,42 +1594,28 @@ class UserAdminWindow(tk.Toplevel):
         if not username:
             return
 
-        p1 = simpledialog.askstring(
-            "비밀번호 초기화",
-            f"{username} 사용자의 새 임시 비밀번호를 입력해주세요.\n(8자 이상)",
-            show="*",
-            parent=self,
-        )
-        if p1 is None:
-            return
-        if len(p1) < 8:
-            messagebox.showinfo("비밀번호", "8자 이상으로 입력해주세요.", parent=self)
-            return
-
-        p2 = simpledialog.askstring(
-            "비밀번호 확인",
-            "임시 비밀번호를 다시 입력해주세요.",
-            show="*",
-            parent=self,
-        )
-        if p1 != p2:
-            messagebox.showinfo("비밀번호", "비밀번호 확인이 일치하지 않습니다.", parent=self)
-            return
-
         if not messagebox.askyesno(
             "비밀번호 초기화",
-            f"{username} 사용자의 비밀번호를 초기화하시겠습니까?",
+            (
+                f"{username} 사용자의 비밀번호를 초기화하시겠습니까?\n\n"
+                "초기 비밀번호: cmb15443434\n"
+                "이 비밀번호로 로그인하면 반드시 암호 변경 화면으로 이동합니다."
+            ),
             parent=self,
         ):
             return
 
         try:
-            self.client.reset_user_password(user_id, p1)
+            self.client.reset_user_password(user_id, "cmb15443434")
             self.status.set(f"{username} 비밀번호 초기화 완료")
             messagebox.showinfo(
                 "비밀번호 초기화",
-                f"{username} 사용자의 비밀번호가 초기화되었습니다.",
+                (
+                    "최초 비밀번호는 cmb15443434 입니다.\n"
+                    "암호를 변경하고 사용하세요."
+                ),
                 parent=self,
             )
         except Exception as exc:
             messagebox.showerror("비밀번호 초기화 오류", str(exc), parent=self)
+
