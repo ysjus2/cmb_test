@@ -414,7 +414,8 @@ assert "['TEXT','MTEXT','ATTRIB','ATTDEF','DIMENSION','LEADER','MLEADER']" in on
 assert "if(isInfoPointFeature(f))return false;" in online_source
 assert "fiberDeviceMap" in online_source
 assert "drawDevice(new kakao.maps.LatLng" in online_source
-assert "if(visible && kind)visible=(mapLevel<=3);" in online_source
+assert "if(kind==='closure')visible=(mapLevel<=3);" in online_source
+assert "else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);" in online_source
 assert "def _is_info_entity(e):" in admin_upload_source
 assert "not _is_info_entity(e)" in admin_upload_source
 print("FIBER_DEVICE_AND_INFO_FILTER_OK")
