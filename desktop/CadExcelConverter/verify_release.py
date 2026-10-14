@@ -7,6 +7,8 @@ import sys
 exe, smoke, output = map(Path, sys.argv[1:])
 result = json.loads(smoke.read_text(encoding='utf-8'))
 assert result['ok'] and result['version'] == '3.84_FINAL'
+assert result.get('region_selector') is True
+assert result.get('regional_fiber_sync') is True
 assert exe.read_bytes()[:2] == b'MZ'
 root = Path(__file__).resolve().parent
 manifest = {'version':'3.84_FINAL', 'executable':exe.name,
