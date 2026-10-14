@@ -331,6 +331,7 @@ class Api:
                 f"{w},{s},{e},{n}",
                 limit=limit,
                 groups="FIBER",
+                timeout=120,
             ) or {}
             ensure_current()
 
@@ -841,6 +842,7 @@ class Api:
                 f"{cw},{cs},{ce},{cn}",
                 limit=limit,
                 groups="FIBER",
+                timeout=60,
             ) or {}
             features = [
                 feature for feature in (raw.get("features") or [])
