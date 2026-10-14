@@ -1108,6 +1108,9 @@ let idleTimer=null;
 let nonFiberLoadTimer=null;
 let authorizedRegions=[];
 let regionSwitching=false;
+let regionResolveTimer=null;
+let regionResolveGeneration=0;
+const REGION_SETTLE_DELAY_MS=700;
 let fiberViewportGeneration=0;
 let authenticated=false;
 let lastServerTouch=0;
@@ -3001,37 +3004,17 @@ async function activateRegion(region){{
       return false;
     }}
 
-    let cached={{features:[],cache:'empty'}};
-    try{{cached=await apiCall('fiber_cached');}}catch(err){{}}
-    if(region!==sel.value)return false;
-    const cachedFeatures=cached.features||[];
-    const cachedCount=renderFiberFeatures(cachedFeatures);
-    fiberDiag.cache=cachedFeatures.length;
-    fiberDiag.received=0;
-    fiberDiag.unique=0;
-    fiberDiag.server=0;
-    setStatus((info?info.name:region)+' · '+(cachedCount>0
-      ? '광 캐시 즉시 표시'+fiberDiagText()
-      : '광 캐시 없음 · 최초 다운로드 시작'));
+    viewDiag.region=region;
+    viewDiag.stage='지역 연결';
+    viewDiag.progress=(info?info.name:region)+' · 현재 화면 도면 조회';
+    setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
-    apiCall('fiber_all',{{force:false}}).then(fiber=>{{
-      if(region!==sel.value)return;
-      if(fiber.error){{
-        setStatus(fiber.error+' · 기존 광 캐시 유지');
-        return;
-      }}
-      const fiberFeatures=fiber.features||[];
-      const fiberCount=fiberFeatures.length;
-      const expected=Number(fiber.expected_count||0);
-      fiberDiag.server=expected;
-      fiberDiag.received=Number(fiber.received_count||fiberCount);
-      fiberDiag.unique=Number(fiber.unique_key_count||fiber.received_count||fiberCount);
-      if(fiber.cache!=='hit' || cachedCount===0)renderFiberFeatures(fiberFeatures);
-      const source=(fiber.cache==='hit'?'광 캐시':'광 서버')+' '+fiberCount+'개';
-      setStatus((info?info.name:region)+' · '+source+fiberDiagText());
-    }}).catch(err=>setStatus('광 갱신 실패 · '+((err&&err.message)||err)));
-
-    await loadObjects(true);
+    // 지역 전체 광을 받지 않는다.
+    // 현재 화면 bbox의 광/동축/기기만 즉시 캐시 우선으로 읽고 서버 갱신한다.
+    await Promise.all([
+      loadFiberViewport(false),
+      loadObjects(true)
+    ]);
     return true;
   }} finally {{
     regionSwitching=false;
@@ -3047,41 +3030,16 @@ async function autoRegionForMapCenter(){{
   viewDiag.centerLat=lat;
   viewDiag.centerLng=lng;
   viewDiag.stage='좌표 지역 확인';
-  viewDiag.progress='현재 위치 주변 도면 검색';
+  viewDiag.progress='현재 중심좌표 기준';
   setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
-  // 1순위: 현재 위·경도 주변에 실제 도면 객체가 존재하는 지역을 찾는다.
-  // region bounds가 서로 겹쳐도 실제 geometry 좌표 기준으로 선택한다.
-  let resolved=null;
-  try{{
-    resolved=await apiCall('region_at_point',{{
-      regions:authorizedRegions.map(x=>x.id),
-      lat:lat,
-      lng:lng,
-      radius_m:1200
-    }});
-  }}catch(e){{resolved=null;}}
-
-  if(resolved&&resolved.region){{
-    const matched=authorizedRegions.find(x=>x.id===String(resolved.region));
-    if(matched){{
-      viewDiag.region=matched.id;
-      viewDiag.stage='좌표 지역 확정';
-      viewDiag.progress=matched.id+' · 주변 객체 '+String(resolved.count||0);
-      if(sel.value===matched.id){{
-        setStatus('L'+map.getLevel()+' · '+viewDiagText());
-        return true;
-      }}
-      return await activateRegion(matched.id);
-    }}
-  }}
-
-  // 실제 객체가 전혀 없는 위치에서만 지역 bounds를 최후 폴백으로 사용한다.
+  // 1) 먼저 현재 중심좌표를 실제 포함하는 지역 bounds만 후보로 좁힌다.
+  // 주변의 다른 지역 도면은 후보에 넣지 않는다.
   const candidates=authorizedRegions
     .filter(x=>boundsContainsLatLng(x.bounds,center))
     .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
-  const matched=candidates.length?candidates[0]:null;
-  if(!matched){{
+
+  if(candidates.length===0){{
     if(sel.value){{
       clearOverlays();
       await apiCall('select',{{region:''}});
@@ -3093,10 +3051,45 @@ async function autoRegionForMapCenter(){{
     setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다 · '+currentCenterText());
     return false;
   }}
+
+  // 2) 단일 후보면 서버 검색 없이 즉시 확정한다.
+  if(candidates.length===1){{
+    const matched=candidates[0];
+    viewDiag.region=matched.id;
+    viewDiag.stage='좌표 지역 확정';
+    viewDiag.progress=matched.id;
+    if(sel.value===matched.id){{
+      setStatus('L'+map.getLevel()+' · '+viewDiagText());
+      return true;
+    }}
+    return await activateRegion(matched.id);
+  }}
+
+  // 3) bounds가 겹치는 경우에만 해당 후보들만 실제 객체 좌표로 판정한다.
+  let resolved=null;
+  try{{
+    resolved=await apiCall('region_at_point',{{
+      regions:candidates.map(x=>x.id),
+      lat:lat,
+      lng:lng,
+      radius_m:500
+    }});
+  }}catch(e){{resolved=null;}}
+
+  let matched=null;
+  if(resolved&&resolved.region){{
+    matched=candidates.find(x=>x.id===String(resolved.region))||null;
+  }}
+  // 겹친 위치에 객체가 없으면 더 작은 지역 bounds를 우선한다.
+  if(!matched)matched=candidates[0];
+
   viewDiag.region=matched.id;
-  viewDiag.stage='지역 bounds 폴백';
-  viewDiag.progress=matched.id;
-  if(sel.value===matched.id)return true;
+  viewDiag.stage='중복 bounds 지역 확정';
+  viewDiag.progress=matched.id+' · 후보 '+String(candidates.length);
+  if(sel.value===matched.id){{
+    setStatus('L'+map.getLevel()+' · '+viewDiagText());
+    return true;
+  }}
   return await activateRegion(matched.id);
 }}
 
@@ -3277,13 +3270,27 @@ function initMap(){{
         center:new kakao.maps.LatLng(35.1595,126.8526),
         level:3
       }});
-      kakao.maps.event.addListener(map,'idle',async()=>{{
-        const ok=await autoRegionForMapCenter();
-        if(ok){{
-          // 지도 이동이 멈출 때마다 광/동축/기기를 모두 현재 위·경도 bbox로 갱신한다.
-          loadFiberViewport(false).catch(()=>{{}});
-          loadObjects();
-        }}
+      kakao.maps.event.addListener(map,'idle',()=>{{
+        // 이동 중간 위치에서 지역/도면을 호출하지 않는다.
+        // 마지막 idle 후 잠깐 안정된 중심좌표만 사용한다.
+        const generation=++regionResolveGeneration;
+        if(regionResolveTimer)clearTimeout(regionResolveTimer);
+        regionResolveTimer=setTimeout(async()=>{{
+          regionResolveTimer=null;
+          if(generation!==regionResolveGeneration||!map)return;
+          const ok=await autoRegionForMapCenter();
+          if(!ok||generation!==regionResolveGeneration)return;
+
+          // activateRegion()이 새 지역 전환 시 이미 현재 bbox를 읽는다.
+          // 같은 지역에서 이동한 경우에만 현재 bbox를 갱신한다.
+          const region=String(document.getElementById('region').value||'');
+          if(region){{
+            await Promise.all([
+              loadFiberViewport(false),
+              loadObjects(false)
+            ]);
+          }}
+        }},REGION_SETTLE_DELAY_MS);
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
