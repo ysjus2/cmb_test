@@ -199,7 +199,9 @@ assert "def region_at_point(self, regions, lat, lng, radius_m=1200):" in online_
 assert "async function autoRegionForMapCenter()" in online_source
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
 assert "kakao.maps.event.addListener(map,'idle',async()=>{{" in init_block
-assert "if(ok)loadObjects();" in init_block
+assert "if(ok){{" in init_block
+assert "loadFiberViewport(false)" in init_block
+assert "loadObjects();" in init_block
 assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
 assert "apiCall('fiber_all',{{force:false}})" in online_source
