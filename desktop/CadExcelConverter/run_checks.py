@@ -183,6 +183,10 @@ assert 'if not self.c.refresh_token:' in online_source
 assert 'self.c._sync_from_shared_state()' in online_source
 assert "self.object_cell_refreshing = set()" in online_source
 assert "def _start_object_cell_refresh" in online_source
+assert "def _polemap_cache_path(self):" in online_source
+assert "def _cached_polemap_cells(self, west, south, east, north):" in online_source
+assert '"cache": "stale"' in online_source
+assert "서버 실패 시 버전이 오래됐더라도 기존 셀 캐시는 절대 버리지 않는다." in online_source
 admin_upload_source = Path(__file__).resolve().with_name("admin_upload.py").read_text(encoding="utf-8")
 assert "def _object_grid_ids(e):" in admin_upload_source
 assert 'attrs["_cmb_grid_ids"] = object_grid_ids' in admin_upload_source
