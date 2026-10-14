@@ -194,7 +194,8 @@ assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
 assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
-assert "const matched=authorizedRegions.find(x=>boundsContainsLatLng(x.bounds,center));" in online_source
+assert "apiCall('region_at_point'" in online_source
+assert "def region_at_point(self, regions, lat, lng, radius_m=1200):" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
 assert "kakao.maps.event.addListener(map,'idle',async()=>{{" in init_block
@@ -651,9 +652,12 @@ assert "authorizedRegions=[]" in online_source
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
 auto_region_block = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function loadMapDisplaySettings",1)[0]
+assert "apiCall('region_at_point'" in auto_region_block
 assert "boundsContainsLatLng" in auto_region_block
 assert "cached_region_probe" not in auto_region_block
 assert "polemap_probe" not in auto_region_block
+assert "'GRID '+String(gridDiag.centerGrid||'-')" not in online_source
+assert "'CELLS '+String(gridDiag.cells||0)" not in online_source
 assert "style='display:none'" in online_source
 assert "지도 위치에 따라 자동 연결" in online_source
 print("AUTO_REGION_BY_LATLNG_BOUNDS_OK")
