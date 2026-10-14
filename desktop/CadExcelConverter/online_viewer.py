@@ -37,6 +37,8 @@ class Api:
         self.c = CMBServerClient()
         self.region = ""
         self.region_generation = 0
+        self.fiber_synced_regions = set()
+        self.fiber_progress = {}
         self.user = None
         self.window = None
         self.session_ended = False
@@ -229,6 +231,23 @@ class Api:
         except Exception:
             return None
 
+    def fiber_progress_status(self):
+        region = str(self.region or "")
+        state = dict(self.fiber_progress.get(region) or {})
+        if not state:
+            state = {
+                "ok": True,
+                "region": region,
+                "active": False,
+                "percent": 0,
+                "stage": "idle",
+                "requests": 0,
+                "received": 0,
+                "expected": self._expected_group_count("FIBER"),
+            }
+        state["ok"] = True
+        return state
+
     def cached_fiber(self):
         """Return the on-disk fiber cache immediately without touching the server."""
         if not self.region:
@@ -290,9 +309,31 @@ class Api:
             west, south, east, north = -180.0, -90.0, 180.0, 90.0
 
         layer_filter = ",".join(sorted(set(fiber_layers)))
+        progress_seen = {}
+
+        def update_progress(features, stage="receiving"):
+            state = self.fiber_progress.get(region)
+            if state is None:
+                return
+            for feature in features or []:
+                progress_seen[self._feature_key(feature)] = feature
+            expected = state.get("expected")
+            received = len(progress_seen)
+            state["received"] = received
+            state["stage"] = stage
+            if expected and expected > 0:
+                ratio = min(1.0, received / float(expected))
+                state["percent"] = max(state.get("percent", 30), min(78, int(30 + ratio * 48)))
+            else:
+                state["percent"] = min(72, max(state.get("percent", 30), 30 + min(42, state.get("requests", 0) * 2)))
 
         def fetch_cell(w, s, e, n, depth=0):
             ensure_current()
+            state = self.fiber_progress.get(region)
+            if state is not None:
+                state["requests"] = int(state.get("requests", 0)) + 1
+                state["stage"] = "requesting"
+
             raw = self.c.online_objects(
                 region,
                 f"{w},{s},{e},{n}",
@@ -306,6 +347,7 @@ class Api:
             ]
 
             if len(features) < limit:
+                update_progress(features, "receiving")
                 return features
 
             if depth >= max_depth:
@@ -346,9 +388,19 @@ class Api:
         fiber_version = str((self.cache_state.get("versions") or {}).get("FIBER") or "")
         self._load_fiber_cache()
 
+        expected_count = self._expected_group_count("FIBER")
+        self.fiber_progress[region] = {
+            "region": region,
+            "active": True,
+            "percent": 30,
+            "stage": "server_sync",
+            "requests": 0,
+            "received": 0,
+            "expected": expected_count,
+        }
+
         # 과거 버전에서 일부만 저장된 캐시가 동일 revision으로 남아 있을 수 있다.
         # revision 일치만으로 hit 처리하지 않고 서버 object_count와 개수까지 일치해야 한다.
-        expected_count = self._expected_group_count("FIBER")
         cached_features = self._fiber_features()
         cached_count = len(cached_features)
         cache_complete = (
@@ -358,10 +410,15 @@ class Api:
         )
         if (
             not force
+            and region in self.fiber_synced_regions
             and fiber_version
             and self.fiber_cache.get("version") == fiber_version
             and cache_complete
         ):
+            self.fiber_progress[region].update({
+                "active": False, "percent": 100, "stage": "cache_hit",
+                "received": cached_count,
+            })
             return {
                 "ok": True,
                 "features": cached_features,
@@ -372,11 +429,17 @@ class Api:
             }
         if not fiber_version:
             self._delete_fiber_cache()
+            self.fiber_progress[region].update({
+                "active": False, "percent": 100, "stage": "empty",
+            })
             return {"ok": True, "features": [], "cache": "empty", "version": ""}
         try:
             all_features = self._fetch_all_region_features(region, generation)
         except RuntimeError as exc:
             if str(exc) == "REGION_SWITCH_CANCELLED":
+                state = self.fiber_progress.get(region)
+                if state is not None:
+                    state.update({"active": False, "stage": "cancelled"})
                 return {
                     "ok": False,
                     "cancelled": True,
@@ -404,6 +467,12 @@ class Api:
         unique_key_count = len({self._feature_key(f) for f in fiber_features})
         if expected_count is not None and expected_count > 0 and received_count != expected_count:
             # 일부 광만 받은 상태를 정상 캐시로 덮어쓰지 않는다.
+            state = self.fiber_progress.get(region)
+            if state is not None:
+                state.update({
+                    "active": False, "percent": 100, "stage": "validation_failed",
+                    "received": received_count,
+                })
             return {
                 "ok": False,
                 "error": (
@@ -428,6 +497,13 @@ class Api:
 
         self.fiber_cache = {"version": fiber_version, "features": fiber_features}
         self._save_fiber_cache()
+        self.fiber_synced_regions.add(region)
+        state = self.fiber_progress.get(region)
+        if state is not None:
+            state.update({
+                "active": False, "percent": 100, "stage": "complete",
+                "received": received_count,
+            })
         return {
             "ok": True,
             "features": fiber_features,
@@ -2621,6 +2697,31 @@ function renderFiberFeatures(features){{
   return rendered;
 }}
 
+async function pollFiberProgress(region,token){{
+  while(token.active && region===document.getElementById('region').value){{
+    try{{
+      const p=await apiCall('fiber_progress');
+      if(!token.active||region!==document.getElementById('region').value)return;
+      const pct=Math.max(30,Math.min(79,Number(p.percent||30)));
+      const received=Number(p.received||0);
+      const expected=Number(p.expected||0);
+      const requests=Number(p.requests||0);
+      const countText=expected>0
+        ? ('수신 '+received.toLocaleString()+' / '+expected.toLocaleString()+'개')
+        : ('수신 '+received.toLocaleString()+'개');
+      setWorkStatus(
+        'L'+map.getLevel()+' · REGION '+region+
+        ' · STAGE 광 전체 동기화 · '+countText+
+        ' · 서버요청 '+requests+'회',
+        pct,
+        true
+      );
+      if(p.active===false)return;
+    }}catch(e){{}}
+    await new Promise(resolve=>setTimeout(resolve,400));
+  }}
+}}
+
 async function loadRegionFiber(syncForce=false){{
   const region=document.getElementById('region').value;
   if(!region||!groupEnabled.FIBER)return 0;
@@ -2650,7 +2751,11 @@ async function loadRegionFiber(syncForce=false){{
   viewDiag.progress=syncForce?'기존 캐시 무시 · 서버 전체 재조회':'서버 최신상태 확인';
   setWorkStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText(),syncForce?35:40,true);
 
+  const progressToken={{active:true}};
+  const progressPromise=pollFiberProgress(region,progressToken);
   const fresh=await apiCall('fiber_all',{{force:!!syncForce}});
+  progressToken.active=false;
+  await progressPromise.catch(()=>{{}});
   if(region!==document.getElementById('region').value)return 0;
   if(!fresh||fresh.ok===false){{
     if(fresh&&fresh.cancelled)return 0;
@@ -3374,6 +3479,8 @@ def run_online_viewer():
                     result = api.select(data.get("region"))
                 elif name == "fiber_cached":
                     result = api.cached_fiber()
+                elif name == "fiber_progress":
+                    result = api.fiber_progress_status()
                 elif name == "fiber_bbox":
                     result = api.fiber_bbox(
                         data.get("west"),
