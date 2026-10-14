@@ -1167,8 +1167,10 @@ function setProgress(percent,busy=false){{
   const bar=document.getElementById('progressBar');
   const textEl=document.getElementById('progressText');
   if(bar){{
-    bar.style.width=String(p)+'%';
-    bar.classList.toggle('busy',!!busy && p<100);
+    if(bar.style)bar.style.width=String(p)+'%';
+    if(bar.classList&&typeof bar.classList.toggle==='function'){{
+      bar.classList.toggle('busy',!!busy && p<100);
+    }}
   }}
   if(textEl)textEl.textContent=String(p)+'%';
 }}
