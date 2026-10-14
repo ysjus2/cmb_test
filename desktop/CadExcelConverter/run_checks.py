@@ -732,6 +732,16 @@ assert "이동 '+Math.round(moved)+'m / '+QUERY_RECENTER_METERS+'m" in online_so
 assert "STAGE 새 지역 광 캐시 확인" in online_source
 assert "STAGE 동축/기기 조회 시작" in online_source
 assert "STAGE 완료" in online_source
+assert "let regionSwitchGeneration=0;" in online_source
+assert "const mySwitch=++regionSwitchGeneration;" in online_source
+assert "activeRegionId='';" in activate_block
+assert "mySwitch!==regionSwitchGeneration" in activate_block
+assert "if(mySwitch===regionSwitchGeneration)regionSwitching=false;" in activate_block
+assert "self.region_generation = 0" in online_source
+assert "self.region_generation += 1" in online_source
+assert "REGION_SWITCH_CANCELLED" in online_source
+assert '"cancelled": True' in online_source
+print("INTERRUPTIBLE_REGION_FIBER_SYNC_OK")
 print("REGION_TRANSITION_PROGRESS_UI_OK")
 print("EXPLICIT_AUTHORIZED_REGION_SELECTION_OK")
 
