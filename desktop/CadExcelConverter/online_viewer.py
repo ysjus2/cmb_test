@@ -1673,17 +1673,22 @@ function gridDiagText(){{
   return parts.join(' · ');
 }}
 
-function centerCellFromList(cells,lat,lng){{
+function containingCellFromList(cells,lat,lng){{
   const list=Array.isArray(cells)?cells:[];
-  let containing=null;
   for(const cell of list){{
     const west=Number(cell.west),south=Number(cell.south),east=Number(cell.east),north=Number(cell.north);
     if([west,south,east,north].every(Number.isFinite) &&
        lng>=Math.min(west,east)&&lng<=Math.max(west,east)&&
        lat>=Math.min(south,north)&&lat<=Math.max(south,north)){{
-      containing=cell; break;
+      return cell;
     }}
   }}
+  return null;
+}}
+
+function centerCellFromList(cells,lat,lng){{
+  const list=Array.isArray(cells)?cells:[];
+  const containing=containingCellFromList(list,lat,lng);
   if(containing)return containing;
   let best=null,bestDist=Number.POSITIVE_INFINITY;
   for(const cell of list){{
@@ -3755,12 +3760,15 @@ async function probeRegionForMapCenter(center){{
     }}
     const cells=(r&&r.cells)||[];
     if(cells.length){{
-      const centerCell=centerCellFromList(cells,lat,lng);
+      // 지역 자동 판정은 "근처 GRID"가 아니라 지도 중심점을 실제 포함하는 GRID만 허용한다.
+      // 인접 지역(예: 함평/나주)의 2km probe 결과가 서로 섞여 지역이 뒤바뀌는 것을 방지한다.
+      const centerCell=containingCellFromList(cells,lat,lng);
+      if(!centerCell)continue;
       gridDiag.region=candidate.id;
       gridDiag.cells=cells.length;
-      gridDiag.centerGrid=centerCell?String(centerCell.grid_id||'-'):'-';
+      gridDiag.centerGrid=String(centerCell.grid_id||'-');
       gridDiag.stage='지역 GRID 확인';
-      gridDiag.progress=candidate.id+' · '+String(cells.length)+'셀';
+      gridDiag.progress=candidate.id+' · '+String(centerCell.grid_id||'-');
       return candidate;
     }}
   }}
