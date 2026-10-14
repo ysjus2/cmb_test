@@ -2477,20 +2477,17 @@ function distanceMeters(lat1,lng1,lat2,lng2){{
 }}
 
 function coaxKindVisibleAtLevel(kind,mapLevel){{
-  if(mapLevel===3){{
-    return [
-      'onu','amp','amp_input_arrow',
-      'splitter','splitter_input_arrow','power','power_ps','closure',
-      'coax_main_cable'
-    ].includes(kind);
-  }}
-  if(mapLevel===2){{
-    return [
-      'onu','amp','amp_input_arrow','tap_input_arrow',
-      'splitter','splitter_input_arrow','power','power_ps','closure',
-      'tap','pi','generic','coax_main_cable','coax_tap_cable'
-    ].includes(kind);
-  }}
+  // 케이블 LOD는 기존 유지. 기기는 광함체를 제외하고 L1에서만 표시한다.
+  if(kind==='coax_main_cable')return mapLevel<=3;
+  if(kind==='coax_tap_cable')return mapLevel<=2;
+  if(kind==='closure')return mapLevel<=3;
+  if(isDeviceOverlayKind(kind))return mapLevel<=1;
+
+  // 입력방향 화살표는 연결 기기와 같은 수준에서만 표시한다.
+  if([
+    'amp_input_arrow','tap_input_arrow','splitter_input_arrow'
+  ].includes(kind))return mapLevel<=1;
+
   return mapLevel<=1;
 }}
 
@@ -2509,8 +2506,13 @@ function applyZoomVisibility(mapLevel){{
     let visible=true;
     if(group==='FIBER'){{
       visible=groupEnabled.FIBER===true;
-      // 광 선로는 계속 표시하고 광 기기는 L3부터 표시한다.
-      if(visible && kind)visible=(mapLevel<=3);
+      // 광함체(closure)는 L3부터, 그 외 광 기기는 L1에서만 표시한다.
+      // 광 선로 자체(kind 없음)는 기존처럼 계속 표시한다.
+      if(visible && kind){{
+        if(kind==='closure')visible=(mapLevel<=3);
+        else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);
+        else visible=(mapLevel<=3);
+      }}
     }}else if(group==='COAX' && kind==='cell_boundary'){{
       visible=groupEnabled.COAX===true && mapLevel<=5;
     }}else if(group==='COAX' && kind==='cell_number'){{
