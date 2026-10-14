@@ -220,6 +220,7 @@ assert "await loadFiberViewport(false);" not in init_block
 assert "await loadObjects(false);" in init_block
 reload_block = online_source.split("document.getElementById('reload').onclick=async()=>{{",1)[1].split("document.getElementById('myLocation')",1)[0]
 assert "await loadRegionFiber(true);" in reload_block
+assert "lastQueryLat=null;" in reload_block
 assert "await loadObjects(true);" in reload_block
 assert reload_block.index("await loadRegionFiber(true);") < reload_block.index("await loadObjects(true);")
 assert "scheduleFiberRecenter(false);" not in init_block
@@ -663,6 +664,9 @@ region_fiber_block = online_source.split("async function loadRegionFiber(syncFor
 assert "apiCall('fiber_cached')" in region_fiber_block
 assert "renderFiberFeatures(cachedFeatures)" in region_fiber_block
 assert "apiCall('fiber_all',{{force:!!syncForce}})" in region_fiber_block
+assert "if(!syncForce){{" in region_fiber_block
+assert "광 전체 강제 재수신" in region_fiber_block
+assert "기존 캐시 무시 · 서버 전체 재조회" in region_fiber_block
 assert region_fiber_block.index("apiCall('fiber_cached')") < region_fiber_block.index("apiCall('fiber_all',{{force:!!syncForce}})")
 
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
