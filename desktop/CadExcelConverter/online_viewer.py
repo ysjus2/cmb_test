@@ -1693,13 +1693,10 @@ let myLat=null,myLng=null;
 let lastQueryLat=null,lastQueryLng=null,lastDetailMode=null;
 let QUERY_RADIUS_METERS=500;
 const FIBER_QUERY_RADIUS_METERS=10000;
-const FIBER_RECENTER_METERS=8000;
 let QUERY_RECENTER_METERS=200;
 let lastActivity=Date.now();
 let idleTimer=null;
 let nonFiberLoadTimer=null;
-let fiberRecenterTimer=null;
-const FIBER_RECENTER_DELAY_MS=1000;
 let authorizedRegions=[];
 let regionSwitching=false;
 let fiberViewportGeneration=0;
@@ -3215,196 +3212,67 @@ async function loadFiberViewport(force=false){{
 
   const center=map.getCenter();
   const cLat=Number(center.getLat()),cLng=Number(center.getLng());
+  const generation=++fiberViewportGeneration;
+
   gridDiag.region=region;
   gridDiag.centerLat=cLat;
   gridDiag.centerLng=cLng;
-  gridDiag.stage='POLEMAP 요청';
-  gridDiag.progress='광 10km';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText());
+  gridDiag.stage='광 좌표 조회';
+  gridDiag.progress='현재 화면 bbox';
+  setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
 
-  // 지도 이동 시 거리 기준으로 광 조회를 생략하지 않는다.
-  // 현재 중심 GRID가 바뀌었는지가 기준이며, 중심 GRID 광은 항상 최우선으로 확인한다.
-
-  const generation=++fiberViewportGeneration;
-
-  // 광은 일반 객체의 500m 조회반경과 완전히 분리한다.
-  // 지도 줌 레벨과 관계없이 현재 중심 기준 반경 10km를 Polemap 조회 범위로 사용한다.
-  const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;
-  const fiberLngScale=Math.max(0.2,Math.cos(cLat*Math.PI/180));
-  const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);
-  const query={{
-    west:cLng-fiberLngDelta,
-    south:cLat-fiberLatDelta,
-    east:cLng+fiberLngDelta,
-    north:cLat+fiberLatDelta
-  }};
-
-  // 0) 가장 먼저 로컬 Polemap + fiber cell 캐시만 읽어 즉시 표시한다.
-  // 서버/버전/Polemap 네트워크 응답을 기다리지 않는다.
+  // 광도 GRID/Polemap 없이 현재 지도 화면의 위·경도 bbox만 사용한다.
+  let west,south,east,north;
   try{{
-    const cachedView=await apiCall('fiber_cached_viewport',{{
-      west:query.west,south:query.south,east:query.east,north:query.north,
-      center_lat:cLat,center_lng:cLng
-    }});
-    if(generation!==fiberViewportGeneration)return 0;
-    if(region!==document.getElementById('region').value)return 0;
-    const cachedFeatures=(cachedView&&cachedView.features)||[];
-    if(cachedFeatures.length){{
-      const cachedRendered=renderFiberFeatures(cachedFeatures);
-      fiberDiag.cache=cachedFeatures.length;
-      const cachedCells=(cachedView&&cachedView.cells)||[];
-      const cachedCenter=centerCellFromList(cachedCells,cLat,cLng);
-      if(cachedCenter)gridDiag.centerGrid=String(cachedCenter.grid_id||'-');
-      gridDiag.cells=cachedCells.length;
-      gridDiag.stage='로컬 광 캐시 표시';
-      gridDiag.progress=
-        String((cachedView.used_cells||[]).length)+' GRID · '+
-        String(cachedFeatures.length)+'개'+
-        ' · REGIONCACHE '+String(cachedView.monolithic_count||0);
-      setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-    }}
-  }}catch(e){{}}
-
-  let polemap=null;
-  try{{polemap=await apiCall('polemap',query);}}catch(e){{polemap=null;}}
-  if(generation!==fiberViewportGeneration)return 0;
-
-  const cells=(polemap&&polemap.cells)||[];
-  gridDiag.cells=cells.length;
-  const centerCell=centerCellFromList(cells,cLat,cLng);
-  gridDiag.centerGrid=centerCell?String(centerCell.grid_id||'-'):'-';
-  gridDiag.stage=cells.length?'POLEMAP 수신':'POLEMAP 0셀';
-  gridDiag.progress='광';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText());
-  if(cells.length){{
-    const ordered=cells.slice().sort((a,b)=>{{
-      const ax=(Number(a.west)+Number(a.east))/2, ay=(Number(a.south)+Number(a.north))/2;
-      const bx=(Number(b.west)+Number(b.east))/2, by=(Number(b.south)+Number(b.north))/2;
-      return ((ax-cLng)**2+(ay-cLat)**2)-((bx-cLng)**2+(by-cLat)**2);
-    }});
-
-    // 정확히 현재 중심을 포함하는 GRID를 무조건 첫 번째로 올린다.
-    if(centerCell){{
-      const centerId=String(centerCell.grid_id||'').toUpperCase();
-      const rest=ordered.filter(x=>String(x.grid_id||'').toUpperCase()!==centerId);
-      ordered.length=0;
-      ordered.push(centerCell,...rest);
-    }}
-
-    const merged=new Map();
-    const addFeatures=(features)=>{{
-      (features||[]).forEach(f=>{{
-        const p=f.properties||{{}};
-        const a=p.attributes||{{}}, fields=a.fields||a;
-        const part=String(fields._cmb_geometry_part_index||'');
-        const k=String(p.source_handle||p.regional_object_id||p.entity_id||p.object_id||JSON.stringify(f.geometry||{{}}))+'|'+part;
-        merged.set(k,f);
-      }});
-    }};
-
-    // 1) 현재 GRID 광을 최우선으로 로컬 캐시/서버에서 가져와 즉시 렌더한다.
-    const primary=ordered[0];
-    const primaryGrid=String((primary&&primary.grid_id)||'-');
-    gridDiag.centerGrid=primaryGrid;
-    gridDiag.stage='현재 GRID 광';
-    gridDiag.progress=primaryGrid+' · 즉시 표시';
-    setStatus('L'+map.getLevel()+' · '+gridDiagText());
-
-    let primaryResult=null;
-    try{{
-      primaryResult=await apiCall('fiber_cell',{{
-        grid_id:primaryGrid,
-        west:Number(primary.west),south:Number(primary.south),
-        east:Number(primary.east),north:Number(primary.north),
-        force:force
-      }});
-    }}catch(e){{
-      primaryResult=null;
-    }}
-    if(generation!==fiberViewportGeneration)return 0;
-    if(region!==document.getElementById('region').value)return 0;
-
-    addFeatures((primaryResult&&primaryResult.features)||[]);
-    let rendered=0;
-    if(merged.size){{
-      rendered=renderFiberFeatures([...merged.values()]);
-      fiberDiag.cache=merged.size;
-    }}
-    lastFiberGridId=primaryGrid;
-    gridDiag.stage='현재 GRID 광 표시';
-    gridDiag.progress=primaryGrid+' · '+String(merged.size)+'개';
-    setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-
-    // 2) 현재 GRID 광을 먼저 보여준 뒤, 중심 기준 10km의 나머지 광을 모두 완료한다.
-    // 이 함수가 끝난 뒤에만 호출부가 동축/기기 조회를 시작한다.
-    for(let i=1;i<ordered.length;i++){{
-      if(generation!==fiberViewportGeneration)return rendered;
-      if(region!==document.getElementById('region').value)return rendered;
-      const cell=ordered[i];
-      gridDiag.stage='10km 광 로딩';
-      gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)+' · '+String(cell.grid_id||'-');
-      setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-      try{{
-        const r=await apiCall('fiber_cell',{{
-          grid_id:String(cell.grid_id||''),
-          west:Number(cell.west),south:Number(cell.south),
-          east:Number(cell.east),north:Number(cell.north),
-          force:false
-        }});
-        if(generation!==fiberViewportGeneration)return rendered;
-        addFeatures((r&&r.features)||[]);
-        if(merged.size){{
-          rendered=renderFiberFeatures([...merged.values()]);
-          fiberDiag.cache=merged.size;
-          setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-        }}
-      }}catch(e){{}}
-      // 로컬 셀 캐시는 연속으로 즉시 합치고, 네트워크 조회 때만 UI에 짧게 양보한다.
-      if(typeof r!=='undefined' && r && r.cache!=='hit'){{
-        await new Promise(resolve=>setTimeout(resolve,20));
-      }}
-    }}
-
-    // 10km 광 전체가 완료된 이 중심점을 다음 8km 이동 판정의 고정점으로 사용한다.
-    lastFiberCacheLat=cLat;
-    lastFiberCacheLng=cLng;
-    lastFiberCacheRegion=region;
-    gridDiag.stage='10km 광 완료';
-    gridDiag.progress=String(ordered.length)+' GRID · '+String(merged.size)+'개 · 기준점 고정';
-    setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-    return rendered;
+    const bounds=map.getBounds();
+    const sw=bounds.getSouthWest(), ne=bounds.getNorthEast();
+    const latSpan=Math.max(0.0005,Number(ne.getLat())-Number(sw.getLat()));
+    const lngSpan=Math.max(0.0005,Number(ne.getLng())-Number(sw.getLng()));
+    const latPad=latSpan*0.20;
+    const lngPad=lngSpan*0.20;
+    west=Number(sw.getLng())-lngPad;
+    south=Number(sw.getLat())-latPad;
+    east=Number(ne.getLng())+lngPad;
+    north=Number(ne.getLat())+latPad;
+  }}catch(e){{
+    const radius=Math.max(1000,Number(QUERY_RADIUS_METERS)||500);
+    const latDelta=radius/111320;
+    const lngScale=Math.max(0.2,Math.cos(cLat*Math.PI/180));
+    const lngDelta=radius/(111320*lngScale);
+    west=cLng-lngDelta; south=cLat-latDelta;
+    east=cLng+lngDelta; north=cLat+latDelta;
   }}
 
-  // Polemap 미등록 지역도 광은 동일하게 중심 반경 10km bbox를 사용한다.
-  const west=query.west;
-  const south=query.south;
-  const east=query.east;
-  const north=query.north;
-  gridDiag.stage='BBOX 폴백';
-  gridDiag.progress='FIBER';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText());
   const r=await apiCall('fiber_bbox',{{west,south,east,north,force}});
   if(generation!==fiberViewportGeneration)return 0;
+  if(region!==document.getElementById('region').value)return 0;
+
   if(!r||r.ok===false){{
     if(r&&r.error)setStatus(r.error+' · 기존 광 표시 유지');
     return 0;
   }}
-  const features=r.features||[];
+
+  const features=(r.features||[]);
+  let rendered=0;
   if(features.length){{
-    const rendered=renderFiberFeatures(features);
+    rendered=renderFiberFeatures(features);
     fiberDiag.cache=features.length;
-    lastFiberCacheLat=cLat;
-    lastFiberCacheLng=cLng;
-    lastFiberCacheRegion=region;
-    return rendered;
   }}
-  // 광 데이터가 0개면 캐시 중심을 확정하지 않는다.
-  // 다음 idle/zoom 이후 서버 조회를 다시 허용한다.
-  lastFiberCacheLat=null;
-  lastFiberCacheLng=null;
-  lastFiberCacheRegion='';
-  lastFiberGridId='';
-  return 0;
+
+  gridDiag.stage=r.refresh_pending?'광 캐시 표시':'광 좌표 완료';
+  gridDiag.progress=
+    String(features.length)+'개 · '+(r.cache==='stale'?'서버 갱신중':String(r.cache||'network'));
+  setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
+
+  // 캐시를 먼저 보여준 경우 서버 갱신 결과를 다시 읽어 화면에 반영한다.
+  if(r.refresh_pending){{
+    setTimeout(()=>{{
+      if(region===document.getElementById('region').value){{
+        loadFiberViewport(true).catch(()=>{{}});
+      }}
+    }},900);
+  }}
+  return rendered;
 }}
 
 function queueNonFiberLoad(force=false,delay=120){{
@@ -3994,44 +3862,6 @@ function bindUi(){{
 
 }}
 
-function scheduleFiberRecenter(force=false){{
-  if(!map)return;
-
-  // 현재 위치와 GRID/캐시는 매 이동 정지마다 다시 연결한다.
-  // 거리 임계값으로 새 GRID 탐색을 생략하지 않는다.
-  if(fiberRecenterTimer){{
-    clearTimeout(fiberRecenterTimer);
-    fiberRecenterTimer=null;
-  }}
-
-  const c=map.getCenter();
-  gridDiag.centerLat=Number(c.getLat());
-  gridDiag.centerLng=Number(c.getLng());
-  gridDiag.stage='현재 GRID 대기';
-  gridDiag.progress='이동 정지 후 위치→GRID→캐시 재연결';
-  setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-
-  fiberRecenterTimer=setTimeout(async()=>{{
-    fiberRecenterTimer=null;
-    if(!map)return;
-
-    const fixed=map.getCenter();
-    gridDiag.centerLat=Number(fixed.getLat());
-    gridDiag.centerLng=Number(fixed.getLng());
-    gridDiag.stage='현재 GRID 확인';
-    gridDiag.progress='중심좌표로 지역/GRID 재판정';
-    setStatus('L'+map.getLevel()+' · '+gridDiagText()+fiberDiagText());
-
-    const ok=await autoRegionForMapCenter();
-    if(!ok)return;
-
-    // 현재 위치→정확한 GRID→해당 GRID 캐시 즉시 표시.
-    // 캐시가 없으면 같은 GRID를 서버에서 받아 저장/표시한다.
-    await loadFiberViewport(force);
-    queueNonFiberLoad(force,0);
-  }},FIBER_RECENTER_DELAY_MS);
-}}
-
 function centerMyLocation(loadAfter){{
   if(!navigator.geolocation){{
     setStatus('현재 위치 기능을 사용할 수 없습니다');
@@ -4070,7 +3900,11 @@ function initMap(){{
       }});
       kakao.maps.event.addListener(map,'idle',async()=>{{
         const ok=await autoRegionForMapCenter();
-        if(ok)loadObjects();
+        if(ok){{
+          // 지도 이동이 멈출 때마다 광/동축/기기를 모두 현재 위·경도 bbox로 갱신한다.
+          loadFiberViewport(false).catch(()=>{{}});
+          loadObjects();
+        }}
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
