@@ -14,7 +14,9 @@ from server_client_windows import CMBServerClient, ServerError
 APP_DATA_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home()) / "CMB_DXF_Viewer"
 CFG = APP_DATA_DIR / "online.json"
 CACHE_DIR = APP_DATA_DIR / "online_cache"
-FIBER_CACHE_SCHEMA = 2
+GENERAL_CACHE_SCHEMA = 3
+FIBER_CACHE_SCHEMA = 3
+CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 WINDOWS_RELEASE = "Windows_1.0_Coordinate_BBox"
 
@@ -161,8 +163,20 @@ class Api:
         try:
             with gzip.open(path, "rt", encoding="utf-8") as fh:
                 raw = json.load(fh)
-            # 구버전 광 캐시도 즉시 화면에 사용한다.
-            # 새 데이터가 완전하게 수집/검증된 뒤 저장할 때만 새 schema로 승격한다.
+
+            # GRID 시대/구버전 캐시는 지역 내부 검증값이 없으므로 더 이상 신뢰하지 않는다.
+            # 파일명만 지역별이어도 과거 잘못 매핑된 다른 지역 객체가 섞일 수 있다.
+            schema = int(raw.get("schema") or 0)
+            cache_region = str(raw.get("region") or "")
+            cache_basis = str(raw.get("cache_basis") or "")
+            if (
+                schema != FIBER_CACHE_SCHEMA
+                or cache_region != str(self.region or "")
+                or cache_basis != CACHE_BASIS
+            ):
+                self._delete_fiber_cache()
+                return
+
             self.fiber_cache = {
                 "version": str(raw.get("version") or ""),
                 "features": [x for x in (raw.get("features") or []) if isinstance(x, dict)],
@@ -181,6 +195,8 @@ class Api:
                 json.dump(
                     {
                         "schema": FIBER_CACHE_SCHEMA,
+                        "region": str(self.region or ""),
+                        "cache_basis": CACHE_BASIS,
                         "version": self.fiber_cache.get("version") or "",
                         "features": self.fiber_cache.get("features") or [],
                     },
@@ -508,6 +524,18 @@ class Api:
         try:
             with gzip.open(path, "rt", encoding="utf-8") as fh:
                 raw = json.load(fh)
+
+            schema = int(raw.get("schema") or 0)
+            cache_region = str(raw.get("region") or "")
+            cache_basis = str(raw.get("cache_basis") or "")
+            if (
+                schema != GENERAL_CACHE_SCHEMA
+                or cache_region != str(self.region or "")
+                or cache_basis != CACHE_BASIS
+            ):
+                self._delete_cache_file()
+                return
+
             features = {}
             for feature in raw.get("features") or []:
                 if isinstance(feature, dict):
@@ -531,6 +559,9 @@ class Api:
             path = self._cache_path()
             tmp = path.with_suffix(path.suffix + ".tmp")
             raw = {
+                "schema": GENERAL_CACHE_SCHEMA,
+                "region": str(self.region or ""),
+                "cache_basis": CACHE_BASIS,
                 "versions": self.cache_state.get("versions") or {},
                 "features": list((self.cache_state.get("features") or {}).values()),
                 "coverage": list(self.cache_state.get("coverage") or [])[-200:],
