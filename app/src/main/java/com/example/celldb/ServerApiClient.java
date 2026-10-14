@@ -22,9 +22,11 @@ final class ServerApiClient {
     static final String BASE_URL="https://192.168.246.54:8443";
     interface ConnectionFactory { HttpURLConnection open(URL url) throws IOException; }
     private final ConnectionFactory connections;
+    private final String deviceId;
     private volatile String access="",refresh="";
     private volatile HttpURLConnection active;
-    ServerApiClient() { this(ServerApiClient::openInternalServerConnection); }
+    ServerApiClient() { this(ServerApiClient::openInternalServerConnection, ""); }
+    ServerApiClient(String deviceId) { this(ServerApiClient::openInternalServerConnection, deviceId); }
     private static HttpURLConnection openInternalServerConnection(URL url) throws IOException {
         URLConnection raw=url.openConnection();
         if(!(raw instanceof HttpsURLConnection))return (HttpURLConnection)raw;
@@ -50,7 +52,11 @@ final class ServerApiClient {
         return https;
     }
     // Transport injection for JVM tests; the app always uses the default HTTPS transport.
-    ServerApiClient(ConnectionFactory connections) { this.connections=connections; }
+    ServerApiClient(ConnectionFactory connections) { this(connections, ""); }
+    ServerApiClient(ConnectionFactory connections,String deviceId) {
+        this.connections=connections;
+        this.deviceId=deviceId==null?"":deviceId.trim();
+    }
     void cancel(){HttpURLConnection connection=active;if(connection!=null)connection.disconnect();}
     void clear(){access="";refresh="";cancel();}
     private Object request(String path,JSONObject body,boolean authenticated,boolean retry) throws Exception {
@@ -61,6 +67,10 @@ final class ServerApiClient {
             connection.setConnectTimeout(8000);connection.setReadTimeout(12000);
             connection.setInstanceFollowRedirects(false);connection.setUseCaches(false);
             connection.setRequestProperty("Accept","application/json");
+            if(!deviceId.isEmpty()){
+                connection.setRequestProperty("X-CMB-Device-ID",deviceId);
+                connection.setRequestProperty("X-CMB-Device-Type","ANDROID");
+            }
             if(authenticated)connection.setRequestProperty("Authorization","Bearer "+access);
             if(body!=null){
                 connection.setRequestMethod("POST");connection.setDoOutput(true);
