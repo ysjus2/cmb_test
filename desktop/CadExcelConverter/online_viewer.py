@@ -2532,6 +2532,48 @@ function renderFiberFeatures(features){{
   return rendered;
 }}
 
+async function loadRegionFiber(syncForce=false){{
+  const region=document.getElementById('region').value;
+  if(!region||!groupEnabled.FIBER)return 0;
+
+  // 1) 현재 지역의 디스크 캐시를 서버 대기 없이 즉시 표시한다.
+  try{{
+    const cached=await apiCall('fiber_cached');
+    if(region!==document.getElementById('region').value)return 0;
+    const cachedFeatures=(cached&&cached.features)||[];
+    if(cachedFeatures.length){{
+      renderFiberFeatures(cachedFeatures);
+      fiberDiag.cache=cachedFeatures.length;
+      viewDiag.stage='광 지역 캐시 표시';
+      viewDiag.progress=String(cachedFeatures.length)+'개';
+      setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+    }}
+  }}catch(e){{}}
+
+  // 2) 서버 revision과 동기화한다. 최신 캐시면 재다운로드하지 않고,
+  //    변경된 경우에만 지역 광 전체를 받아 영구 캐시를 갱신한다.
+  viewDiag.stage='광 지역 동기화';
+  viewDiag.progress='서버 최신상태 확인';
+  setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+
+  const fresh=await apiCall('fiber_all',{{force:!!syncForce}});
+  if(region!==document.getElementById('region').value)return 0;
+  if(!fresh||fresh.ok===false){{
+    if(fresh&&fresh.error)setStatus(fresh.error+' · 기존 광 캐시 유지');
+    return 0;
+  }}
+
+  const features=(fresh.features||[]);
+  if(features.length){{
+    renderFiberFeatures(features);
+    fiberDiag.cache=features.length;
+  }}
+  viewDiag.stage='광 지역 동기화 완료';
+  viewDiag.progress=String(features.length)+'개 · '+String(fresh.cache||'network');
+  setStatus('L'+map.getLevel()+' · '+viewDiagText()+fiberDiagText());
+  return features.length;
+}}
+
 async function loadFiberViewport(force=false){{
   const region=document.getElementById('region').value;
   if(!region||!map||!groupEnabled.FIBER)return 0;
@@ -2917,15 +2959,14 @@ async function activateRegion(region){{
     viewDiag.progress=(info?info.name:region)+' · 현재 화면 도면 조회';
     setStatus('L'+map.getLevel()+' · '+viewDiagText());
 
-    // 지역 전환 시 Viewer 고정 조회 기준(500m/200m)을 새 지역에서 다시 시작한다.
-    lastFiberQueryLat=null;
-    lastFiberQueryLng=null;
+    // 지역 전환 시 동축 조회 기준(500m/200m)을 새 지역에서 다시 시작한다.
     lastQueryLat=null;
     lastQueryLng=null;
     lastDetailMode=null;
 
-    // 광을 먼저 읽고 화면에 표시한 뒤 동축/기기를 순차 조회한다.
-    await loadFiberViewport(true);
+    // 광은 거리 제한 없이 지역 전체 캐시를 즉시 표시하고 서버와 1회 동기화한다.
+    // 광 동기화가 끝난 뒤에만 현재 위치의 동축/기기를 500m 범위로 조회한다.
+    await loadRegionFiber(false);
     await loadObjects(true);
     return true;
   }} finally {{
@@ -3004,12 +3045,10 @@ function bindUi(){{
   document.getElementById('reload').onclick=async()=>{{
     const ok=await autoRegionForMapCenter();
     if(!ok)return;
-    lastFiberQueryLat=null;
-    lastFiberQueryLng=null;
     lastQueryLat=null;
     lastQueryLng=null;
     lastDetailMode=null;
-    await loadFiberViewport(true);
+    await loadRegionFiber(true);
     await loadObjects(true);
   }};
   document.getElementById('myLocation').onclick=()=>centerMyLocation(true);
@@ -3078,14 +3117,7 @@ function bindUi(){{
           setStatus('L'+map.getLevel()+' · '+g+' 캐시 즉시 표시 · '+restored+'개');
         }}else{{
           if(g==='FIBER'){{
-            apiCall('fiber_cached').then(cached=>{{
-              const items=(cached&&cached.features)||[];
-              if(items.length){{
-                renderFiberFeatures(items);
-                return null;
-              }}
-              return apiCall('fiber_all',{{force:false}}).then(f=>renderFiberFeatures((f&&f.features)||[]));
-            }}).catch(()=>{{}});
+            loadRegionFiber(false).catch(()=>{{}});
           }}else{{
             queueNonFiberLoad(true,0);
           }}
@@ -3157,7 +3189,6 @@ function initMap(){{
           // 같은 지역에서 이동한 경우에만 현재 bbox를 갱신한다.
           const region=String(document.getElementById('region').value||'');
           if(region){{
-            await loadFiberViewport(false);
             await loadObjects(false);
           }}
         }},REGION_SETTLE_DELAY_MS);
