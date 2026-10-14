@@ -724,6 +724,38 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         classify_entity,
     )
 
+    # POLE 그룹은 지도 표시 좌표 + 전주번호만 서버에 최소 저장한다.
+    # GRID/pole_refs/DXF/style/xdata/symbol 정보는 온라인 Viewer에서 사용하지 않는다.
+    if str(group or "").upper() == "POLE":
+        for obj in payload.get("objects") or []:
+            attrs = dict(obj.get("attributes") or {})
+
+            pole_no = str(attrs.get("_cmb_pole_no") or "").strip().upper()
+            if not pole_no:
+                pos = attrs.get("_cmb_pole_position") or {}
+                if isinstance(pos, dict):
+                    pole_no = str(pos.get("pole_no") or "").strip().upper()
+            if not pole_no:
+                refs = attrs.get("_cmb_pole_refs") or []
+                if isinstance(refs, list):
+                    for ref in refs:
+                        if isinstance(ref, dict) and ref.get("pole_no"):
+                            pole_no = str(ref.get("pole_no") or "").strip().upper()
+                            if pole_no:
+                                break
+
+            obj["attributes"] = (
+                {"_cmb_pole_no": pole_no}
+                if pole_no else {}
+            )
+            obj["xdata"] = {}
+            # POLE 렌더링은 group/Point geometry 기준이므로 블록 상세는 저장하지 않는다.
+            obj["block_name"] = ""
+
+        payload["symbol_library"] = []
+        payload["symbol_count"] = 0
+        payload["pole_storage_schema"] = "minimal-v1"
+
     canonical_v2 = json.dumps(
         payload,
         ensure_ascii=False,
