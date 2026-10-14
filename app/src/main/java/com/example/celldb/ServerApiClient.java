@@ -94,6 +94,11 @@ final class ServerApiClient {
     void login(String username,String password) throws Exception {
         setTokens((JSONObject)request("/auth/login",new JSONObject().put("username",username).put("password",password),false,false));
     }
+    void changePassword(String currentPassword,String newPassword) throws Exception {
+        request("/auth/change-password",
+                new JSONObject().put("current_password",currentPassword).put("new_password",newPassword),
+                true,true);
+    }
     void logout(){try{request("/auth/logout",new JSONObject(),true,true);}catch(Exception ignored){}finally{clear();}}
     static String encoded(String text)throws Exception{return URLEncoder.encode(text,"UTF-8");}
     JSONArray regions()throws Exception{return (JSONArray)request("/regions",null,true,true);}
