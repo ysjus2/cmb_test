@@ -622,6 +622,15 @@ print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
 
 # Windows 1.0 좌표 기준: GRID/Polemap이 아닌 위경도 bbox + 지역 광 캐시를 사용한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+fiber_view_block = online_source.split("async function loadFiberViewport(force=false){{",1)[1].split("function queueNonFiberLoad",1)[0]
+assert "apiCall('fiber_bbox'" in fiber_view_block
+assert "apiCall('polemap'" not in fiber_view_block
+assert "apiCall('fiber_cell'" not in fiber_view_block
+assert "GRID" not in fiber_view_block
+assert "FIBER_RECENTER_METERS" not in online_source
+assert "scheduleFiberRecenter" not in online_source
+init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
+assert "loadFiberViewport(false)" in init_block
 assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
 assert "def _commit_bbox_cache(self, features, west, south, east, north):" in online_source
 assert "def objects(self, west, south, east, north):" in online_source
