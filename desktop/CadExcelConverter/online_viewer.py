@@ -538,6 +538,52 @@ class Api:
             result.update(fallback)
         return result
 
+    def region_at_point(self, regions, lat, lng, radius_m=1200):
+        """Resolve the map center by actual lon/lat object presence, without GRID/Polemap."""
+        lat = float(lat); lng = float(lng)
+        radius_m = max(200.0, min(3000.0, float(radius_m or 1200)))
+        lat_delta = radius_m / 111320.0
+        lng_scale = max(0.2, __import__("math").cos(lat * __import__("math").pi / 180.0))
+        lng_delta = radius_m / (111320.0 * lng_scale)
+        bbox = f"{lng-lng_delta},{lat-lat_delta},{lng+lng_delta},{lat+lat_delta}"
+
+        ranked = []
+        for region in [str(x or "").strip() for x in (regions or []) if str(x or "").strip()]:
+            try:
+                raw = self.c.online_objects(region, bbox, limit=500) or {}
+                features = [x for x in (raw.get("features") or []) if isinstance(x, dict)]
+                if not features:
+                    continue
+
+                # 현재 중심에 가까운 실제 geometry가 있는 지역을 우선한다.
+                nearest = float("inf")
+                for feature in features:
+                    bounds = self._geometry_bounds((feature or {}).get("geometry") or {})
+                    if not bounds:
+                        continue
+                    west, south, east, north = bounds
+                    cx = min(max(lng, west), east)
+                    cy = min(max(lat, south), north)
+                    dist = (cx-lng) ** 2 + (cy-lat) ** 2
+                    if dist < nearest:
+                        nearest = dist
+                ranked.append((nearest, -len(features), region, len(features)))
+            except Exception:
+                continue
+
+        if not ranked:
+            return {"ok": True, "region": "", "count": 0, "source": "bbox_objects"}
+
+        ranked.sort(key=lambda row: (row[0], row[1], row[2]))
+        nearest, _neg_count, region, count = ranked[0]
+        return {
+            "ok": True,
+            "region": region,
+            "count": count,
+            "source": "bbox_objects",
+            "distance_score": nearest,
+        }
+
     def map_display_settings(self):
         try:
             settings = self.c.map_display_settings() or {}
@@ -1687,8 +1733,6 @@ function gridDiagText(){{
   const parts=[
     'REGION '+region,
     currentCenterText(),
-    'GRID '+String(gridDiag.centerGrid||'-'),
-    'CELLS '+String(gridDiag.cells||0),
     'STAGE '+String(gridDiag.stage||'대기')
   ];
   if(gridDiag.progress)parts.push(String(gridDiag.progress));
@@ -3683,6 +3727,14 @@ function boundsContainsLatLng(bounds,latlng){{
          lng>=Math.min(west,east)&&lng<=Math.max(west,east);
 }}
 
+function regionBoundsArea(bounds){{
+  if(!bounds)return Number.POSITIVE_INFINITY;
+  const west=Number(bounds.west),south=Number(bounds.south);
+  const east=Number(bounds.east),north=Number(bounds.north);
+  if(![west,south,east,north].every(Number.isFinite))return Number.POSITIVE_INFINITY;
+  return Math.abs((east-west)*(north-south));
+}}
+
 async function activateRegion(region){{
   region=String(region||'');
   const sel=document.getElementById('region');
@@ -3742,20 +3794,62 @@ async function activateRegion(region){{
 async function autoRegionForMapCenter(){{
   if(!map||!authorizedRegions.length||regionSwitching)return false;
   const center=map.getCenter();
+  const lat=Number(center.getLat()),lng=Number(center.getLng());
   const sel=document.getElementById('region');
-  const current=authorizedRegions.find(x=>x.id===sel.value);
-  if(current&&boundsContainsLatLng(current.bounds,center))return true;
 
-  const matched=authorizedRegions.find(x=>boundsContainsLatLng(x.bounds,center));
+  gridDiag.centerLat=lat;
+  gridDiag.centerLng=lng;
+  gridDiag.stage='좌표 지역 확인';
+  gridDiag.progress='현재 위치 주변 도면 검색';
+  setStatus('L'+map.getLevel()+' · '+gridDiagText());
+
+  // 1순위: 현재 위·경도 주변에 실제 도면 객체가 존재하는 지역을 찾는다.
+  // region bounds가 서로 겹쳐도 실제 geometry 좌표 기준으로 선택한다.
+  let resolved=null;
+  try{{
+    resolved=await apiCall('region_at_point',{{
+      regions:authorizedRegions.map(x=>x.id),
+      lat:lat,
+      lng:lng,
+      radius_m:1200
+    }});
+  }}catch(e){{resolved=null;}}
+
+  if(resolved&&resolved.region){{
+    const matched=authorizedRegions.find(x=>x.id===String(resolved.region));
+    if(matched){{
+      gridDiag.region=matched.id;
+      gridDiag.stage='좌표 지역 확정';
+      gridDiag.progress=matched.id+' · 주변 객체 '+String(resolved.count||0);
+      if(sel.value===matched.id){{
+        setStatus('L'+map.getLevel()+' · '+gridDiagText());
+        return true;
+      }}
+      return await activateRegion(matched.id);
+    }}
+  }}
+
+  // 실제 객체가 전혀 없는 위치에서만 지역 bounds를 최후 폴백으로 사용한다.
+  const candidates=authorizedRegions
+    .filter(x=>boundsContainsLatLng(x.bounds,center))
+    .sort((a,b)=>regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds));
+  const matched=candidates.length?candidates[0]:null;
   if(!matched){{
     if(sel.value){{
       clearOverlays();
       await apiCall('select',{{region:''}});
       sel.value='';
     }}
-    setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다');
+    gridDiag.region='';
+    gridDiag.stage='좌표 지역 없음';
+    gridDiag.progress='';
+    setStatus('현재 지도 위치에 접근 가능한 지역 도면이 없습니다 · '+currentCenterText());
     return false;
   }}
+  gridDiag.region=matched.id;
+  gridDiag.stage='지역 bounds 폴백';
+  gridDiag.progress=matched.id;
+  if(sel.value===matched.id)return true;
   return await activateRegion(matched.id);
 }}
 
@@ -4162,6 +4256,13 @@ def run_online_viewer():
                         data.get("south"),
                         data.get("east"),
                         data.get("north"),
+                    )
+                elif name == "region_at_point":
+                    result = api.region_at_point(
+                        data.get("regions") or [],
+                        data.get("lat"),
+                        data.get("lng"),
+                        data.get("radius_m", 1200),
                     )
                 elif name == "map_display_settings":
                     result = api.map_display_settings()
