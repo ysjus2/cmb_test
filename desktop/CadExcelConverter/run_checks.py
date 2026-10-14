@@ -646,7 +646,8 @@ assert "loadFiberViewport(false);" in online_source
 assert "apiCall('polemap',query)" in online_source
 assert "apiCall('fiber_cell'" in online_source
 assert "cells.sort((a,b)" in online_source
-assert "광 중앙 격자 " in online_source
+assert "gridDiag.stage='GRID API';" in online_source
+assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(cells.length)" in online_source
 assert "refresh_pending" in online_source
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
