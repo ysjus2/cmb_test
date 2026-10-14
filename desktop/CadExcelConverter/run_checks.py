@@ -232,21 +232,13 @@ assert 'layer.startswith("CN_L_POLE_LINE_")' in admin_upload_source
 assert admin_upload_source.index('return "CONDUIT"') < admin_upload_source.index('return "POLE"')
 print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
-# 지역 전환은 지역 전체 광/일반 객체 gzip을 읽지 않고 Polemap 셀 캐시만 현재 화면부터 읽어야 한다.
+# 지역 전환은 좌표 기반 지역 캐시와 광 캐시를 즉시 읽는다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fiber_cell_dir", 1)[0]
-assert "self._load_cache()" not in select_block
-assert "self._load_fiber_cache()" not in select_block
-assert 'self.cache_state = {"versions": {}, "features": {}, "coverage": []}' in select_block
-assert 'self.fiber_cache = {"version": "", "features": []}' in select_block
-assert "def _fiber_cell_dir(self):" in online_source
-assert "def _object_cell_dir(self):" in online_source
-assert "def fiber_cell(self, grid_id, west, south, east, north, force=False):" in online_source
-assert "def _cell_object_features(self, cell, version_signature):" in online_source
-assert "def polemap(self, west, south, east, north):" in online_source
-assert 'name == "fiber_cell"' in online_source
-assert 'name == "polemap"' in online_source
-print("FAST_POLEMAP_CELL_CACHE_OK")
+assert "self._load_cache()" in select_block
+assert "self._load_fiber_cache()" in select_block
+assert "cache_ready" in select_block
+print("COORDINATE_REGION_CACHE_SELECT_OK")
 
 
 # 서버 버전이 달라져도 기존 화면 캐시는 유지하고 coverage만 무효화해야 한다.
