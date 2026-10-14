@@ -727,7 +727,7 @@ clear_all_block = online_source.split("function clearOverlays(){{",1)[1].split("
 for token in ("currentPointFeatures=[];","currentFiberPointFeatures=[];","currentLineFeatures=[];","currentDevices=[];"):
     assert token in clear_all_block
 assert "fiberViewportGeneration++;" in clear_all_block
-assert "기존 지역 숨김" in online_source
+assert "이전 지역 취소/숨김" in online_source
 assert "이동 '+Math.round(moved)+'m / '+QUERY_RECENTER_METERS+'m" in online_source
 assert "STAGE 새 지역 광 캐시 확인" in online_source
 assert "STAGE 동축/기기 조회 시작" in online_source
