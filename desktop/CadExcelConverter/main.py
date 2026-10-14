@@ -850,6 +850,11 @@ if __name__ == "__main__":
         assert classify_entity(SimpleNamespace(layer="CN_F_CABLE", block_name="")) == "FIBER"
         page = html("smoke-key", "smoke-token")
         assert "clearGroupOverlays" in page and "snapCablePath" in page
+        assert "<select id='region' title='권한 지역 선택'>" in page
+        assert "async function loadRegionFiber(syncForce=false)" in page
+        assert "apiCall('fiber_cached')" in page
+        assert "apiCall('fiber_all',{{force:!!syncForce}})" in page
+        assert "async function autoRegionForMapCenter()" not in page
         transformer = pyproj.Transformer.from_crs(5174, 4326, always_xy=True)
         lng, lat = transformer.transform(200000, 300000)
         assert 120 < lng < 135 and 30 < lat < 45
@@ -857,6 +862,8 @@ if __name__ == "__main__":
         output.write_text(json.dumps({"ok": True, "version": "3.84_FINAL",
             "frozen": bool(getattr(sys, "frozen", False)),
             "tcl_tk": True, "coordinate_conversion": True,
+            "region_selector": True,
+            "regional_fiber_sync": True,
             "viewer_page_sha256": hashlib.sha256(page.encode()).hexdigest()}), encoding="utf-8")
         raise SystemExit(0)
 
