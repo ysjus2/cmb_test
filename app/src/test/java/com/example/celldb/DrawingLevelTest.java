@@ -26,13 +26,21 @@ public class DrawingLevelTest {
         assertTrue(DrawingLevel.recordVisible("L4",number));
     }
 
-    @Test public void fiberCablePersistsButFiberDeviceStartsAtL3(){
+    @Test public void fiberCablePersistsClosureStartsAtL3AndOtherFiberDevicesAtL2(){
         CadRecord cable=new CadRecord();cable.category="FIBER";cable.layer="CN_F_CABLE";
+
+        CadRecord closure=new CadRecord();closure.category="EQUIPMENT";closure.layer="CN_F_CLOSURE";
+        closure.fields.put("__serverGroup","FIBER");
+        closure.fields.put("__symbol","FIBER_CLOSURE:0");
+
         CadRecord device=new CadRecord();device.category="EQUIPMENT";device.layer="CN_F_TERMINAL";
         device.fields.put("__serverGroup","FIBER");
         device.fields.put("__symbol","FIBER_L2:0");
+
         assertTrue(DrawingLevel.recordVisible("L8",cable));
-        assertFalse(DrawingLevel.recordVisible("L4",device));
-        assertTrue(DrawingLevel.recordVisible("L3",device));
+        assertFalse(DrawingLevel.recordVisible("L4",closure));
+        assertTrue(DrawingLevel.recordVisible("L3",closure));
+        assertFalse(DrawingLevel.recordVisible("L3",device));
+        assertTrue(DrawingLevel.recordVisible("L2",device));
     }
 }
