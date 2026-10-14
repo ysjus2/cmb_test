@@ -197,11 +197,21 @@ assert "function boundsContainsLatLng(bounds,latlng)" in online_source
 assert "apiCall('region_at_point'" in online_source
 assert "def region_at_point(self, regions, lat, lng, radius_m=1200):" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
+activate_block = online_source.split("async function activateRegion(region){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
+assert "apiCall('fiber_all'" not in activate_block
+assert "loadFiberViewport(false)" in activate_block
+assert "loadObjects(true)" in activate_block
+auto_region_block2 = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function loadMapDisplaySettings",1)[0]
+assert "candidates.length===1" in auto_region_block2
+assert "radius_m:500" in auto_region_block2
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
-assert "kakao.maps.event.addListener(map,'idle',async()=>{{" in init_block
+assert "kakao.maps.event.addListener(map,'idle',()=>{{" in init_block
+assert "REGION_SETTLE_DELAY_MS=700" in online_source
+assert "regionResolveGeneration" in init_block
+assert "setTimeout(async()=>{{" in init_block
 assert "if(ok){{" in init_block
 assert "loadFiberViewport(false)" in init_block
-assert "loadObjects();" in init_block
+assert "loadObjects(false)" in init_block
 assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
 assert "apiCall('fiber_all',{{force:false}})" in online_source
