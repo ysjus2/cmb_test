@@ -204,6 +204,15 @@ assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
 assert "apiCall('fiber_all',{{force:false}})" in online_source
 assert "apiCall('objects',{{west:west,south:south,east:east,north:north}})" in online_source
+assert "def polemap(" not in online_source
+assert "def polemap_probe(" not in online_source
+assert "def cached_region_probe(" not in online_source
+assert "def fiber_cell(" not in online_source
+assert "def _object_cell_dir(" not in online_source
+assert "def _fiber_cell_dir(" not in online_source
+assert "online_polemap(" not in online_source
+assert "online_grid_objects(" not in online_source
+assert "viewDiag" in online_source
 print("COORDINATE_BBOX_RUNTIME_OK")
 print("CROSS_PROCESS_SESSION_STATE_OK")
 
@@ -218,7 +227,7 @@ print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
 # 지역 전환은 Windows 1.0 방식대로 좌표 기반 기존 캐시를 즉시 읽어야 한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fiber_cell_dir", 1)[0]
+select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fetch_bbox_network", 1)[0]
 assert "self._load_cache()" in select_block
 assert "self._load_fiber_cache()" in select_block
 assert "cache_ready" in select_block
@@ -235,7 +244,7 @@ print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
 # 지역 전환은 좌표 기반 지역 캐시와 광 캐시를 즉시 읽는다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fiber_cell_dir", 1)[0]
+select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fetch_bbox_network", 1)[0]
 assert "self._load_cache()" in select_block
 assert "self._load_fiber_cache()" in select_block
 assert "cache_ready" in select_block
@@ -665,8 +674,8 @@ assert "apiCall('region_at_point'" in auto_region_block
 assert "boundsContainsLatLng" in auto_region_block
 assert "cached_region_probe" not in auto_region_block
 assert "polemap_probe" not in auto_region_block
-assert "'GRID '+String(gridDiag.centerGrid||'-')" not in online_source
-assert "'CELLS '+String(gridDiag.cells||0)" not in online_source
+assert "'GRID '+String(viewDiag.centerGrid||'-')" not in online_source
+assert "'CELLS '+String(viewDiag.cells||0)" not in online_source
 assert "style='display:none'" in online_source
 assert "지도 위치에 따라 자동 연결" in online_source
 print("AUTO_REGION_BY_LATLNG_BOUNDS_OK")
@@ -743,9 +752,10 @@ assert 'f"/online/grid/{g}/objects?limit={int(limit)}"' in client_source
 assert "def online_grid_objects(self, region, grid_id" in client_source
 assert 'f"/online/{q}/grid/{g}/objects?limit={int(limit)}"' in client_source
 assert "return self.online_grid_direct_objects(" in client_source
-assert "self.c.online_grid_objects(" in online_source
-assert "grid_id," in online_source
-print("DIRECT_GRID_ID_SERVER_LOOKUP_OK")
+assert "self.c.online_grid_objects(" not in online_source
+assert "fiber_cell(" not in online_source
+assert "polemap(" not in online_source
+print("VIEWER_GRID_RUNTIME_REMOVED_OK")
 
 # 온라인 Viewer LOD: L5 셀경계, L4 셀번호, L3 광기기.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
