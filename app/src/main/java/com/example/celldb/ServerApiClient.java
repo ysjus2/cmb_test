@@ -173,7 +173,8 @@ final class ServerApiClient {
             ArrayList<CadRecord> parsed=ServerCadParser.feature(region,feature);
             for(CadRecord r:parsed)r.fields.put("__onlineRegion",region);
             rows.addAll(parsed);
-            if(rows.size()>30000)throw new IOException("표시할 객체가 많습니다. 지도를 확대하세요.");
+            int rowLimit="FIBER".equalsIgnoreCase(groups==null?"":groups.trim())?200000:30000;
+            if(rows.size()>rowLimit)throw new IOException("표시할 객체가 많습니다. 지도를 확대하세요.");
         }
         return rows;
     }
