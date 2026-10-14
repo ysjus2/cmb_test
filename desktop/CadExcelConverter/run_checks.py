@@ -710,6 +710,10 @@ print("FIBER_INCREMENTAL_CACHE_OK")
 assert "authorizedRegions=[]" in online_source
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
+assert "ambiguous" in online_source
+assert "로컬 캐시는 한 지역만 정확히 포함할 때만 지역 판정에 사용한다." in online_source
+assert "지역/GIRD 경계는 수백 m 안에서도 바뀔 수 있으므로 이전 지역을 거리 기준으로 재사용하지 않는다." in online_source
+assert "distanceMeters(lastRegionResolveLat,lastRegionResolveLng,lat,lng)<1000" not in online_source
 assert "async function activateRegion(region)" in online_source
 assert "function containingCellFromList(cells,lat,lng)" in online_source
 assert "const centerCell=containingCellFromList(cells,lat,lng);" in online_source
