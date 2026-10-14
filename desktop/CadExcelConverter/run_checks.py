@@ -197,61 +197,39 @@ assert "cached_features = [" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
-assert "let nonFiberLoadTimer=null;" in online_source
-assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
-assert "function bestRegionForMapCenter(center)" in online_source
-assert "async function cachedRegionForMapCenter(center)" in online_source
-assert "apiCall('cached_region_probe'" in online_source
-assert "def cached_region_probe(self, regions, lat, lng):" in online_source
-assert "def _start_polemap_refresh(self, west, south, east, north):" in online_source
-assert "현재 화면은 서버보다 로컬 Polemap 캐시를 먼저 사용한다." in online_source
-assert "let matched=await cachedRegionForMapCenter(center);" in online_source
-assert "async function probeRegionForMapCenter(center)" in online_source
-assert "apiCall('polemap_probe'" in online_source
-assert "gridDiag.stage='지역 GRID 탐색';" in online_source
-assert "radius_m:2000" in online_source
-assert "def polemap_probe(self, region, lat, lng, radius_m=2000):" in online_source
-assert "function gridDiagText()" in online_source
-assert "function centerCellFromList(cells,lat,lng)" in online_source
-assert "'GRID '+String(gridDiag.centerGrid||'-')" in online_source
-assert "'STAGE '+String(gridDiag.stage||'대기')" in online_source
-assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)" in online_source
-assert "regionBoundsArea(a.bounds)-regionBoundsArea(b.bounds)" in online_source
-assert "'REGION '+region" in online_source
-assert "'CELLS '+String(gridDiag.cells||0)" in online_source
+assert 'WINDOWS_RELEASE = "Windows_1.0_Coordinate_BBox"' in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
 assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
-assert "await loadFiberViewport(false);" in online_source
-assert "queueNonFiberLoad(false,0);" in online_source
-assert "queueNonFiberLoad(true,0);" in online_source
-assert "const FIBER_QUERY_RADIUS_METERS=10000;" in online_source
-assert "gridDiag.stage='현재 GRID 광';" in online_source
-assert "gridDiag.stage='현재 GRID 광 표시';" in online_source
-assert "gridDiag.stage='10km 광 로딩';" in online_source
-assert "gridDiag.stage='10km 광 완료';" in online_source
-assert "이 함수가 끝난 뒤에만 호출부가 동축/기기 조회를 시작한다." in online_source
-assert "queueNonFiberLoad(false,0);" in online_source
-assert "const primary=ordered[0];" in online_source
-assert "if(moved<FIBER_RECENTER_METERS && hasFiberCache)" not in online_source
-assert "const FIBER_RECENTER_METERS=8000;" in online_source
-assert "const FIBER_RECENTER_DELAY_MS=1000;" in online_source
-assert "function scheduleFiberRecenter(force=false)" in online_source
-assert "moved>=FIBER_RECENTER_METERS" not in online_source
-assert "fiberRecenterTimer=setTimeout(async()=>{" in online_source
-assert "gridDiag.stage='현재 GRID 대기';" in online_source
-assert "gridDiag.stage='현재 GRID 확인';" in online_source
-assert "현재 위치와 GRID/캐시는 매 이동 정지마다 다시 연결한다." in online_source
-assert "위치→GRID→캐시 재연결" in online_source
-assert "scheduleFiberRecenter(false);" in online_source
-assert "lastFiberCacheLat=null,lastFiberCacheLng=null,lastFiberCacheRegion='',lastFiberGridId='';" in online_source
-assert "layers=None" in online_source
-assert "광 셀 조회는 /layers 메타데이터에 의존하지 않는다." in online_source
-assert "lastFiberCacheLat=null;" in online_source
-assert "const fiberLatDelta=FIBER_QUERY_RADIUS_METERS/111320;" in online_source
-assert "const fiberLngDelta=FIBER_QUERY_RADIUS_METERS/(111320*fiberLngScale);" in online_source
-print("CROSS_PROCESS_SESSION_STATE_OK")
+assert "function boundsContainsLatLng(bounds,latlng)" in online_source
+assert "const matched=authorizedRegions.find(x=>boundsContainsLatLng(x.bounds,center));" in online_source
+assert "async function autoRegionForMapCenter()" in online_source
+init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
+assert "kakao.maps.event.addListener(map,'idle',async()=>{{" in init_block
+assert "if(ok)loadObjects();" in init_block
+assert "scheduleFiberRecenter(false);" not in init_block
+assert "apiCall('fiber_cached')" in online_source
+assert "apiCall('fiber_all',{{force:false}})" in online_source
+assert "apiCall('objects',{{west:west,south:south,east:east,north:north}})" in online_source
+print("COORDINATE_BBOX_RUNTIME_OK")print("CROSS_PROCESS_SESSION_STATE_OK")
+
+
+# 관로/맨홀/핸드홀은 CN_L_POLE 계열이어도 POLE보다 CONDUIT가 우선이어야 한다.
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+assert 'layer.startswith("CN_L_POLE_MANHOLE")' in admin_upload_source
+assert 'layer.startswith("CN_L_POLE_HANDHOLE")' in admin_upload_source
+assert 'layer.startswith("CN_L_POLE_LINE_")' in admin_upload_source
+assert admin_upload_source.index('return "CONDUIT"') < admin_upload_source.index('return "POLE"')
+print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
+
+# 지역 전환은 Windows 1.0 방식대로 좌표 기반 기존 캐시를 즉시 읽어야 한다.
+online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
+select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fiber_cell_dir", 1)[0]
+assert "self._load_cache()" in select_block
+assert "self._load_fiber_cache()" in select_block
+assert "cache_ready" in select_block
+print("COORDINATE_REGION_CACHE_SELECT_OK")
 
 
 # 관로/맨홀/핸드홀은 CN_L_POLE 계열이어도 POLE보다 CONDUIT가 우선이어야 한다.
@@ -657,76 +635,44 @@ assert 'part_attrs["_cmb_original_handle"] = original_handle' in admin_upload_so
 assert '"source_handle": source_handle' in admin_upload_source
 print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
 
-# Windows 1.0 Rev1: 광은 전체 지역 완료를 기다리지 않고 현재 화면 bbox부터 스트리밍한다.
+# Windows 1.0 좌표 기준: GRID/Polemap이 아닌 위경도 bbox + 지역 광 캐시를 사용한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-assert "FIBER_CACHE_SCHEMA = 2" in online_source
-assert "def fiber_bbox(self, west, south, east, north, force=False):" in online_source
-assert "def _fetch_fiber_bbox_network(self, west, south, east, north):" in online_source
-assert "limit = 5000" in online_source
-assert "max_depth = 14" in online_source
-assert "layers=layer_filter" in online_source
-assert "def _merge_fiber_bbox_cache(self, features):" in online_source
-assert "function loadFiberViewport(force=false)" in online_source
-assert "loadFiberViewport(false);" in online_source
-assert "apiCall('polemap',query)" in online_source
-assert "def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):" in online_source
-assert "self._load_fiber_cache()" in online_source
-assert "for feature in self._fiber_features():" in online_source
-assert '"monolithic_count": monolithic_count' in online_source
-assert "REGIONCACHE" in online_source
-assert "Read every local fiber cache source first. Never contacts the server." in online_source
-assert "apiCall('fiber_cached_viewport'" in online_source
-assert "gridDiag.stage='로컬 광 캐시 표시';" in online_source
-assert "apiCall('fiber_cell'" in online_source
-assert "화면이 멈추면 로컬 GRID 캐시를 서버/버전 확인보다 먼저 즉시 반환한다." in online_source
-assert "self._start_fiber_cell_refresh(grid_id, west, south, east, north)" in online_source
-assert "if(typeof r!=='undefined' && r && r.cache!=='hit')" in online_source
-assert "const ordered=" in online_source
-assert "const primary=ordered[0];" in online_source
-assert "gridDiag.stage=cells.length?'POLEMAP 수신':'POLEMAP 0셀';" in online_source
-assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)" in online_source
-assert "refresh_pending" in online_source
+assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
+assert "def _commit_bbox_cache(self, features, west, south, east, north):" in online_source
+assert "def objects(self, west, south, east, north):" in online_source
+objects_block = online_source.split("    def objects(self, west, south, east, north):",1)[1].split("\n\ndef html",1)[0]
+assert "self._cache_covers(west, south, east, north)" in objects_block
+assert "self._cached_features(west, south, east, north)" in objects_block
+assert "self._fetch_bbox_network(west, south, east, north)" in objects_block
+assert "self.polemap(" not in objects_block
+assert "self._read_object_cell_cache" not in objects_block
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
-print("FIBER_VIEWPORT_STREAMING_AND_PART_KEYS_OK")
-assert 'polemap = self.polemap(west, south, east, north)' in online_source
-assert 'polemap_cells": len(cells)' in online_source
-assert 'self._read_object_cell_cache(grid_id)' in online_source
-assert 'self._write_object_cell_cache(grid_id, version_signature, features)' in online_source
-assert "def _stored_point_position(feature):" in online_source
-assert 'fields.get("_cmb_pole_position")' in online_source
-assert "if center_index not in (None, 0):" in online_source
-assert "cells.insert(0, cells.pop(center_index))" in online_source
-print("ALL_GROUP_POLEMAP_CELL_CACHE_OK")
-assert "const visibleBounds=map.getBounds();" in online_source
-assert "const latPad=(ne.getLat()-sw.getLat())*0.12;" in online_source
-assert "gridDiag.stage='OBJECT 조회';" in online_source
-assert "gridDiag.progress='COAX/CONDUIT/POLE';" in online_source
-print("VISIBLE_VIEWPORT_OBJECT_QUERY_OK")
+stored_block = online_source.split("function storedPolePosition(f){{",1)[1].split("function isConnectorFeature",1)[0]
+assert "const g=(f&&f.geometry)||{{}};" in stored_block
+assert "_cmb_pole_position" not in stored_block
+assert "_cmb_pole_refs" not in stored_block
+assert "전주번호, _cmb_pole_position, _cmb_pole_refs는 상세정보용 메타데이터로만 유지한다." in stored_block
+print("COORDINATE_BBOX_AND_GEOMETRY_POSITION_OK")
 
-# 기존 광 캐시는 즉시 사용하고 현재 화면 새 수신분을 누적 병합한다.
-assert "구버전 광 캐시도 즉시 화면에 사용한다." in online_source
-assert "existing = {self._feature_key(f): f for f in self._fiber_features()}" in online_source
-assert "existing[self._feature_key(feature)] = feature" in online_source
-assert '"cache": "stale"' in online_source
-print("FIBER_INCREMENTAL_CACHE_OK")
+# 기존 지역 전체 광 캐시는 즉시 사용하고 서버 revision 확인은 뒤에서 수행한다.
+assert "def cached_fiber(self):" in online_source
+assert "def ensure_fiber_all(self, force=False):" in online_source
+assert "self._load_fiber_cache()" in online_source
+assert "renderFiberFeatures(cachedFeatures)" in online_source
+print("REGION_FIBER_CACHE_IMMEDIATE_OK")
 
-# 지역 선택 UI는 숨기고 지도 중심 bounds에 따라 권한 지역을 자동 전환한다.
+# 지역 자동 전환도 GRID가 아니라 서버 지역 bounds의 위경도로만 결정한다.
 assert "authorizedRegions=[]" in online_source
 assert "function boundsContainsLatLng(bounds,latlng)" in online_source
 assert "async function autoRegionForMapCenter()" in online_source
-assert "ambiguous" in online_source
-assert "로컬 캐시는 한 지역만 정확히 포함할 때만 지역 판정에 사용한다." in online_source
-assert "지역/GIRD 경계는 수백 m 안에서도 바뀔 수 있으므로 이전 지역을 거리 기준으로 재사용하지 않는다." in online_source
-assert "distanceMeters(lastRegionResolveLat,lastRegionResolveLng,lat,lng)<1000" not in online_source
-assert "async function activateRegion(region)" in online_source
-assert "function containingCellFromList(cells,lat,lng)" in online_source
-assert "const centerCell=containingCellFromList(cells,lat,lng);" in online_source
-assert "if(!centerCell)continue;" in online_source
-assert "인접 지역(예: 함평/나주)의 2km probe 결과가 서로 섞여 지역이 뒤바뀌는 것을 방지한다." in online_source
+auto_region_block = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function loadMapDisplaySettings",1)[0]
+assert "boundsContainsLatLng" in auto_region_block
+assert "cached_region_probe" not in auto_region_block
+assert "polemap_probe" not in auto_region_block
 assert "style='display:none'" in online_source
 assert "지도 위치에 따라 자동 연결" in online_source
-print("AUTO_REGION_BY_MAP_POSITION_OK")
+print("AUTO_REGION_BY_LATLNG_BOUNDS_OK")
 
 # 케이블 선택 시 기기 위로 올려 강조하고 다른 선택/해제 시 원상복구한다.
 assert "function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5)" in online_source
