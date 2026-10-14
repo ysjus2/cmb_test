@@ -212,7 +212,8 @@ assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
 assert "apiCall('fiber_all',{{force:false}})" in online_source
 assert "apiCall('objects',{{west:west,south:south,east:east,north:north}})" in online_source
-print("COORDINATE_BBOX_RUNTIME_OK")print("CROSS_PROCESS_SESSION_STATE_OK")
+print("COORDINATE_BBOX_RUNTIME_OK")
+print("CROSS_PROCESS_SESSION_STATE_OK")
 
 
 # 관로/맨홀/핸드홀은 CN_L_POLE 계열이어도 POLE보다 CONDUIT가 우선이어야 한다.
