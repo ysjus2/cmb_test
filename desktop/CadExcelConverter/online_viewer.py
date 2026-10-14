@@ -341,19 +341,27 @@ class Api:
                 layers=layer_filter,
             ) or {}
             ensure_current()
+
+            raw_features = list(raw.get("features") or [])
+            raw_count = len(raw_features)
             features = [
-                feature for feature in (raw.get("features") or [])
+                feature for feature in raw_features
                 if str(((feature.get("properties") or {}).get("group_id") or "")).upper() == "FIBER"
             ]
 
-            if len(features) < limit:
+            # 현재 운영 서버의 일반 /objects 라우트는 layers 파라미터를
+            # 아직 적용하지 않는 버전이 있을 수 있다. 따라서 분할 여부는
+            # FIBER 필터 후 개수가 아니라 서버 원본 응답 개수로 판단해야 한다.
+            # raw_count == limit 이면 COAX/기타 객체 때문에 잘린 응답일 수 있으므로
+            # FIBER가 적어 보여도 bbox를 계속 분할한다.
+            if raw_count < limit:
                 update_progress(features, "receiving")
                 return features
 
             if depth >= max_depth:
                 raise RuntimeError(
                     "FIBER 전체수집 제한 도달: "
-                    f"depth={depth}, cell_count={len(features)}, limit={limit}, "
+                    f"depth={depth}, raw_count={raw_count}, fiber_count={len(features)}, limit={limit}, "
                     f"bbox={w},{s},{e},{n}"
                 )
 
@@ -2753,9 +2761,19 @@ async function loadRegionFiber(syncForce=false){{
 
   const progressToken={{active:true}};
   const progressPromise=pollFiberProgress(region,progressToken);
-  const fresh=await apiCall('fiber_all',{{force:!!syncForce}});
-  progressToken.active=false;
-  await progressPromise.catch(()=>{{}});
+  let fresh=null;
+  try{{
+    fresh=await apiCall('fiber_all',{{force:!!syncForce}});
+  }}catch(e){{
+    const msg=(e&&e.message)?e.message:'광 전체 동기화 실패';
+    if(region===document.getElementById('region').value){{
+      setWorkStatus('광 전체 동기화 실패 · '+msg+' · 기존 광 캐시 유지',100,false);
+    }}
+    return 0;
+  }}finally{{
+    progressToken.active=false;
+    await progressPromise.catch(()=>{{}});
+  }}
   if(region!==document.getElementById('region').value)return 0;
   if(!fresh||fresh.ok===false){{
     if(fresh&&fresh.cancelled)return 0;
