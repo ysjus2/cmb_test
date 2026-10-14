@@ -728,8 +728,10 @@ assert 'group_filter = "COAX,CONDUIT,POLE,USER"' in online_source
 assert "groups=group_filter" in online_source
 assert "const fiberResult=await loadRegionFiber(false);" in online_source
 assert "if(fiberResult<0)" in online_source
-assert "west, south, east, north = -180.0, -90.0, 180.0, 90.0" in online_source
-assert "meta = self.c.online_layers(region) or {}" not in online_source.split("def _fetch_all_region_features",1)[1].split("def ensure_fiber_all",1)[0]
+assert "self.region_bounds = {}" in online_source
+assert "bounds = self.region_bounds.get(region) or {}" in online_source
+assert 'raise RuntimeError("FIBER_REGION_BOUNDS_MISSING")' in online_source
+assert "west, south, east, north = -180.0, -90.0, 180.0, 90.0" not in online_source
 assert "setWorkStatus('L'+level+' · 광 캐시 표시'+fiberDiagText(),100,false)" not in online_source
 assert "setWorkStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText(),100,false)" not in online_source
 assert "GENERAL_CACHE_SCHEMA = 3" in online_source
@@ -743,7 +745,7 @@ assert '"cache_basis": CACHE_BASIS' in online_source
 assert "self._delete_fiber_cache()" in online_source
 assert "self._delete_cache_file()" in online_source
 print("REGION_SCOPED_CACHE_INVALIDATION_OK")
-print("FULL_FIBER_GLOBAL_BBOX_AND_PROGRESS_GUARD_OK")
+print("FULL_FIBER_REGION_BOUNDS_AND_PROGRESS_GUARD_OK")
 client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
 assert "def online_objects(self, region, bbox, limit=5000, layers=None, groups=None, timeout=15):" in client_source
 assert 'return self._request("GET", path, timeout=float(timeout))' in client_source
