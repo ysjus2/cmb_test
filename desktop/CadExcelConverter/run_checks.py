@@ -713,11 +713,13 @@ assert '"coordinates": [float(primary["lon"]), float(primary["lat"])]' in admin_
 assert 'attrs["_cmb_original_point"] = list(original_point)' in admin_upload_source
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
 assert "function storedPolePosition(f)" in online_source
-assert "const direct=fields._cmb_pole_position||{{}};" in online_source
-assert "const refs=Array.isArray(fields._cmb_pole_refs)?fields._cmb_pole_refs:[];" in online_source
+stored_block = online_source.split("function storedPolePosition(f){{",1)[1].split("function isConnectorFeature",1)[0]
+assert "const g=(f&&f.geometry)||{{}};" in stored_block
+assert "fields._cmb_pole_position" not in stored_block
+assert "fields._cmb_pole_refs" not in stored_block
 assert "const a=storedPolePosition(f);" in online_source
-assert "Viewer에서는 최근접 전주/거리/공간연산을 하지 않는다." in online_source
-print("DIRECT_STORED_POLE_POSITION_RENDER_OK")
+assert "지도 표시/검색/캐시의 유일한 공간 기준은 GeoJSON 위·경도 geometry이다." in stored_block
+print("GEOMETRY_LATLNG_RENDER_POSITION_OK")
 assert "def _actual_pole_numbers(e):" in admin_upload_source
 assert "pole_no = grid + str(local).zfill(3)" in admin_upload_source
 assert "pole_numbers = _actual_pole_numbers(e)" in admin_upload_source
