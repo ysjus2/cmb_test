@@ -671,8 +671,8 @@ assert "apiCall('polemap',query)" in online_source
 assert "apiCall('fiber_cell'" in online_source
 assert "const ordered=" in online_source
 assert "const primary=ordered[0];" in online_source
-assert "gridDiag.stage='GRID API';" in online_source
-assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(cells.length)" in online_source
+assert "gridDiag.stage=cells.length?'POLEMAP 수신':'POLEMAP 0셀';" in online_source
+assert "gridDiag.progress='FIBER '+String(i+1)+'/'+String(ordered.length)" in online_source
 assert "refresh_pending" in online_source
 assert "part_index = str(" in online_source
 assert 'ident = f"{ident}|part={part_index}"' in online_source
