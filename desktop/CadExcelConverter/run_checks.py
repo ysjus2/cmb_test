@@ -200,6 +200,11 @@ assert "loadGeneration++" not in clear_group_block
 assert "let nonFiberLoadTimer=null;" in online_source
 assert "function queueNonFiberLoad(force=false,delay=120)" in online_source
 assert "function bestRegionForMapCenter(center)" in online_source
+assert "async function probeRegionForMapCenter(center)" in online_source
+assert "apiCall('polemap_probe'" in online_source
+assert "gridDiag.stage='지역 GRID 탐색';" in online_source
+assert "radius_m:2000" in online_source
+assert "def polemap_probe(self, region, lat, lng, radius_m=2000):" in online_source
 assert "function gridDiagText()" in online_source
 assert "function centerCellFromList(cells,lat,lng)" in online_source
 assert "'GRID '+String(gridDiag.centerGrid||'-')" in online_source
