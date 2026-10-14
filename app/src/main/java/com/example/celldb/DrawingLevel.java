@@ -94,8 +94,10 @@ final class DrawingLevel {
         // 광 선로는 모든 레벨에서 유지한다.
         if(isFiberCable(r))return true;
 
-        // 광 기기는 Windows와 동일하게 L3부터.
-        if(isFiberDevice(r))return lv<=3;
+        // Windows 기준: 광함체는 L3부터, 그 외 광기기는 L2부터 표시한다.
+        if(isFiberDevice(r)){
+            return "FIBER_CLOSURE".equals(symbol(r)) ? lv<=3 : lv<=2;
+        }
 
         // 동축 셀경계/셀번호는 L5/L4 단계에서 별도 표시.
         if(isCellBoundary(r))return lv<=5;
@@ -118,8 +120,8 @@ final class DrawingLevel {
         if(lv>=6)return "L"+lv+" · 광";
         if(lv==5)return "L5 · 광 + 셀경계";
         if(lv==4)return "L4 · 광 + 셀경계 + 셀번호";
-        if(lv==3)return "L3 · 광기기 + 주요 동축";
-        if(lv==2)return "L2 · 동축 상세";
+        if(lv==3)return "L3 · 광함체 + 주요 동축";
+        if(lv==2)return "L2 · 광기기 + 동축 상세";
         return "L1 · 전체 상세";
     }
 }
