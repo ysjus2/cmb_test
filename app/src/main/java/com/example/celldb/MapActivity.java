@@ -825,7 +825,8 @@ public class MapActivity extends Activity {
         logoutButton.setEnabled(false);connectionStatus.setText("● 로그아웃 · 서버 연결 안 됨");
         allRecords.clear();selectedRecord=null;renderMarkers();serverButton.setEnabled(true);serverButton.setText("서버 로그인");
         regionStatus.setText("서버 연결 해제 · 시설 도면 없음");
-        if(regionButton!=null)regionButton.setEnabled(false);\n        if(regionQuickButton!=null)regionQuickButton.setEnabled(false);
+        if(regionButton!=null)regionButton.setEnabled(false);
+        if(regionQuickButton!=null)regionQuickButton.setEnabled(false);
         if(previous!=null)serverWorker.execute(previous::logout);
         loadMarkers();stopLocation();
         if(ONLINE_VIEW_TEST_MODE) enterOnlineViewTestMode();
@@ -837,6 +838,7 @@ public class MapActivity extends Activity {
         lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
         authorizedRegionIds.clear();authorizedRegionTitles.clear();
         if(regionButton!=null)regionButton.setEnabled(false);
+        if(regionQuickButton!=null)regionQuickButton.setEnabled(false);
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
         status.setText("권한 지역 목록을 불러오는 중…");
         serverTask=serverWorker.submit(()->{
@@ -857,7 +859,8 @@ public class MapActivity extends Activity {
                         regionStatus.setText("시설 도면 없음");
                         return;
                     }
-                    if(regionButton!=null)regionButton.setEnabled(true);\n                    if(regionQuickButton!=null)regionQuickButton.setEnabled(true);
+                    if(regionButton!=null)regionButton.setEnabled(true);
+                    if(regionQuickButton!=null)regionQuickButton.setEnabled(true);
                     regionStatus.setText("지역을 선택하세요.");
                     status.setText("권한 지역 "+authorizedRegionIds.size()+"개 · 지역 선택 필요");
                     showRegionSelection();
@@ -930,7 +933,9 @@ public class MapActivity extends Activity {
                     refreshDistanceMeters=Math.max(25,Math.min(displayRadiusMeters,displaySettings.optInt("refresh_distance_m",200)));
                     lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
                     if(serverLayers==null)serverLayers=new org.json.JSONArray();
-                    regionStatus.setText(title+" · 서버 조회");\n                    if(regionQuickButton!=null)regionQuickButton.setText("지역");\n                    viewportKey="";pendingViewportKey="";
+                    regionStatus.setText(title+" · 서버 조회");
+                    if(regionQuickButton!=null)regionQuickButton.setText("지역");
+                    viewportKey="";pendingViewportKey="";
                     org.json.JSONObject box=metadata.optJSONObject("bounds");
                     if(box!=null){
                         serverBounds.clear();
