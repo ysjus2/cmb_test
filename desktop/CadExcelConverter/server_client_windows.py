@@ -457,10 +457,16 @@ class CMBServerClient:
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/online/{q}/symbols")
 
-    def online_objects(self, region, bbox, limit=5000, layers=None):
+    def online_objects(self, region, bbox, limit=5000, layers=None, groups=None):
         q = urllib.parse.quote(region, safe="")
         bb = urllib.parse.quote(bbox, safe=",.-")
         path = f"/online/{q}/objects?bbox={bb}&limit={int(limit)}"
+        if groups:
+            if isinstance(groups, (list, tuple, set)):
+                groups = ",".join(str(x).strip().upper() for x in groups if str(x).strip())
+            groups = str(groups or "").strip()
+            if groups:
+                path += "&groups=" + urllib.parse.quote(groups, safe=",")
         if layers:
             if isinstance(layers, (list, tuple, set)):
                 layers = ",".join(str(x).strip() for x in layers if str(x).strip())
