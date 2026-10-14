@@ -201,11 +201,10 @@ assert "apiCall('region_at_point'" not in online_source
 assert "def region_at_point(" not in online_source
 assert "async function autoRegionForMapCenter()" in online_source
 activate_block = online_source.split("async function activateRegion(region){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
-assert "apiCall('fiber_all'" not in activate_block
-assert "await loadFiberViewport(true);" in activate_block
+assert "await loadRegionFiber(false);" in activate_block
 assert "await loadObjects(true);" in activate_block
-assert activate_block.index("await loadFiberViewport(true);") < activate_block.index("await loadObjects(true);")
-assert "lastFiberQueryLat=null;" in activate_block
+assert activate_block.index("await loadRegionFiber(false);") < activate_block.index("await loadObjects(true);")
+assert "lastFiberQueryLat=null;" not in activate_block
 auto_region_block2 = online_source.split("async function autoRegionForMapCenter(){{",1)[1].split("async function bootstrapAuth(){{",1)[0]
 assert "authorizedRegions" in auto_region_block2
 assert "boundsContainsLatLng" in auto_region_block2
@@ -218,14 +217,12 @@ assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
 assert "if(!ok||generation!==regionResolveGeneration)return;" in init_block
 assert "if(region){{" in init_block
-assert "await loadFiberViewport(false);" in init_block
+assert "await loadFiberViewport(false);" not in init_block
 assert "await loadObjects(false);" in init_block
-assert init_block.index("await loadFiberViewport(false);") < init_block.index("await loadObjects(false);")
 reload_block = online_source.split("document.getElementById('reload').onclick=async()=>{{",1)[1].split("document.getElementById('myLocation')",1)[0]
-assert "apiCall('fiber_all'" not in reload_block
-assert "await loadFiberViewport(true);" in reload_block
+assert "await loadRegionFiber(true);" in reload_block
 assert "await loadObjects(true);" in reload_block
-assert reload_block.index("await loadFiberViewport(true);") < reload_block.index("await loadObjects(true);")
+assert reload_block.index("await loadRegionFiber(true);") < reload_block.index("await loadObjects(true);")
 assert "scheduleFiberRecenter(false);" not in init_block
 assert "apiCall('fiber_cached')" in online_source
 assert "apiCall('fiber_all',{{force:false}})" not in online_source
@@ -655,25 +652,29 @@ assert 'part_attrs["_cmb_original_handle"] = original_handle' in admin_upload_so
 assert '"source_handle": source_handle' in admin_upload_source
 print("UNIQUE_MULTIPART_SOURCE_HANDLE_OK")
 
-# Windows 1.0 좌표 기준: GRID/Polemap이 아닌 위경도 bbox + 지역 광 캐시를 사용한다.
+# Windows 온라인 Viewer는 권한 지역이 확정되면 광 전체를 지역 캐시로 유지하고,
+# 동축/기기만 500m 반경 + 200m 이동 기준의 bbox 조회를 사용한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-fiber_view_block = online_source.split("async function loadFiberViewport(force=false){{",1)[1].split("function queueNonFiberLoad",1)[0]
-assert "apiCall('fiber_bbox'" in fiber_view_block
-assert "queryBoundsFromCenter(cLat,cLng)" in fiber_view_block
-assert "moved<QUERY_RECENTER_METERS" in fiber_view_block
-assert "조회 반경 '+String(QUERY_RADIUS_METERS)+'m" in fiber_view_block
-assert "apiCall('polemap'" not in fiber_view_block
-assert "apiCall('fiber_cell'" not in fiber_view_block
-assert "GRID" not in fiber_view_block
+assert "const QUERY_RADIUS_METERS=500;" in online_source
+assert "const QUERY_RECENTER_METERS=200;" in online_source
 assert "FIBER_RECENTER_METERS" not in online_source
 assert "scheduleFiberRecenter" not in online_source
+
+region_fiber_block = online_source.split("async function loadRegionFiber(syncForce=false){{",1)[1].split("async function loadFiberViewport",1)[0]
+assert "apiCall('fiber_cached')" in region_fiber_block
+assert "renderFiberFeatures(cachedFeatures)" in region_fiber_block
+assert "apiCall('fiber_all',{{force:!!syncForce}})" in region_fiber_block
+assert region_fiber_block.index("apiCall('fiber_cached')") < region_fiber_block.index("apiCall('fiber_all',{{force:!!syncForce}})")
+
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
-assert "loadFiberViewport(false)" in init_block
+assert "loadRegionFiber(" not in init_block
+assert "loadFiberViewport(" not in init_block
+assert "await loadObjects(false);" in init_block
+
 assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
 fetch_bbox_block = online_source.split("    def _fetch_bbox_network(self, west, south, east, north):",1)[1].split("    def _commit_bbox_cache",1)[0]
 assert "return fetch_cell(west, south, east, north)" in fetch_bbox_block
 assert "for cell in (" in fetch_bbox_block
-assert "loadFiberViewport(true).catch" not in fiber_view_block
 assert "def _commit_bbox_cache(self, features, west, south, east, north):" in online_source
 assert "def objects(self, west, south, east, north):" in online_source
 objects_block = online_source.split("    def objects(self, west, south, east, north):",1)[1].split("\n\ndef html",1)[0]
@@ -692,14 +693,16 @@ assert "const g=(f&&f.geometry)||{{}};" in stored_block
 assert "fields._cmb_pole_position" not in stored_block
 assert "fields._cmb_pole_refs" not in stored_block
 assert "전주번호, _cmb_pole_position, _cmb_pole_refs는 상세정보용 메타데이터로만 유지한다." in stored_block
-print("COORDINATE_BBOX_AND_GEOMETRY_POSITION_OK")
+print("REGIONAL_FIBER_PLUS_COAX_BBOX_POLICY_OK")
 
-# 광은 현재 500m bbox 캐시를 우선 사용하고 Viewer 런타임에서 지역 전체 광을 호출하지 않는다.
-assert "self._load_fiber_cache()" in online_source
-assert "def fiber_bbox(self, west, south, east, north, force=False):" in online_source
-assert "apiCall('fiber_bbox'" in online_source
-assert "apiCall('fiber_all'" not in online_source
-print("FIBER_CURRENT_BBOX_CACHE_ONLY_OK")
+# 광은 지역 진입 시 디스크 캐시를 즉시 표시하고 서버 revision을 1회 확인해
+# 변경된 경우에만 지역 전체 광 캐시를 최신화한다.
+assert "def cached_fiber(self):" in online_source
+assert "def ensure_fiber_all(self, force=False):" in online_source
+assert "self._refresh_versions_if_due(force=force)" in online_source
+assert "self._fetch_all_region_features()" in online_source
+assert "apiCall('fiber_all'" in region_fiber_block
+print("REGION_FIBER_CACHE_SYNC_OK")
 
 # 지역 자동 전환은 로그인 사용자의 권한 지역 bounds만 메모리에서 비교한다.
 assert "authorizedRegions=[]" in online_source
