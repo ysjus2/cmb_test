@@ -729,6 +729,11 @@ assert 'group_filter = "COAX,CONDUIT,POLE,USER"' in online_source
 assert "groups=group_filter" in online_source
 assert "const fiberResult=await loadRegionFiber(false);" in online_source
 assert "if(fiberResult<0)" in online_source
+assert "west, south, east, north = -180.0, -90.0, 180.0, 90.0" in online_source
+assert "meta = self.c.online_layers(region) or {}" not in online_source.split("def _fetch_all_region_features",1)[1].split("def ensure_fiber_all",1)[0]
+assert "setWorkStatus('L'+level+' · 광 캐시 표시'+fiberDiagText(),100,false)" not in online_source
+assert "setWorkStatus('L'+mapLevelNow+' · 광 캐시 표시'+fiberDiagText(),100,false)" not in online_source
+print("FULL_FIBER_GLOBAL_BBOX_AND_PROGRESS_GUARD_OK")
 print("GROUP_FILTERED_FIBER_SYNC_OK")
 print("NEARBY_OBJECT_STALL_GUARD_OK")
 print("UNFILTERED_SERVER_FIBER_PAGINATION_OK")
