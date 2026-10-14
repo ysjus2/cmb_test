@@ -668,6 +668,10 @@ assert "def _merge_fiber_bbox_cache(self, features):" in online_source
 assert "function loadFiberViewport(force=false)" in online_source
 assert "loadFiberViewport(false);" in online_source
 assert "apiCall('polemap',query)" in online_source
+assert "def fiber_cached_viewport(self, west, south, east, north, center_lat=None, center_lng=None):" in online_source
+assert "Read Polemap + fiber cell files only. Never contacts the server." in online_source
+assert "apiCall('fiber_cached_viewport'" in online_source
+assert "gridDiag.stage='로컬 광 캐시 표시';" in online_source
 assert "apiCall('fiber_cell'" in online_source
 assert "화면이 멈추면 로컬 GRID 캐시를 서버/버전 확인보다 먼저 즉시 반환한다." in online_source
 assert "self._start_fiber_cell_refresh(grid_id, west, south, east, north)" in online_source
