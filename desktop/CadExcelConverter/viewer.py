@@ -817,6 +817,7 @@ class DXFViewer(ttk.Frame):
         self.network_click = None
         self.route_nodes = {}
         self.route_start_marker = None
+        self.route_selected_markers = []
         self.visible_layers = set()
         self.scale = 1.0
         self.ox = 0.0
@@ -946,6 +947,7 @@ class DXFViewer(ttk.Frame):
             self.network_click = None
             self.route_nodes = {}
             self.route_start_marker = None
+            self.route_selected_markers = []
         self.mode = mode
         self.measure_points = []
         labels = {"select":"선택", "distance":"거리 측정", "coord":"좌표 확인", "area_select":"사용자 영역 지정"}
@@ -1307,9 +1309,20 @@ class DXFViewer(ttk.Frame):
             for point in self.route_nodes.values():
                 sx, sy = self.world_to_screen(*point)
                 self.canvas.create_oval(sx-3, sy-3, sx+3, sy+3, fill="#00ffff", outline="#003a46")
+            for point in getattr(self, "route_selected_markers", []) or []:
+                if not point:
+                    continue
+                sx, sy = self.world_to_screen(*point)
+                self.canvas.create_oval(
+                    sx-6, sy-6, sx+6, sy+6,
+                    fill="#ffb300", outline="#5f4200", width=2,
+                )
             if self.route_start_marker:
                 sx, sy = self.world_to_screen(*self.route_start_marker)
-                self.canvas.create_oval(sx-7, sy-7, sx+7, sy+7, outline="#54ff54", width=3)
+                self.canvas.create_oval(
+                    sx-8, sy-8, sx+8, sy+8,
+                    outline="#54ff54", width=3,
+                )
 
         if self.area_select_points:
             self._draw_measure_polyline(
