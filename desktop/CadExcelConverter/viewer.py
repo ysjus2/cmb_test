@@ -818,6 +818,10 @@ class DXFViewer(ttk.Frame):
         self.route_nodes = {}
         self.route_start_marker = None
         self.route_selected_markers = []
+        self.fiber_fast_network = None
+        self.fiber_fast_edges = []
+        self.fiber_fast_nodes = {}
+        self._fast_redraw_after = None
         self.visible_layers = set()
         self.scale = 1.0
         self.ox = 0.0
@@ -954,6 +958,7 @@ class DXFViewer(ttk.Frame):
             self.route_nodes = {}
             self.route_start_marker = None
             self.route_selected_markers = []
+            self.clear_fiber_fast_network()
         self.mode = mode
         self.measure_points = []
         labels = {"select":"선택", "distance":"거리 측정", "coord":"좌표 확인", "area_select":"사용자 영역 지정"}
@@ -1216,7 +1221,113 @@ class DXFViewer(ttk.Frame):
         self.lod_reference_scale = self.scale
         self.redraw()
 
+    def set_fiber_fast_network(self, network):
+        self.fiber_fast_network = network
+        edges = []
+        for edge in (getattr(network, "edges", {}) or {}).values():
+            points = [tuple(p[:2]) for p in (getattr(edge, "points", []) or []) if len(p) >= 2]
+            if len(points) < 2:
+                continue
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            edges.append((int(edge.index), points, (min(xs), min(ys), max(xs), max(ys))))
+        self.fiber_fast_edges = edges
+        self.fiber_fast_nodes = dict(getattr(network, "positions", {}) or {})
+        self.redraw()
+
+    def clear_fiber_fast_network(self):
+        self.fiber_fast_network = None
+        self.fiber_fast_edges = []
+        self.fiber_fast_nodes = {}
+        if self._fast_redraw_after is not None:
+            try:
+                self.after_cancel(self._fast_redraw_after)
+            except Exception:
+                pass
+            self._fast_redraw_after = None
+
+    def _schedule_fast_redraw(self, delay=45):
+        if self._fast_redraw_after is not None:
+            try:
+                self.after_cancel(self._fast_redraw_after)
+            except Exception:
+                pass
+        self._fast_redraw_after = self.after(delay, self._run_fast_redraw)
+
+    def _run_fast_redraw(self):
+        self._fast_redraw_after = None
+        self.redraw()
+
+    def _redraw_fiber_fast(self):
+        c = self.canvas
+        c.delete("all")
+        self.item_to_entity.clear()
+        self.entity_items.clear()
+
+        a = self.screen_to_world(-40, self.canvas.winfo_height() + 40)
+        b = self.screen_to_world(self.canvas.winfo_width() + 40, -40)
+        viewport = (min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]))
+
+        selected = set(self.selected or ())
+        for index, points, bbox in self.fiber_fast_edges:
+            if not intersects(bbox, viewport):
+                continue
+            coords = []
+            for x, y in points:
+                sx, sy = self.world_to_screen(x, y)
+                coords.extend((sx, sy))
+            if len(coords) < 4:
+                continue
+            is_selected = index in selected
+            item = c.create_line(
+                *coords,
+                fill="#22a7ff" if is_selected else "#7fd3ff",
+                width=4 if is_selected else 2,
+                tags=("fiber_fast",),
+            )
+            self.item_to_entity[item] = index
+            self.entity_items[index] = [item]
+
+        # 연결 노드는 CAD 블록 전체 대신 선택용 점만 그린다.
+        for node, point in self.fiber_fast_nodes.items():
+            if not point:
+                continue
+            x, y = point
+            if not (viewport[0] <= x <= viewport[2] and viewport[1] <= y <= viewport[3]):
+                continue
+            sx, sy = self.world_to_screen(x, y)
+            c.create_oval(
+                sx-4, sy-4, sx+4, sy+4,
+                fill="#f4f6f8", outline="#4b5563", width=1,
+                tags=("fiber_node",),
+            )
+
+        for point in self.route_selected_markers or []:
+            if not point:
+                continue
+            sx, sy = self.world_to_screen(*point)
+            c.create_oval(
+                sx-7, sy-7, sx+7, sy+7,
+                fill="#ffb300", outline="#5f4200", width=2,
+                tags=("fiber_endpoint",),
+            )
+        if self.route_start_marker:
+            sx, sy = self.world_to_screen(*self.route_start_marker)
+            c.create_oval(
+                sx-9, sy-9, sx+9, sy+9,
+                fill="#113b16", outline="#54ff54", width=3,
+                tags=("fiber_start",),
+            )
+            c.create_text(
+                sx+12, sy-12, anchor="sw", text="START",
+                fill="#54ff54", font=("Malgun Gothic", 8, "bold"),
+                tags=("fiber_start",),
+            )
+
     def redraw(self):
+        if self.mode == "fiber_route" and self.fiber_fast_network is not None:
+            self._redraw_fiber_fast()
+            return
         c = self.canvas
         c.delete("all")
         self.item_to_entity.clear()
@@ -1375,7 +1486,14 @@ class DXFViewer(ttk.Frame):
         # A drag must resume from the new zoom origin, not its pre-zoom origin.
         if self.pan_start is not None:
             self.pan_start = (sx, sy, self.ox, self.oy)
-        self.redraw()
+        if self.mode == "fiber_route" and self.fiber_fast_network is not None:
+            try:
+                self.canvas.scale("all", sx, sy, factor, factor)
+            except Exception:
+                pass
+            self._schedule_fast_redraw()
+        else:
+            self.redraw()
 
     def _pan_start(self, event):
         self.pan_start = (event.x, event.y, self.ox, self.oy)
@@ -1384,12 +1502,20 @@ class DXFViewer(ttk.Frame):
         if not self.pan_start:
             return
         x, y, ox, oy = self.pan_start
-        self.ox = ox + event.x - x
-        self.oy = oy + event.y - y
-        self.redraw()
+        dx, dy = event.x - x, event.y - y
+        self.ox = ox + dx
+        self.oy = oy + dy
+        if self.mode == "fiber_route" and self.fiber_fast_network is not None:
+            self.canvas.move("all", dx, dy)
+            self.pan_start = (event.x, event.y, self.ox, self.oy)
+        else:
+            self.redraw()
 
     def _pan_end(self, event):
+        fast = self.mode == "fiber_route" and self.fiber_fast_network is not None
         self.pan_start = None
+        if fast:
+            self.redraw()
 
     def _nearest_entity(self, x, y):
         candidates = self.canvas.find_overlapping(x-5, y-5, x+5, y+5)
