@@ -1099,7 +1099,7 @@ assert "padx=(24,6)" in extract_ui_source
 viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
 assert "def set_fiber_fast_network(self, network):" in viewer_source
 assert "def _redraw_fiber_fast(self):" in viewer_source
-assert 'if self.mode == "fiber_route" and self.fiber_fast_network is not None:' in viewer_source
+assert 'getattr(self, "mode", None) == "fiber_route"' in viewer_source
 assert 'self.canvas.move("all", dx, dy)' in viewer_source
 assert 'self.canvas.scale("all", sx, sy, factor, factor)' in viewer_source
 assert "def _schedule_fast_redraw(self, delay=45):" in viewer_source
