@@ -19,7 +19,7 @@ from backup_v2 import enrich_payload_v2
 GROUPS = ("FIBER", "COAX", "CONDUIT", "POLE", "USER")
 MANAGED_ITEMS = GROUPS
 # 전체 버튼은 광 + 동축 + 관로만 업로드한다.
-# POLE/USER는 선택 업로드로 유지한다. SYMBOL은 더 이상 업로드 UI에서 사용하지 않는다.
+# POLE/USER MEMO는 선택 업로드로 유지한다.
 FULL_UPLOAD_ITEMS = ("FIBER", "COAX", "CONDUIT")
 
 
@@ -101,8 +101,20 @@ def classify_entity(e):
     ):
         return "COAX"
 
-    # 사용자/건물 계열
-    if layer.startswith("CN_M_USER_") or "USER" in text or "건물" in text:
+    # USER 도형/건물은 카카오맵 기반 온라인 Viewer에서 사용하지 않는다.
+    # 현장 공유용 USER MEMO 텍스트만 좌표와 함께 서버에 저장한다.
+    user_text = str(getattr(e, "text", "") or "").strip()
+    if (
+        user_text
+        and (
+            "MEMO" in layer
+            or "MEMO" in block
+        )
+        and (
+            layer.startswith("CN_M_USER_")
+            or "USER" in text
+        )
+    ):
         return "USER"
 
     return None
@@ -545,6 +557,32 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         attrs = dict(e.attributes or {})
         dxf = dict(getattr(e, "dxf_data", {}) or {})
 
+        # USER 그룹은 현장 메모만 저장한다.
+        # 건물/지형 도형과 기타 USER 속성은 업로드하지 않는다.
+        if str(group or "").upper() == "USER":
+            memo_text = str(getattr(e, "text", "") or "").strip()
+            if not memo_text:
+                continue
+            anchor = _entity_anchor_xy(e)
+            if not anchor:
+                continue
+            try:
+                lon, lat = transformer.transform(float(anchor[0]), float(anchor[1]))
+            except Exception:
+                continue
+            if not (math.isfinite(lon) and math.isfinite(lat)):
+                continue
+            geometries = [{
+                "type": "Point",
+                "coordinates": [float(lon), float(lat)],
+            }]
+            geometry_type = "Point"
+            attrs = {
+                "_cmb_user_memo": memo_text,
+                "memo": memo_text,
+            }
+            dxf = {}
+
         # CAD 원본 색상/선 스타일을 서버까지 보존한다.
         # 특히 COAX 케이블의 빨강/초록/파랑은 전원 상태 의미를 가지므로
         # 그룹 고정색으로 치환하지 않는다.
@@ -723,6 +761,26 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         payload,
         classify_entity,
     )
+
+    # USER 그룹은 좌표 + 메모 텍스트만 유지한다.
+    if str(group or "").upper() == "USER":
+        for obj in payload.get("objects") or []:
+            attrs = dict(obj.get("attributes") or {})
+            memo_text = str(
+                attrs.get("_cmb_user_memo")
+                or attrs.get("memo")
+                or ""
+            ).strip()
+            obj["attributes"] = (
+                {"memo": memo_text, "_cmb_user_memo": memo_text}
+                if memo_text else {}
+            )
+            obj["xdata"] = {}
+            obj["block_name"] = ""
+            obj["entity_type"] = "TEXT"
+        payload["symbol_library"] = []
+        payload["symbol_count"] = 0
+        payload["user_storage_schema"] = "memo-point-v1"
 
     # POLE 그룹은 지도 표시 좌표 + 전주번호만 서버에 최소 저장한다.
     # GRID/pole_refs/DXF/style/xdata/symbol 정보는 온라인 Viewer에서 사용하지 않는다.
@@ -1061,7 +1119,7 @@ class AdminUploadWindow(tk.Toplevel):
             "COAX": "동축케이블 + ONU/AMP/TAP/PASSIVE/POWER/CONNECTOR 등 동축기기",
             "CONDUIT": "관로 + 맨홀 + 핸드홀",
             "POLE": "실제 전주 INSERT + 전주 속성",
-            "USER": "사용자 작성 건물/지형/관리구역",
+            "USER": "USER MEMO · 현장 공유 메모 좌표 + 텍스트",
         }
 
         counts = {g: 0 for g in GROUPS}
@@ -1655,7 +1713,7 @@ class AdminUploadWindow(tk.Toplevel):
             failed = []
 
             # 전체 업로드는 광 + 동축 + 관로만 순차 교체한다.
-            # POLE/POLEMAP/USER는 전체 업로드에서 절대 건드리지 않는다.
+            # POLE/USER MEMO는 전체 업로드에서 절대 건드리지 않는다.
             # 전주 관련 데이터는 POLE 선택 업로드에서만 갱신한다.
             for item in FULL_UPLOAD_ITEMS:
                 try:
@@ -1724,7 +1782,7 @@ class AdminUploadWindow(tk.Toplevel):
 
         ttk.Label(
             root,
-            text=f"{region} · 광 → 동축 → 관로 → 전주 → USER",
+            text=f"{region} · 광 → 동축 → 관로 → 전주 → USER MEMO",
             font=("Malgun Gothic", 14, "bold"),
         ).pack(anchor="w")
 
