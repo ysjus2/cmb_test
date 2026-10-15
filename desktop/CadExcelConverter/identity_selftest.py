@@ -59,7 +59,7 @@ with TemporaryDirectory() as temporary:
     scope = network.unique_route("A", "B")
     export_network(root / "fiber.xlsx", scene, scope, {0}, source_path=source)
 
-    ws = load_workbook(root / "fiber.xlsx")["광주간선"]
+    ws = load_workbook(root / "fiber.xlsx")["광케이블"]
     assert (ws["H1"].value, ws["I1"].value) == ("순수 객체ID", "지역객체ID")
     assert ws["H2"].value == "AB"
     assert ws["I2"].value == "CMB_GN_KSG_AB"
