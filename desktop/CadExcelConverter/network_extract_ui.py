@@ -261,14 +261,17 @@ class NetworkExtractionMixin:
         if not self.fiber_network or not self.viewer.scene:
             return set()
         indices={edge.index for edge in self.fiber_network.edges.values()}
-        node_ids=set(self.fiber_network.adj.keys())
+        adj=getattr(self.fiber_network,'adj',{}) or {}
+        by_handle=getattr(self.fiber_network,'by_handle',{}) or {}
+        positions=getattr(self.fiber_network,'positions',{}) or {}
+        node_ids=set(adj.keys()) or set(positions.keys())
         for node in node_ids:
-            entity=self.fiber_network.by_handle.get(node)
+            entity=by_handle.get(node)
             if entity is not None:
                 indices.add(entity.index)
         # NODELINK handle이 없는 CAD는 좌표로 연결된 함체만 보강한다.
         xy_points=[
-            self.fiber_network.positions.get(node)
+            positions.get(node)
             for node in node_ids
             if str(node).startswith('XY')
         ]
