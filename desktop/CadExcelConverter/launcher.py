@@ -16,6 +16,7 @@ from session_guard import TkIdleSessionGuard
 
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
+KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
 DEFAULT_GEOMETRY = "620x430"
 ADMIN_GEOMETRY = "620x610"
 SINGLE_INSTANCE_HOST = "127.0.0.1"
@@ -379,6 +380,23 @@ class Launcher(tk.Tk):
                 "관리자에게 서버 KAKAO_JS_APP_KEY 설정을 확인해주세요.",
                 parent=self,
             )
+            return
+        elif code == KAKAO_KEY_FETCH_ERROR_EXIT_CODE:
+            if self.session_guard is not None:
+                self.session_guard.resume()
+            self._restore_launcher()
+            detail = "서버에서 Kakao 지도 키를 가져오지 못했습니다."
+            try:
+                error_path = Path(
+                    os.getenv("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+                ) / "CMB_DXF_Viewer" / "online_start_error.txt"
+                if error_path.exists():
+                    raw = error_path.read_text(encoding="utf-8").strip()
+                    if raw:
+                        detail += "\n\n" + raw
+            except Exception:
+                pass
+            messagebox.showerror("온라인 뷰어", detail, parent=self)
             return
         elif self.session_guard is not None:
             self.session_guard.resume()
