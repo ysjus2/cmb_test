@@ -18,18 +18,34 @@ GENERAL_CACHE_SCHEMA = 3
 FIBER_CACHE_SCHEMA = 3
 CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
+KAKAO_KEY_MISSING_EXIT_CODE = 42
 WINDOWS_RELEASE = "Windows_1.0_Coordinate_BBox"
 
 
-def key():
+def key(client=None):
+    # 1) explicit process environment
     k = os.getenv("KAKAO_JS_APP_KEY", "").strip()
-    if not k and CFG.exists():
+    if k:
+        return k
+
+    # 2) legacy per-PC config, kept for backward compatibility
+    if CFG.exists():
         try:
             k = json.loads(CFG.read_text(encoding="utf-8")).get("kakao_js_key", "").strip()
         except Exception:
-            pass
-    if k:
-        return k
+            k = ""
+        if k:
+            return k
+
+    # 3) canonical source: authenticated server setting.
+    # This removes the old requirement to copy online.json to every Windows PC.
+    if client is not None:
+        try:
+            k = str(client.kakao_js_key() or "").strip()
+        except Exception:
+            k = ""
+        if k:
+            return k
 
     return ""
 
@@ -3531,13 +3547,16 @@ runBootstrapOnce();
 
 
 def run_online_viewer():
-    k = key()
+    api = Api()
+
+    # Resolve the Kakao JavaScript key after the authenticated API client
+    # has loaded the shared launcher session, so a new PC can obtain it
+    # from the server without any local online.json file.
+    k = key(api.c)
     if not k:
-        return 2
+        return KAKAO_KEY_MISSING_EXIT_CODE
 
     import webview
-
-    api = Api()
 
     # 런처가 자식 실행 직전에 검증한 세션이 없으면 Viewer를 열지 않는다.
     if not api.c.access_token:
