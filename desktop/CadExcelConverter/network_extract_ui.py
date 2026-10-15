@@ -436,6 +436,40 @@ class NetworkExtractionMixin:
                     indices.add(entity.index)
         return indices
 
+    def _activate_online_fiber_network(self,network,summary,selected_regions):
+        self.busy=False
+        self._set_progress(100,'온라인 광망 준비 완료')
+        self.after(350,self._hide_progress)
+
+        self.fiber_network=network
+        self.export_scope=None
+        self.route_start=None
+        self.fiber_routes=[]
+        self.fiber_history=[]
+        self.fiber_pick_mode='start'
+
+        self.viewer.hide_extraction_text=True
+        self.viewer.entity_filter={edge.index for edge in network.edges.values()}
+        self.viewer.selected.clear()
+        self.viewer.network_click=self._fiber_route_click
+        self.viewer.route_nodes=network.positions
+        self.viewer.route_start_marker=None
+        self.viewer.route_selected_markers=[]
+        self.viewer.mode='fiber_route'
+        self.viewer.set_fiber_fast_network(network)
+        self._show_fiber_controls(True)
+        self._update_fiber_pick_buttons()
+        self.viewer.fit_fiber_fast()
+
+        region_count=int((summary or {}).get('regions') or len(selected_regions or []))
+        edge_count=len(network.edges)
+        self.viewer.status_var.set(
+            f'온라인 광추출 · 지역 {region_count}개 · 케이블 {edge_count:,}개'
+        )
+        self.extract_hint.set(
+            '온라인 광망 준비 완료 · 시작점을 선택하면 고정되고 이후 끝점만 계속 선택합니다.'
+        )
+
     def _begin_fiber_route(self):
         if not getattr(self,'can_extract',False): return
         if self.busy:return
@@ -897,15 +931,20 @@ class NetworkExtractionMixin:
             scope={**scope,'records':conduit_records(self.viewer.scene,self.input_path,self.pipe_diameters)}
             scope['indices']={r['entity'].index for r in scope['records'] if r['diameter']==100 and len(r['item']['points'])>=2}
         shown=self.viewer.entity_filter
-        indices=network_export_indices(self.viewer.scene,scope,self.viewer.visible_layers,shown,self.viewer.entity_items)
+        online_fiber=bool(scope.get('online') or getattr(scope.get('network'),'online',False))
+        if online_fiber and scope['kind']=='fiber':
+            indices=set(scope.get('indices') or [])
+        else:
+            indices=network_export_indices(self.viewer.scene,scope,self.viewer.visible_layers,shown,self.viewer.entity_items)
         if not indices:
             messagebox.showinfo('필요 항목 Excel 추출','화면에 표시된 추출 대상이 없습니다.');return
         label='광케이블' if scope['kind']=='fiber' else '100mm_주관로'
-        out=filedialog.asksaveasfilename(title=f'{label} Excel 추출',defaultextension='.xlsx',initialfile=Path(self.input_path).stem+'_'+label+'.xlsx',filetypes=[('Excel','*.xlsx')])
+        base_name=Path(self.input_path).stem if self.input_path else ('온라인_광망' if online_fiber else '추출')
+        out=filedialog.asksaveasfilename(title=f'{label} Excel 추출',defaultextension='.xlsx',initialfile=base_name+'_'+label+'.xlsx',filetypes=[('Excel','*.xlsx')])
         if not out:return
         self.busy=True;self._show_progress();self._set_progress(10,'전체 100mm 관로와 시작·끝 시설 위치 추출' if scope['kind']=='pipe' else '화면에 표시된 필요 항목만 Excel 추출')
         scene=self.viewer.scene;epsg=int(self.epsg_var.get())
-        source_path=self.input_path
+        source_path=self.input_path or ('ONLINE' if online_fiber else '')
         def worker():
             try:
                 rows=export_network(out,scene,scope,indices,epsg,source_path=source_path)
