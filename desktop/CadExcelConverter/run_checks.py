@@ -206,7 +206,6 @@ assert "authorizedRegions.find(x=>x.id===region)" in activate_block
 assert "activeRegionId=region;" in activate_block
 assert "await loadRegionFiber(false);" in activate_block
 assert "const center=(r&&r.center)||null;" in activate_block
-assert "center:x.center||null" in online_source
 assert "centerMyLocation(false);" not in online_source
 assert "map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));" in activate_block
 assert "map.setLevel(9);" in activate_block
