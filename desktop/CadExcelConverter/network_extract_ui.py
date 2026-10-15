@@ -15,7 +15,7 @@ from catv_poles import catv_pole_rows, export_catv_poles
 
 
 class NetworkExtractionMixin:
-    def _build_extract_toolbar(self,parent):
+    def _build_extract_toolbar(self,parent,fiber_parent=None):
         self.export_scope=None
         self.fiber_network=None
         self.route_start=None
@@ -23,8 +23,7 @@ class NetworkExtractionMixin:
         self.fiber_history=[]
         self.fiber_pick_mode=None
         self.pipe_diameters={}
-        self.extract_bar=ttk.Frame(parent)
-        self.extract_bar.pack(fill='x',pady=(0,4))
+        self.extract_bar=parent
 
         can_extract=bool(getattr(self,'can_extract',False))
         if can_extract:
@@ -33,7 +32,7 @@ class NetworkExtractionMixin:
                 text='위·경도 좌표 추출  ▼',
                 command=self._show_extract_menu,
             )
-            self.extract_menu_btn.pack(side='left',padx=(0,6))
+            self.extract_menu_btn.pack(side='left',padx=(18,6))
             self.extract_menu=tk.Menu(self.extract_bar,tearoff=False)
             self.extract_menu.add_command(label='광케이블 추출',command=self._begin_fiber_route)
             self.extract_menu.add_command(label='100mm 주관로 추출',command=self._begin_main_conduit)
@@ -47,9 +46,9 @@ class NetworkExtractionMixin:
                 self.extract_bar,
                 text='도면 업로드',
                 command=self._open_admin_upload,
-            ).pack(side='left',padx=(0,6))
+            ).pack(side='left',padx=(24,6))
 
-        self.fiber_controls=ttk.Frame(parent)
+        self.fiber_controls=ttk.Frame(fiber_parent or parent)
         self.fiber_start_btn=ttk.Button(
             self.fiber_controls,text='시작점 선택',
             command=lambda:self._set_fiber_pick_mode('start'),
@@ -100,12 +99,18 @@ class NetworkExtractionMixin:
                 pass
 
     def _show_fiber_controls(self,show=True):
+        host=getattr(self,'viewer',None)
+        host=getattr(host,'fiber_controls_host',None)
         if show:
+            if host is not None and not host.winfo_manager():
+                host.pack(fill='x',pady=(0,4),before=self.viewer.body)
             if not self.fiber_controls.winfo_manager():
-                self.fiber_controls.pack(fill='x',pady=(0,4))
+                self.fiber_controls.pack(fill='x')
         else:
             if self.fiber_controls.winfo_manager():
                 self.fiber_controls.pack_forget()
+            if host is not None and host.winfo_manager():
+                host.pack_forget()
 
     def _set_fiber_pick_mode(self,mode):
         if not self.fiber_network:
@@ -251,6 +256,42 @@ class NetworkExtractionMixin:
         # Fit and draw only extraction targets, once, without terrain or labels.
         self.viewer.fit_view()
 
+    def _fiber_working_indices(self):
+        """FiberNetwork에 실제 연결된 광케이블 + 연결 노드 기기만 표시."""
+        if not self.fiber_network or not self.viewer.scene:
+            return set()
+        indices={edge.index for edge in self.fiber_network.edges.values()}
+        node_ids=set(self.fiber_network.adj.keys())
+        for node in node_ids:
+            entity=self.fiber_network.by_handle.get(node)
+            if entity is not None:
+                indices.add(entity.index)
+        # NODELINK handle이 없는 CAD는 좌표로 연결된 함체만 보강한다.
+        xy_points=[
+            self.fiber_network.positions.get(node)
+            for node in node_ids
+            if str(node).startswith('XY')
+        ]
+        xy_points=[p for p in xy_points if p is not None]
+        if xy_points:
+            for entity in self.viewer.scene.entities:
+                if not is_closure(entity):
+                    continue
+                pos=next(
+                    (
+                        tuple(data[:2])
+                        for kind,data in (entity.primitives or [])
+                        if kind in {'insert','point'}
+                    ),
+                    None,
+                )
+                if pos is None and entity.bbox:
+                    x1,y1,x2,y2=entity.bbox
+                    pos=((x1+x2)/2.0,(y1+y2)/2.0)
+                if pos and any(math.dist(pos,p)<=0.1 for p in xy_points):
+                    indices.add(entity.index)
+        return indices
+
     def _begin_fiber_route(self):
         if not getattr(self,'can_extract',False): return
         if self.busy:return
@@ -266,8 +307,9 @@ class NetworkExtractionMixin:
         self.fiber_routes=[]
         self.fiber_history=[]
         self.fiber_pick_mode='start'
-        # 전체 도면은 그대로 유지하고 선택된 광케이블만 강조한다.
-        self.viewer.entity_filter=None
+        # 선택 작업 성능을 위해 광케이블 + 실제 연결 기기만 남긴다.
+        working_indices=self._fiber_working_indices()
+        self.viewer.entity_filter=working_indices
         self.viewer.selected.clear()
         self.viewer.network_click=self._fiber_route_click
         self.viewer.route_nodes=self.fiber_network.positions
@@ -276,6 +318,9 @@ class NetworkExtractionMixin:
         self.viewer.mode='fiber_route'
         self._show_fiber_controls(True)
         self.viewer.redraw()
+        self.viewer.status_var.set(
+            f'광케이블 추출 · 광 연결 객체 {len(working_indices):,}개만 표시'
+        )
         self.extract_hint.set('광케이블 추출 · 시작점 선택 버튼을 누른 뒤 국사/시작점을 클릭하세요.')
 
     def _nearest_fiber_node(self,event):
