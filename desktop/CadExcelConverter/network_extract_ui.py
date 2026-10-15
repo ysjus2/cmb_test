@@ -112,18 +112,33 @@ class NetworkExtractionMixin:
             if host is not None and host.winfo_manager():
                 host.pack_forget()
 
+    def _update_fiber_pick_buttons(self):
+        fixed = self.route_start is not None
+        try:
+            self.fiber_start_btn.configure(
+                text='시작점 고정 ✓' if fixed else '시작점 선택'
+            )
+            self.fiber_end_btn.configure(
+                state='normal' if fixed else 'disabled'
+            )
+        except Exception:
+            pass
+
     def _set_fiber_pick_mode(self,mode):
         if not self.fiber_network:
             return
-        self.fiber_pick_mode=mode
         if mode=='start':
-            self.extract_hint.set('시작점 선택 모드 · 국사/함체/광케이블 끝점을 클릭하세요. 같은 점 재클릭=취소')
+            # 시작점은 사용자가 이 버튼을 다시 누를 때만 변경한다.
+            self.fiber_pick_mode='start'
+            self.extract_hint.set('시작점 변경 모드 · 새 시작점을 1회 클릭하세요.')
         else:
             if self.route_start is None:
-                self.extract_hint.set('먼저 시작점 선택 버튼으로 국사/시작점을 지정해주세요.')
                 self.fiber_pick_mode='start'
+                self.extract_hint.set('먼저 시작점을 지정해주세요.')
             else:
-                self.extract_hint.set('끝점 선택 모드 · 끝점을 계속 클릭하면 경로가 누적됩니다. 같은 끝점 재클릭=해제')
+                self.fiber_pick_mode='end'
+                self.extract_hint.set('시작점 고정 · 끝점만 계속 클릭하면 경로가 누적됩니다.')
+        self._update_fiber_pick_buttons()
         self.viewer.redraw()
 
     def _fiber_snapshot(self):
@@ -141,7 +156,8 @@ class NetworkExtractionMixin:
     def _restore_fiber_snapshot(self,snapshot):
         self.route_start=snapshot.get('start')
         self.fiber_routes=[dict(r) for r in snapshot.get('routes') or []]
-        self.fiber_pick_mode=snapshot.get('mode') or 'end'
+        self.fiber_pick_mode=snapshot.get('mode') or ('end' if self.route_start is not None else 'start')
+        self._update_fiber_pick_buttons()
         self._refresh_fiber_selection()
 
     def _undo_fiber_selection(self):
@@ -157,6 +173,7 @@ class NetworkExtractionMixin:
         self.route_start=None
         self.fiber_routes=[]
         self.fiber_pick_mode='start'
+        self._update_fiber_pick_buttons()
         self._refresh_fiber_selection()
         self.extract_hint.set('광케이블 선택 초기화 · 시작점 선택 버튼을 누르세요.')
 
@@ -219,6 +236,7 @@ class NetworkExtractionMixin:
         self.fiber_routes=[];self.fiber_history=[];self.fiber_pick_mode=None
         self.viewer.entity_filter=None;self.viewer.network_click=None;self.viewer.route_nodes={};self.viewer.route_start_marker=None
         self.viewer.route_selected_markers=[];self.viewer.selected.clear()
+        self.viewer.clear_fiber_fast_network()
         self._show_fiber_controls(False)
         self.extract_hint.set(
             '위·경도 좌표 추출 메뉴에서 작업을 선택하세요.'
@@ -232,6 +250,7 @@ class NetworkExtractionMixin:
         self.fiber_routes=[];self.fiber_history=[];self.fiber_pick_mode=None
         self.viewer.entity_filter=None;self.viewer.network_click=None;self.viewer.route_nodes={};self.viewer.route_start_marker=None
         self.viewer.route_selected_markers=[]
+        self.viewer.clear_fiber_fast_network()
         self._show_fiber_controls(False)
         self.viewer.set_mode('select');self.viewer.selected.clear();self.viewer.fit_view()
         self.extract_hint.set(
@@ -242,6 +261,7 @@ class NetworkExtractionMixin:
 
     def _show_scope(self,scope):
         self.viewer.hide_extraction_text=True
+        self.viewer.clear_fiber_fast_network()
         self.export_scope=scope
         display_indices=set(scope['indices'])
         self.viewer.entity_filter=display_indices
@@ -319,7 +339,9 @@ class NetworkExtractionMixin:
         self.viewer.route_start_marker=None
         self.viewer.route_selected_markers=[]
         self.viewer.mode='fiber_route'
+        self.viewer.set_fiber_fast_network(self.fiber_network)
         self._show_fiber_controls(True)
+        self._update_fiber_pick_buttons()
         self.viewer.redraw()
         self.viewer.status_var.set(
             f'광케이블 추출 · 광 연결 객체 {len(working_indices):,}개만 표시'
@@ -348,15 +370,12 @@ class NetworkExtractionMixin:
 
         if self.fiber_pick_mode=='start':
             self._push_fiber_history()
-            if self.route_start==node:
-                self.route_start=None
-                self.viewer.route_start_marker=None
-                self.extract_hint.set('시작점 선택 취소 · 새 시작점을 클릭하세요.')
-            else:
-                self.route_start=node
-                self.viewer.route_start_marker=self.fiber_network.positions[node]
-                self.fiber_pick_mode='end'
-                self.extract_hint.set('시작점 지정 완료 · 끝점 선택 버튼 또는 끝점을 계속 클릭하세요.')
+            self.route_start=node
+            self.viewer.route_start_marker=self.fiber_network.positions[node]
+            # 한 번 선택한 시작점은 계속 고정한다.
+            self.fiber_pick_mode='end'
+            self._update_fiber_pick_buttons()
+            self.extract_hint.set('시작점 고정 완료 · 이제 끝점만 계속 클릭하세요.')
             self._refresh_fiber_selection()
             return
 
@@ -376,6 +395,8 @@ class NetworkExtractionMixin:
         if existing is not None:
             self._push_fiber_history()
             self.fiber_routes.pop(existing)
+            self.fiber_pick_mode='end'
+            self._update_fiber_pick_buttons()
             self._refresh_fiber_selection()
             self.extract_hint.set(f'끝점 선택 해제 · 남은 경로 {len(self.fiber_routes)}개')
             return
@@ -411,6 +432,8 @@ class NetworkExtractionMixin:
             'nodes':list(scope['nodes']),
             'indices':set(scope['indices']),
         })
+        self.fiber_pick_mode='end'
+        self._update_fiber_pick_buttons()
         self._refresh_fiber_selection()
         cable_count=len(set().union(*(set(r['route']) for r in self.fiber_routes)))
         self.extract_hint.set(
