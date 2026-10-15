@@ -1235,6 +1235,32 @@ class DXFViewer(ttk.Frame):
         self.fiber_fast_nodes = dict(getattr(network, "positions", {}) or {})
         self.redraw()
 
+    def fit_fiber_fast(self):
+        if not self.fiber_fast_edges:
+            self.redraw()
+            return
+        self.update_idletasks()
+        boxes=[bbox for _,_,bbox in self.fiber_fast_edges if bbox]
+        if not boxes:
+            self.redraw()
+            return
+        minx=min(b[0] for b in boxes)
+        miny=min(b[1] for b in boxes)
+        maxx=max(b[2] for b in boxes)
+        maxy=max(b[3] for b in boxes)
+        w=max(100,self.canvas.winfo_width())
+        h=max(100,self.canvas.winfo_height())
+        dx=max(maxx-minx,1e-9)
+        dy=max(maxy-miny,1e-9)
+        margin=36
+        self.scale=max(1e-9,min((w-margin*2)/dx,(h-margin*2)/dy))
+        cx=(minx+maxx)/2.0
+        cy=(miny+maxy)/2.0
+        self.ox=w/2-cx*self.scale
+        self.oy=h/2+cy*self.scale
+        self.pan_start=None
+        self.redraw()
+
     def clear_fiber_fast_network(self):
         self.fiber_fast_network = None
         self.fiber_fast_edges = []
