@@ -30,7 +30,7 @@ def main():
         assert abs(wb['광케이블']['N3'].value-transform.transform(20,0)[1])<1e-9
         assert wb['광케이블']['N2'].value==wb['광케이블']['L3'].value
         assert wb['광케이블']['M2'].value==wb['광케이블']['K3'].value
-        assert abs(wb['광케이블']['M2'].value-transform.transform(10,2)[1])<1e-9
+        assert abs(wb['광케이블']['N2'].value-transform.transform(10,2)[1])<1e-9
         reverse=net.unique_route('C','A')
         export_network(out,scene,reverse,reverse['indices'])
         rev=load_workbook(out,data_only=True)['광케이블']
