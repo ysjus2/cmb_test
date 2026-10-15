@@ -436,6 +436,15 @@ class CMBServerClient:
     def regions(self):
         return self._request("GET", "/regions")
 
+    def region_centers(self):
+        result = self._request("GET", "/regions?client_config=region_centers")
+        if not isinstance(result, dict):
+            return {}
+        centers = result.get("centers") or {}
+        if not isinstance(centers, dict):
+            return {}
+        return centers
+
     def kakao_js_key(self):
         result = self._request("GET", "/regions?client_config=kakao")
         if not isinstance(result, dict):
@@ -758,6 +767,17 @@ class CMBServerClient:
             "PUT",
             f"/admin/regions/{q}",
             {"name": str(name).strip()},
+        )
+
+    def update_region_center(self, region_id, center_lat, center_lon):
+        q = urllib.parse.quote(str(region_id).strip(), safe="")
+        return self._request(
+            "POST",
+            f"/admin/regions/{q}/center",
+            {
+                "center_lat": float(center_lat),
+                "center_lon": float(center_lon),
+            },
         )
 
     def delete_region(self, region_id):
