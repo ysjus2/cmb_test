@@ -295,6 +295,7 @@ class OnlineFiberNetwork:
                                 text=str(pprops.get('text') or ''),
                                 attributes=pattrs,
                                 xdata=_online_xdata(pprops),
+                                dxf_data={},
                                 bbox=(node_pos[0],node_pos[1],node_pos[0],node_pos[1]),
                                 primitives=[('point',node_pos)],
                             )
@@ -302,7 +303,7 @@ class OnlineFiberNetwork:
                             self.by_handle[node] = SimpleNamespace(
                                 index=-1, handle=node, layer='ONLINE_FIBER_NODE',
                                 entity_type='POINT', block_name='', text='',
-                                attributes={}, xdata=[], bbox=(node_pos[0],node_pos[1],node_pos[0],node_pos[1]),
+                                attributes={}, xdata=[], dxf_data={}, bbox=(node_pos[0],node_pos[1],node_pos[0],node_pos[1]),
                                 primitives=[('point',node_pos)],
                             )
 
