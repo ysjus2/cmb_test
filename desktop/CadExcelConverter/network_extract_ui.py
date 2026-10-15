@@ -236,9 +236,9 @@ class NetworkExtractionMixin:
         self._show_fiber_controls(False)
         self.viewer.set_mode('select');self.viewer.selected.clear();self.viewer.fit_view()
         self.extract_hint.set(
-            '전체 도면 표시 / 일반 Excel 추출 모드'
+            '위·경도 좌표 추출 메뉴에서 작업을 선택하세요.'
             if bool(getattr(self,'can_extract',False))
-            else '전체 도면 표시 · 보기 전용 계정'
+            else '보기 전용 계정'
         )
 
     def _show_scope(self,scope):
