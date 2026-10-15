@@ -27,8 +27,8 @@ print('ONLINE_VIEWER_LOCAL_API_OK')
 from types import SimpleNamespace
 from admin_upload import classify_entity, _geometry_parts
 
-def _e(layer, block="", entity_type="INSERT"):
-    return SimpleNamespace(layer=layer, block_name=block, entity_type=entity_type)
+def _e(layer, block="", entity_type="INSERT", text=""):
+    return SimpleNamespace(layer=layer, block_name=block, entity_type=entity_type, text=text)
 
 assert classify_entity(_e("TS_BASEMAP")) is None
 assert classify_entity(_e("TL_SCCO_SIG")) is None
@@ -41,7 +41,8 @@ assert classify_entity(_e("CONDUIT_MAIN")) == "CONDUIT"
 assert classify_entity(_e("CN_L_POLE")) == "POLE"
 assert classify_entity(_e("CN_L_POLEMAP_BOUND", entity_type="LWPOLYLINE")) is None
 assert classify_entity(_e("CN_L_POLE_ID", entity_type="ATTRIB")) is None
-assert classify_entity(_e("CN_M_USER_TEST")) == "USER"
+assert classify_entity(_e("CN_M_USER_TEST")) is None
+assert classify_entity(_e("CN_M_USER_MEMO", entity_type="TEXT", text="현장 메모")) == "USER"
 print("UPLOAD_CLASSIFICATION_OK")
 
 assert "startsWith('TS_')" in page
@@ -1057,3 +1058,38 @@ assert "apiCall('trace'" not in online_source
 assert "5_MAP_MOVE_ATTEMPT" not in online_source
 assert "5_MAP_MOVE_RESULT" not in online_source
 print("REGION_CENTER_LIGHT_RUNTIME_OK")
+
+
+# 추출앱 최종 UI/광케이블 다중선택/USER MEMO 경량 업로드 정책.
+extract_ui_source = (root / "network_extract_ui.py").read_text(encoding="utf-8")
+main_source = (root / "main.py").read_text(encoding="utf-8")
+admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
+network_extract_source = (root / "network_extract.py").read_text(encoding="utf-8")
+
+assert "text='도면 보기'" in extract_ui_source
+assert "text='위·경도 좌표 추출'" in extract_ui_source
+assert "text='도면 업로드'" in extract_ui_source
+assert "광주간선 추출" not in extract_ui_source
+assert "label='광케이블 추출'" in extract_ui_source
+assert "관로 속성 확인" not in extract_ui_source
+assert "def _inspect_conduits(" not in extract_ui_source
+assert "def _show_pipe_diameter_editor(" not in extract_ui_source
+assert "text='시작점 선택'" in extract_ui_source
+assert "text='끝점 선택'" in extract_ui_source
+assert "text='한 단계 취소'" in extract_ui_source
+assert "text='전체 초기화'" in extract_ui_source
+assert "self.fiber_routes=[]" in extract_ui_source
+assert "self.fiber_history=[]" in extract_ui_source
+assert "selected_handles.intersection" in extract_ui_source
+assert "중복되는 구간" in extract_ui_source
+assert "if r.get('end')==node" in extract_ui_source
+assert "route_selected_markers" in extract_ui_source
+assert "routes=list(scope.get('routes') or [])" in network_extract_source
+assert "sheet('광케이블'" in network_extract_source
+assert "from server_extract import ServerExtractWindow" not in main_source
+assert "def _open_server_extract(" not in main_source
+assert '"MEMO" in layer' in admin_upload_source
+assert '"_cmb_user_memo": memo_text' in admin_upload_source
+assert '"user_storage_schema"] = "memo-point-v1"' in admin_upload_source
+assert '"USER": "USER MEMO · 현장 공유 메모 좌표 + 텍스트"' in admin_upload_source
+print("EXTRACTION_APP_FINAL_POLICY_OK")
