@@ -49,7 +49,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         self.q = queue.Queue()
         self.input_path = ""
         self.epsg_var = tk.StringVar(value="5174")
-        self.status_var = tk.StringVar(value="파일 > 열기에서 DXF 파일을 선택해주세요.")
+        self.status_var = tk.StringVar(value="파일 > 도면 열기에서 DXF 파일을 선택해주세요.")
         self.progress_value = 0
         self.progress_text = "0% · 준비"
         self.busy = False
@@ -116,17 +116,14 @@ class App(NetworkExtractionMixin, tk.Tk):
         menubar = tk.Menu(self)
 
         file_menu = tk.Menu(menubar, tearoff=False)
-        file_menu.add_command(label="열기...", command=self._pick_input, accelerator="Ctrl+O")
-        if self.can_extract:
-            file_menu.add_command(label="Excel로 출력...", command=self._run_excel, accelerator="Ctrl+E")
-            file_menu.add_command(label="전체 레이어 Excel (기존 방식)", command=self._run_all_layer_excel)
-        file_menu.add_separator()
-        file_menu.add_command(label="레이어 표시", command=self._show_layer_window)
+        file_menu.add_command(label="도면 열기...", command=self._pick_input, accelerator="Ctrl+O")
+        file_menu.add_command(label="도면 다시 읽기", command=self._force_reload_drawing)
         file_menu.add_separator()
         file_menu.add_command(label="종료", command=self.destroy)
         menubar.add_cascade(label="파일", menu=file_menu)
 
         view_menu = tk.Menu(menubar, tearoff=False)
+        view_menu.add_command(label="레이어 표시", command=self._show_layer_window)
         view_menu.add_command(label="도면 점검 결과", command=self._show_drawing_audit)
         view_menu.add_command(label="전체 화면", command=self._toggle_fullscreen, accelerator="F11")
         menubar.add_cascade(label="보기", menu=view_menu)
@@ -151,8 +148,6 @@ class App(NetworkExtractionMixin, tk.Tk):
 
         self.config(menu=menubar)
         self.bind_all("<Control-o>", lambda e: self._pick_input())
-        if self.can_extract:
-            self.bind_all("<Control-e>", lambda e: self._run_excel())
 
     def _build_main_view(self):
         root = ttk.Frame(self, padding=4)
@@ -481,7 +476,7 @@ class App(NetworkExtractionMixin, tk.Tk):
     def _scan(self, force_refresh=False):
         inp = self.input_path
         if not inp or not os.path.isfile(inp):
-            messagebox.showerror(APP_NAME, "먼저 파일 > 열기에서 DXF 파일을 선택해주세요.")
+            messagebox.showerror(APP_NAME, "먼저 파일 > 도면 열기에서 DXF 파일을 선택해주세요.")
             return
         if self.busy:
             return
