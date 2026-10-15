@@ -1089,6 +1089,13 @@ assert "selected_handles.intersection" in extract_ui_source
 assert "중복되는 구간" in extract_ui_source
 assert "if r.get('end')==node" in extract_ui_source
 assert "route_selected_markers" in extract_ui_source
+assert "def _fiber_working_indices(self):" in extract_ui_source
+assert "self.viewer.entity_filter=working_indices" in extract_ui_source
+assert "광케이블 + 실제 연결 기기만 남긴다." in extract_ui_source
+assert "self.viewer.button_frame" in main_source
+assert "self.viewer.fiber_controls_host" in main_source
+assert "padx=(18,6)" in extract_ui_source
+assert "padx=(24,6)" in extract_ui_source
 assert "routes=list(scope.get('routes') or [])" in network_extract_source
 assert "sheet('광케이블'" in network_extract_source
 assert "from server_extract import ServerExtractWindow" not in main_source
