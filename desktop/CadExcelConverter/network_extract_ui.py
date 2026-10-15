@@ -26,27 +26,21 @@ class NetworkExtractionMixin:
         self.extract_bar=ttk.Frame(parent)
         self.extract_bar.pack(fill='x',pady=(0,4))
 
-        ttk.Button(
-            self.extract_bar,
-            text='도면 보기',
-            command=self._reset_network_filter,
-        ).pack(side='left',padx=(0,6))
-
         can_extract=bool(getattr(self,'can_extract',False))
         if can_extract:
-            self.extract_menu_btn=ttk.Menubutton(
+            self.extract_menu_btn=ttk.Button(
                 self.extract_bar,
-                text='위·경도 좌표 추출',
+                text='위·경도 좌표 추출  ▼',
+                command=self._show_extract_menu,
             )
-            extract_menu=tk.Menu(self.extract_menu_btn,tearoff=False)
-            extract_menu.add_command(label='광케이블 추출',command=self._begin_fiber_route)
-            extract_menu.add_command(label='100mm 주관로 추출',command=self._begin_main_conduit)
-            extract_menu.add_command(label='자가주 좌표 추출',command=self._run_catv_pole_excel)
-            extract_menu.add_command(label='사용자 지정 영역 추출',command=self._begin_custom_area_extract)
-            extract_menu.add_separator()
-            extract_menu.add_command(label='Excel 추출',command=self._run_excel)
-            self.extract_menu_btn['menu']=extract_menu
             self.extract_menu_btn.pack(side='left',padx=(0,6))
+            self.extract_menu=tk.Menu(self.extract_bar,tearoff=False)
+            self.extract_menu.add_command(label='광케이블 추출',command=self._begin_fiber_route)
+            self.extract_menu.add_command(label='100mm 주관로 추출',command=self._begin_main_conduit)
+            self.extract_menu.add_command(label='자가주 좌표 추출',command=self._run_catv_pole_excel)
+            self.extract_menu.add_command(label='사용자 지정 영역 추출',command=self._begin_custom_area_extract)
+            self.extract_menu.add_separator()
+            self.extract_menu.add_command(label='Excel 추출',command=self._run_excel)
 
         if bool(getattr(self,'is_admin',False)):
             ttk.Button(
@@ -88,13 +82,28 @@ class NetworkExtractionMixin:
         ):
             button.pack(side='left',padx=(0,5))
 
+        # 상태 문구는 내부 동작용으로만 유지하고 상단에는 표시하지 않는다.
         hint=(
             '위·경도 좌표 추출 메뉴에서 작업을 선택하세요.'
             if can_extract else
             '보기 전용 계정 · 추출/Excel 기능 없음'
         )
         self.extract_hint=tk.StringVar(value=hint)
-        ttk.Label(self.extract_bar,textvariable=self.extract_hint).pack(side='left',padx=8)
+
+    def _show_extract_menu(self):
+        menu=getattr(self,'extract_menu',None)
+        button=getattr(self,'extract_menu_btn',None)
+        if menu is None or button is None:
+            return
+        try:
+            x=button.winfo_rootx()
+            y=button.winfo_rooty()+button.winfo_height()
+            menu.tk_popup(x,y)
+        finally:
+            try:
+                menu.grab_release()
+            except Exception:
+                pass
 
     def _show_fiber_controls(self,show=True):
         if show:
