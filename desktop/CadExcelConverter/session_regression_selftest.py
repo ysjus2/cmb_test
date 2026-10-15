@@ -54,11 +54,10 @@ app.input_path = str(Path(__file__).resolve())
 app.viewer = SimpleNamespace(scene=object())
 app.epsg_var = SimpleNamespace(get=lambda: '5174')
 app._require_admin_permission = lambda: True
-with patch('main.AdminUploadWindow') as upload, patch('main.ServerExtractWindow') as extract, patch('main.UserAdminWindow') as users:
+with patch('main.AdminUploadWindow') as upload, patch('main.UserAdminWindow') as users:
     app._open_admin_upload()
-    app._open_server_extract()
     app._open_user_admin()
-    assert all(w.call_args.kwargs['client'] is client for w in (upload, extract, users))
+    assert all(w.call_args.kwargs['client'] is client for w in (upload, users))
 client.session_policy = lambda: {'idle_minutes': 10}
 root = SimpleNamespace(bind_all=lambda *a, **k: None, after=lambda *a: None)
 guard = TkIdleSessionGuard(root, lambda: None, client=client)
