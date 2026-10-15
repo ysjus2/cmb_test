@@ -334,6 +334,24 @@ class NetworkExtractionMixin:
         except ValueError as exc:
             messagebox.showwarning('광케이블 추출',str(exc));return
 
+        selected_handles={
+            h for route in self.fiber_routes
+            for h in (route.get('route') or [])
+        }
+        overlap=selected_handles.intersection(set(scope.get('route') or []))
+        if overlap:
+            messagebox.showwarning(
+                '광케이블 추출',
+                (
+                    f'이미 선택한 광케이블과 중복되는 구간이 {len(overlap)}개 있습니다.\n\n'
+                    '중복 경로는 추가하지 않습니다. 다른 끝점을 다시 선택해주세요.'
+                ),
+            )
+            self.extract_hint.set(
+                f'중복 구간 {len(overlap)}개 감지 · 경로 추가 취소 · 끝점을 다시 선택하세요.'
+            )
+            return
+
         self._push_fiber_history()
         self.fiber_routes.append({
             'start':self.route_start,
