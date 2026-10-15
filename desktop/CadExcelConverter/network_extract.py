@@ -189,34 +189,41 @@ def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
     transform=Transformer.from_crs(f'EPSG:{epsg}','EPSG:4326',always_xy=True)
     if scope['kind']=='fiber':
         network=scope['network'];data=[]
-        for order,handle in enumerate(scope['route'],1):
-            edge=network.edges[handle]
-            if edge.index not in visible_indices:continue
-            a,b=scope['nodes'][order-1:order+1]
-            summary=str(edge.attributes.get('ESSEN_300','')).split('/')
-            cable_id=edge.attributes.get('ESSEN_302') or summary[0] or handle
-            cores=summary[1] if len(summary)>1 else ''
-            declared=None
-            if len(summary)>2:
-                try:declared=float(summary[2])
-                except ValueError:pass
-            points = edge.points if edge.u == a else list(reversed(edge.points))
-            start_point, end_point = points[0], points[-1]
-            # Route endpoints are actual cable endpoints. Interior closures use
-            # their own insertion positions instead of polyline bend vertices.
-            start_closure = network.by_handle.get(a)
-            end_closure = network.by_handle.get(b)
-            if order > 1 and start_closure and is_closure(start_closure):
-                start_point = entity_position(start_closure) or start_point
-            if order < len(scope['route']) and end_closure and is_closure(end_closure):
-                end_point = entity_position(end_closure) or end_point
-            start_lon, start_lat = transform.transform(*start_point)
-            end_lon, end_lat = transform.transform(*end_point)
-            data.append([order,cable_id,cores,declared,round(cable_length(edge.points),3),_node_name(network,a),_node_name(network,b),handle,start_lon,start_lat,end_lon,end_lat])
-        if not data:raise ValueError('화면에 표시된 주간선 광케이블이 없습니다.')
-        sheet('광주간선',['순서','케이블번호','심수','도면기재길이_m','경로길이_m','시작함체','끝함체','객체ID','시작경도','시작위도','끝경도','끝위도'],data)
-        ws=wb['광주간선']
-        for row in ws.iter_rows(min_row=2,min_col=10,max_col=13):
+        routes=list(scope.get('routes') or [])
+        if not routes:
+            routes=[{'route':scope.get('route') or [],'nodes':scope.get('nodes') or []}]
+        exported_handles=set()
+        for route_no,route_scope in enumerate(routes,1):
+            route=list(route_scope.get('route') or [])
+            nodes=list(route_scope.get('nodes') or [])
+            for order,handle in enumerate(route,1):
+                edge=network.edges[handle]
+                if edge.index not in visible_indices or handle in exported_handles:
+                    continue
+                exported_handles.add(handle)
+                a,b=nodes[order-1:order+1]
+                summary=str(edge.attributes.get('ESSEN_300','')).split('/')
+                cable_id=edge.attributes.get('ESSEN_302') or summary[0] or handle
+                cores=summary[1] if len(summary)>1 else ''
+                declared=None
+                if len(summary)>2:
+                    try:declared=float(summary[2])
+                    except ValueError:pass
+                points = edge.points if edge.u == a else list(reversed(edge.points))
+                start_point, end_point = points[0], points[-1]
+                start_closure = network.by_handle.get(a)
+                end_closure = network.by_handle.get(b)
+                if order > 1 and start_closure and is_closure(start_closure):
+                    start_point = entity_position(start_closure) or start_point
+                if order < len(route) and end_closure and is_closure(end_closure):
+                    end_point = entity_position(end_closure) or end_point
+                start_lon, start_lat = transform.transform(*start_point)
+                end_lon, end_lat = transform.transform(*end_point)
+                data.append([route_no,order,cable_id,cores,declared,round(cable_length(edge.points),3),_node_name(network,a),_node_name(network,b),handle,start_lon,start_lat,end_lon,end_lat])
+        if not data:raise ValueError('화면에 선택된 광케이블이 없습니다.')
+        sheet('광케이블',['경로','순서','케이블번호','심수','도면기재길이_m','경로길이_m','시작함체','끝함체','객체ID','시작경도','시작위도','끝경도','끝위도'],data)
+        ws=wb['광케이블']
+        for row in ws.iter_rows(min_row=2,min_col=11,max_col=14):
             for cell in row:cell.number_format='0.0000000'
     else:
         from pipe_endpoints import PipeEndpointResolver
