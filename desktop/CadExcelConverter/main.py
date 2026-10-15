@@ -38,9 +38,11 @@ class App(NetworkExtractionMixin, tk.Tk):
             self.user_level = int(self.session_user.get("level", 5))
         except Exception:
             self.user_level = 5
-        # 로컬 맵추출 Viewer의 DXF/추출/Excel 기능은 서버 계정 상태와 무관하다.
-        self.can_extract = True if self.local_map_mode else self.user_level <= 3
-        # 서버 관리 기능은 전달된 로그인 정보가 1등급일 때만 노출한다.
+        # 등급별 기능은 버튼 생성 단계에서 완전히 숨긴다.
+        # 1등급: 보기 + 추출 + 업로드
+        # 2~3등급: 보기 + 추출
+        # 4~5등급: 보기 전용
+        self.can_extract = self.user_level <= 3
         self.is_admin = self.user_level == 1
         self.session_ended = False
 
