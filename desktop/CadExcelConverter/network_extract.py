@@ -542,6 +542,24 @@ def network_export_indices(scene, scope, visible_layers, shown, entity_items):
             and entity_items.get(e.index)}
 
 
+def _online_export_ids(handle):
+    """Convert an internal region:revision:CAD-handle:part key to stable, readable IDs."""
+    value = str(handle or '').strip()
+    region, sep, remainder = value.partition(':')
+    if not sep:
+        return value, value
+    pieces = remainder.rsplit(':', 2)
+    # Source identity is revision UUID : original CAD handle : geometry part.
+    if len(pieces) == 3 and pieces[-1].isdigit():
+        pure = pieces[-2]
+        part = int(pieces[-1])
+        if part:
+            pure = f'{pure}:{part}'
+    else:
+        pure = remainder.rsplit(':', 1)[-1]
+    return pure, f'{region}_{pure}'
+
+
 def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
     visible_indices=set(visible_indices) & set(scope.get("indices", visible_indices))
     wb=Workbook();wb.remove(wb.active)
@@ -555,7 +573,12 @@ def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
         headers[id_column:id_column+1]=['순수 객체ID','지역객체ID']
         ws.append(headers)
         for row in data:
-            row.insert(id_column+1,export_object_id(source_path,row[id_column]))
+            if scope.get('online'):
+                pure_id, regional_id = _online_export_ids(row[id_column])
+                row[id_column] = pure_id
+                row.insert(id_column+1, regional_id)
+            else:
+                row.insert(id_column+1,export_object_id(source_path,row[id_column]))
         for row in data:ws.append(row);rows+=1
         ws.freeze_panes='A2';ws.auto_filter.ref=ws.dimensions
         for cell in ws[1]:cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor='176D85')
@@ -585,6 +608,11 @@ def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
                     except ValueError:pass
                 points = edge.points if edge.u == a else list(reversed(edge.points))
                 start_point, end_point = points[0], points[-1]
+                if scope.get('online'):
+                    # Use one canonical coordinate per graph node so consecutive
+                    # rows are exactly continuous even when source endpoints differ.
+                    start_point = network.positions.get(a, start_point)
+                    end_point = network.positions.get(b, end_point)
                 start_closure = network.by_handle.get(a)
                 end_closure = network.by_handle.get(b)
                 if order > 1 and start_closure and is_closure(start_closure):
