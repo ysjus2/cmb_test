@@ -20,7 +20,7 @@ CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
 KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
-WINDOWS_RELEASE = "Windows_1.0_Rev5_RegionCenter"
+WINDOWS_RELEASE = "Windows_1.0_Rev6_RegionCenterFix"
 
 
 def key(client=None):
@@ -3232,7 +3232,8 @@ async function loadRegions(){{
   authorizedRegions=items.map(x=>({{
     id:String(x.id),
     name:String(x.name||x.id),
-    bounds:x.bounds||null
+    bounds:x.bounds||null,
+    center:x.center||null
   }}));
   sel.innerHTML='<option value="">지역 선택</option>';
   authorizedRegions.forEach(x=>{{
@@ -3527,7 +3528,7 @@ function initMap(){{
           );
         }}
       }});
-      centerMyLocation(false);
+      setStatus('지역을 선택하세요');
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
