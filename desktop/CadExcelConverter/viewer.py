@@ -1325,7 +1325,7 @@ class DXFViewer(ttk.Frame):
             )
 
     def redraw(self):
-        if self.mode == "fiber_route" and self.fiber_fast_network is not None:
+        if getattr(self, "mode", None) == "fiber_route" and getattr(self, "fiber_fast_network", None) is not None:
             self._redraw_fiber_fast()
             return
         c = self.canvas
@@ -1486,7 +1486,7 @@ class DXFViewer(ttk.Frame):
         # A drag must resume from the new zoom origin, not its pre-zoom origin.
         if self.pan_start is not None:
             self.pan_start = (sx, sy, self.ox, self.oy)
-        if self.mode == "fiber_route" and self.fiber_fast_network is not None:
+        if getattr(self, "mode", None) == "fiber_route" and getattr(self, "fiber_fast_network", None) is not None:
             try:
                 self.canvas.scale("all", sx, sy, factor, factor)
             except Exception:
@@ -1505,14 +1505,14 @@ class DXFViewer(ttk.Frame):
         dx, dy = event.x - x, event.y - y
         self.ox = ox + dx
         self.oy = oy + dy
-        if self.mode == "fiber_route" and self.fiber_fast_network is not None:
+        if getattr(self, "mode", None) == "fiber_route" and getattr(self, "fiber_fast_network", None) is not None:
             self.canvas.move("all", dx, dy)
             self.pan_start = (event.x, event.y, self.ox, self.oy)
         else:
             self.redraw()
 
     def _pan_end(self, event):
-        fast = self.mode == "fiber_route" and self.fiber_fast_network is not None
+        fast = getattr(self, "mode", None) == "fiber_route" and getattr(self, "fiber_fast_network", None) is not None
         self.pan_start = None
         if fast:
             self.redraw()
