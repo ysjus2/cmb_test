@@ -40,11 +40,11 @@ def main():
 
     # 5m를 넘는 끝점은 자동 연결하지 않는다.
     d1=to_wgs.transform(201000.0,300000.0)
-    d2=to_wgs.transform(201003.0,300000.0)
-    e=to_wgs.transform(201100.0,300000.0)
+    d2=to_wgs.transform(201100.0,300000.0)
+    e=to_wgs.transform(201200.0,300000.0)
     network2=OnlineFiberNetwork([
         line('D-X',[d1,d2],'R1'),
-        line('Y-E',[to_wgs.transform(201009.0,300000.0),e],'R2'),
+        line('Y-E',[to_wgs.transform(201106.0,300000.0),e],'R2'),
     ],epsg=5174)
     assert len(network2.positions)==4
 
