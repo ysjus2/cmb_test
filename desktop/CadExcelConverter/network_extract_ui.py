@@ -49,12 +49,6 @@ class NetworkExtractionMixin:
                 command=self._open_admin_upload,
             ).pack(side='left',padx=(0,6))
 
-        ttk.Button(
-            self.extract_bar,
-            text='도면 다시 읽기',
-            command=self._force_reload_drawing,
-        ).pack(side='left',padx=(0,6))
-
         self.fiber_controls=ttk.Frame(parent)
         self.fiber_start_btn=ttk.Button(
             self.fiber_controls,text='시작점 선택',
