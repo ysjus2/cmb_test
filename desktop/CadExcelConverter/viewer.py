@@ -852,6 +852,7 @@ class DXFViewer(ttk.Frame):
 
         button_frame = ttk.Frame(bar)
         button_frame.pack(side="left")
+        self.button_frame = button_frame
         for text, cmd in [
             ("전체보기", self.fit_view),
             ("선택", lambda: self.set_mode("select")),
@@ -879,6 +880,11 @@ class DXFViewer(ttk.Frame):
             anchor="e",
             justify="right",
         ).pack(fill="x")
+
+        # 광케이블 선택 전용 보조 버튼은 필요할 때만 이 줄에 표시한다.
+        self.fiber_controls_host = ttk.Frame(self)
+        self.fiber_controls_host.pack(fill="x", pady=(0, 4))
+        self.fiber_controls_host.pack_forget()
 
         # 상단 도구바는 전체 폭을 그대로 유지한다.
         # 레이어 도킹 영역과 DXF Canvas는 그 아래 body에서만 좌/우로 나뉜다.
