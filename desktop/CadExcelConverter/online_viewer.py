@@ -19,6 +19,7 @@ FIBER_CACHE_SCHEMA = 3
 CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
+KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
 WINDOWS_RELEASE = "Windows_1.0_Coordinate_BBox"
 
 
@@ -38,12 +39,10 @@ def key(client=None):
             return k
 
     # 3) canonical source: authenticated server setting.
-    # This removes the old requirement to copy online.json to every Windows PC.
+    # Do not swallow HTTP/session/device errors here; callers must show
+    # the real cause instead of misreporting every failure as "key missing".
     if client is not None:
-        try:
-            k = str(client.kakao_js_key() or "").strip()
-        except Exception:
-            k = ""
+        k = str(client.kakao_js_key() or "").strip()
         if k:
             return k
 
@@ -3552,9 +3551,26 @@ def run_online_viewer():
     # Resolve the Kakao JavaScript key after the authenticated API client
     # has loaded the shared launcher session, so a new PC can obtain it
     # from the server without any local online.json file.
-    k = key(api.c)
+    try:
+        k = key(api.c)
+    except Exception as exc:
+        # Persist the exact reason for the parent launcher. Environment variables
+        # cannot be modified back into the parent process from this child.
+        try:
+            error_path = APP_DATA_DIR / "online_start_error.txt"
+            error_path.parent.mkdir(parents=True, exist_ok=True)
+            error_path.write_text(str(exc), encoding="utf-8")
+        except Exception:
+            pass
+        return KAKAO_KEY_FETCH_ERROR_EXIT_CODE
+
     if not k:
         return KAKAO_KEY_MISSING_EXIT_CODE
+
+    try:
+        (APP_DATA_DIR / "online_start_error.txt").unlink()
+    except Exception:
+        pass
 
     import webview
 
