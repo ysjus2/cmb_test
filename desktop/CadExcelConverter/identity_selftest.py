@@ -60,12 +60,12 @@ with TemporaryDirectory() as temporary:
     export_network(root / "fiber.xlsx", scene, scope, {0}, source_path=source)
 
     ws = load_workbook(root / "fiber.xlsx")["광케이블"]
-    assert (ws["H1"].value, ws["I1"].value) == ("순수 객체ID", "지역객체ID")
-    assert ws["H2"].value == "AB"
-    assert ws["I2"].value == "CMB_GN_KSG_AB"
-    assert ws["J1"].value == "시작경도"
-    assert isinstance(ws["J2"].value, float)
-    assert ws["J2"].number_format == "0.0000000"
+    assert (ws["I1"].value, ws["J1"].value) == ("순수 객체ID", "지역객체ID")
+    assert ws["I2"].value == "AB"
+    assert ws["J2"].value == "CMB_GN_KSG_AB"
+    assert ws["K1"].value == "시작경도"
+    assert isinstance(ws["K2"].value, float)
+    assert ws["K2"].number_format == "0.0000000"
 
     pipe_scope = {
         "kind": "pipe",
