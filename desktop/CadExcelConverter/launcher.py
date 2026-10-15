@@ -15,6 +15,7 @@ from admin_users import UserAdminWindow
 from session_guard import TkIdleSessionGuard
 
 SESSION_ENDED_EXIT_CODE = 41
+KAKAO_KEY_MISSING_EXIT_CODE = 42
 DEFAULT_GEOMETRY = "620x430"
 ADMIN_GEOMETRY = "620x610"
 SINGLE_INSTANCE_HOST = "127.0.0.1"
@@ -368,6 +369,17 @@ class Launcher(tk.Tk):
             return
         if code == SESSION_ENDED_EXIT_CODE:
             self._reset_login_state("세션이 종료되었습니다. 다시 로그인해주세요.")
+        elif code == KAKAO_KEY_MISSING_EXIT_CODE:
+            if self.session_guard is not None:
+                self.session_guard.resume()
+            self._restore_launcher()
+            messagebox.showerror(
+                "온라인 뷰어",
+                "Kakao 지도 JavaScript 키가 서버에 설정되어 있지 않습니다.\n"
+                "관리자에게 서버 KAKAO_JS_APP_KEY 설정을 확인해주세요.",
+                parent=self,
+            )
+            return
         elif self.session_guard is not None:
             self.session_guard.resume()
         self._restore_launcher()
