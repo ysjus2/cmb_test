@@ -436,6 +436,12 @@ class CMBServerClient:
     def regions(self):
         return self._request("GET", "/regions")
 
+    def kakao_js_key(self):
+        result = self._request("GET", "/settings/kakao-js-key")
+        if not isinstance(result, dict):
+            return ""
+        return str(result.get("kakao_js_key") or "").strip()
+
     def online_layers(self, region):
         q = urllib.parse.quote(region, safe="")
         return self._request("GET", f"/online/{q}/layers")
