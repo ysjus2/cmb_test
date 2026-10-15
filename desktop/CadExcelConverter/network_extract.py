@@ -359,11 +359,21 @@ def _normalize_regions(raw):
     return result
 
 
-def fetch_all_online_fiber(client, epsg=5174, progress=None):
-    """권한 지역 전체의 FIBER를 지역별 bounds로 완전 수집 후 하나의 네트워크로 결합."""
-    regions = _normalize_regions(client.regions() or [])
-    if not regions:
+def fetch_all_online_fiber(client, regions=None, epsg=5174, progress=None):
+    """선택한 권한 지역의 FIBER를 완전 수집 후 하나의 네트워크로 결합."""
+    allowed_regions = _normalize_regions(client.regions() or [])
+    if not allowed_regions:
         raise RuntimeError('온라인 광추출 가능한 권한 지역이 없습니다.')
+
+    if regions is None:
+        regions = list(allowed_regions)
+    else:
+        requested = [str(x or '').strip() for x in regions if str(x or '').strip()]
+        allowed_map = {r.casefold(): r for r in allowed_regions}
+        regions = [allowed_map[x.casefold()] for x in requested if x.casefold() in allowed_map]
+
+    if not regions:
+        raise RuntimeError('온라인 광추출 지역을 하나 이상 선택해주세요.')
 
     merged = {}
     region_stats = []
