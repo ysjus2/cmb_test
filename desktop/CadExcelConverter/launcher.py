@@ -419,6 +419,12 @@ class Launcher(tk.Tk):
         if not self.user or int(self.user.get("level", 5)) != 1:
             return
 
+        # 관리자 창은 같은 서버 세션을 사용한다.
+        # 본인 단말 초기화 직후 숨겨진 런처 heartbeat가 기존 PC를 다시 등록하지 않도록
+        # 관리자 창이 열려 있는 동안 런처 idle/session guard는 중지한다.
+        if self.session_guard is not None:
+            self.session_guard.pause()
+
         self.withdraw()
         window = UserAdminWindow(
             self,
@@ -429,6 +435,8 @@ class Launcher(tk.Tk):
         def restore(event=None):
             if event is not None and event.widget is not window:
                 return
+            if self.user is not None and self.session_guard is not None:
+                self.session_guard.resume()
             self._restore_launcher()
 
         window.bind("<Destroy>", restore, add="+")
