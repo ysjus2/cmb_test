@@ -54,8 +54,8 @@ def _has_route(app, path, method):
 
 
 def install(app):
-    if not _has_route(app, "/settings/kakao-js-key", "GET"):
-        @app.get("/settings/kakao-js-key")
+    if not _has_route(app, "/online/client-config", "GET"):
+        @app.get("/online/client-config")
         async def kakao_js_key(request: Request):
             # /settings/* is already protected by the CMB session/device middleware.
             # Keep an explicit Authorization presence check as a second guard.
@@ -67,7 +67,7 @@ def install(app):
                 raise HTTPException(503, "KAKAO_JS_APP_KEY_NOT_CONFIGURED")
             return {"kakao_js_key": key}
 
-    return {"route": "/settings/kakao-js-key", "configured": bool(str(os.getenv("KAKAO_JS_APP_KEY") or "").strip())}
+    return {"route": "/online/client-config", "configured": bool(str(os.getenv("KAKAO_JS_APP_KEY") or "").strip())}
 PY
 
 echo "[3/7] ASGI 엔트리 연결"
@@ -117,7 +117,7 @@ import json, urllib.request
 with urllib.request.urlopen("http://127.0.0.1:8000/openapi.json", timeout=5) as r:
     spec=json.load(r)
 paths=spec.get("paths") or {}
-if "/settings/kakao-js-key" not in paths:
+if "/online/client-config" not in paths:
     raise SystemExit("KAKAO_KEY_ROUTE_MISSING")
 print("KAKAO_KEY_ROUTE_OK")
 PY
@@ -130,7 +130,7 @@ trap - ERR
 
 echo "============================================================"
 echo "CMB_KAKAO_JS_KEY_ENDPOINT_V1_OK"
-echo "- GET /settings/kakao-js-key"
+echo "- GET /online/client-config"
 echo "- Windows new PC can fetch Kakao JS key from server"
 echo "- server.env must contain KAKAO_JS_APP_KEY=<JavaScript key>"
 echo "============================================================"
