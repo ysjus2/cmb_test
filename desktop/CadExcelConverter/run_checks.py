@@ -191,7 +191,7 @@ assert "self._start_bbox_refresh(west, south, east, north)" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
-assert 'WINDOWS_RELEASE = "Windows_1.0_Rev8_StrictRegionCenter"' in online_source
+assert 'WINDOWS_RELEASE = "Windows_1.0_Rev9_RegionCenterTrace"' in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
@@ -1050,3 +1050,11 @@ assert "def payload_center(payload):" in admin_upload_source
 assert 'if str(group or "").upper() == "FIBER":' in admin_upload_source
 assert "self.client.update_region_center(" in admin_upload_source
 print("STORED_REGION_CENTER_ONLY_OK")
+
+assert "REGION_CENTER_TRACE" in online_source
+assert "[1_VIEWER_REGION_SELECTED]" in online_source
+assert "[2_VIEWER_CENTER_REQUEST_SEND]" in online_source
+assert "[4_VIEWER_CENTER_RESPONSE_RECEIVED]" in online_source
+assert "5_MAP_MOVE_ATTEMPT" in online_source
+assert "5_MAP_MOVE_RESULT" in online_source
+print("REGION_CENTER_END_TO_END_TRACE_OK")
