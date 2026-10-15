@@ -191,7 +191,7 @@ assert "self._start_bbox_refresh(west, south, east, north)" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
-assert 'WINDOWS_RELEASE = "Windows_1.0_Rev6_RegionCenterFix"' in online_source
+assert 'WINDOWS_RELEASE = "Windows_1.0_Rev7_StoredRegionCenter"' in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
@@ -1037,3 +1037,14 @@ assert "text='도면 다시 읽기'" in network_ui_source
 assert "force_refresh=False" in drawing_cache_source
 assert "if not force_refresh:" in drawing_cache_source
 print("HYBRID_FORCE_RELOAD_FILLED_ARROW_OK")
+
+# 지역 중심은 Viewer에서 bounds로 계산하지 않고 FIBER 업로드 시 서버에 저장한다.
+from admin_upload import payload_center
+assert hasattr(CMBServerClient, "region_centers")
+assert hasattr(CMBServerClient, "update_region_center")
+assert "stored_centers = self.c.region_centers()" in online_source
+assert '"lat": (float(bounds["south"]) + float(bounds["north"])) / 2.0' not in online_source
+assert "def payload_center(payload):" in admin_upload_source
+assert 'if str(group or "").upper() == "FIBER":' in admin_upload_source
+assert "self.client.update_region_center(" in admin_upload_source
+print("STORED_REGION_CENTER_ONLY_OK")
