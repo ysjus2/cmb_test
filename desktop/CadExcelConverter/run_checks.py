@@ -1086,8 +1086,10 @@ assert "text='전체 초기화'" in extract_ui_source
 assert "self.fiber_routes=[]" in extract_ui_source
 assert "self.fiber_history=[]" in extract_ui_source
 assert "selected_handles.intersection" in extract_ui_source
-assert "중복되는 구간" in extract_ui_source
-assert "if r.get('end')==node" in extract_ui_source
+assert "def _fiber_new_segments(self, scope, selected_handles):" in extract_ui_source
+assert "공통구간" in extract_ui_source
+assert "중복되는 구간" not in extract_ui_source
+assert "selection_end" in extract_ui_source
 assert "route_selected_markers" in extract_ui_source
 assert "def _fiber_working_indices(self):" in extract_ui_source
 assert "self.viewer.entity_filter=working_indices" in extract_ui_source
