@@ -68,7 +68,7 @@ jobs:
           tag_name: windows-v1.0-rev11
           name: CMB DXF Viewer Windows 1.0 Rev11
           body: |
-            Windows 1.0 Rev11 extraction-app cleanup: simplified role-based toolbar, multi-route fiber cable selection with start/end modes, endpoint toggle cancel, one-step undo, overlap rejection, CAD-only conduit diameter policy, upload-only server UI, and USER MEMO point-only upload.
+            Windows 1.0 Rev11 finalized extraction-app cleanup: simplified role-based toolbar, multi-route fiber cable selection with start/end modes, endpoint toggle cancel, one-step undo, overlap rejection, CAD-only conduit diameter policy, upload-only server UI, and USER MEMO point-only upload.
           target_commitish: ${{ github.sha }}
           files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev11.zip
           make_latest: true
