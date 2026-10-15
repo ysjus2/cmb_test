@@ -20,7 +20,18 @@ CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
 KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
-WINDOWS_RELEASE = "Windows_1.0_Rev8_StrictRegionCenter"
+WINDOWS_RELEASE = "Windows_1.0_Rev9_RegionCenterTrace"
+REGION_CENTER_TRACE = APP_DATA_DIR / "region_center_trace.log"
+
+
+def _trace_center(message):
+    try:
+        APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with REGION_CENTER_TRACE.open("a", encoding="utf-8") as fp:
+            fp.write(f"{stamp} {message}\n")
+    except Exception:
+        pass
 
 
 def key(client=None):
@@ -777,6 +788,11 @@ class Api:
     def logout(self):
         return self.end_session()
 
+    def trace(self, stage, detail=""):
+        msg = f"[{str(stage or '').strip()}] {str(detail or '').strip()}"
+        _trace_center(msg)
+        return {"ok": True}
+
     def regions(self):
         try:
             raw = self.c.regions() or []
@@ -842,9 +858,16 @@ class Api:
         try:
             # 지역 선택 시 저장된 중심 좌표를 서버에서 즉시 확인한다.
             # 조회 실패/미저장 상태에서는 도면 다운로드를 시작하지 않는다.
+            _trace_center(f"[1_VIEWER_REGION_SELECTED] region={self.region}")
+            _trace_center(f"[2_VIEWER_CENTER_REQUEST_SEND] region={self.region} path=/regions?client_config=region_centers")
             centers = self.c.region_centers() or {}
+            _trace_center(
+                "[4_VIEWER_CENTER_RESPONSE_RECEIVED] "
+                f"region={self.region} keys={sorted(str(k) for k in centers.keys()) if isinstance(centers, dict) else 'INVALID'}"
+            )
             raw_center = centers.get(self.region) if isinstance(centers, dict) else None
             if not isinstance(raw_center, dict):
+                _trace_center(f"[4_VIEWER_CENTER_MISSING] region={self.region}")
                 return {
                     "ok": False,
                     "error": f"지역 중심점이 서버에 저장되지 않았습니다: {self.region}",
@@ -860,6 +883,10 @@ class Api:
                     "error": f"지역 중심점 좌표가 올바르지 않습니다: {self.region} · {exc}",
                     "center": None,
                 }
+
+            _trace_center(
+                f"[4_VIEWER_CENTER_VALUE] region={self.region} lat={center_lat:.12f} lon={center_lon:.12f}"
+            )
 
             if not (
                 -90.0 <= center_lat <= 90.0
@@ -3300,7 +3327,9 @@ async function activateRegion(region){{
 
   try{{
     setWorkStatus('지역 중심점 조회 · '+region,6,true);
+    await apiCall('trace',{{stage:'1_VIEWER_REGION_SELECTED_JS',detail:'region='+region}});
     const r=await apiCall('select',{{region:region}});
+    await apiCall('trace',{{stage:'4_VIEWER_SELECT_RESPONSE_JS',detail:'region='+region+' ok='+String(!!(r&&r.ok))+' center='+JSON.stringify((r&&r.center)||null)}});
     if(mySwitch!==regionSwitchGeneration)return false;
     if(!r.ok){{
       sel.value='';
@@ -3317,8 +3346,12 @@ async function activateRegion(region){{
       setWorkStatus('지역 중심점 확인 실패 · '+region,100,false);
       return false;
     }}
+    await apiCall('trace',{{stage:'5_MAP_MOVE_ATTEMPT',detail:'region='+region+' target='+Number(center.lat)+','+Number(center.lng)+' level=9'}});
     map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));
     map.setLevel(9);
+    const movedCenter=map.getCenter();
+    await apiCall('trace',{{stage:'5_MAP_MOVE_RESULT',detail:'region='+region+' actual='+Number(movedCenter.getLat())+','+Number(movedCenter.getLng())+' level='+String(map.getLevel())}});
+    setStatus('지역 중심 이동 완료 · '+region+' · '+Number(movedCenter.getLat()).toFixed(6)+','+Number(movedCenter.getLng()).toFixed(6)+' · L'+map.getLevel());
 
     viewDiag.region=region;
     viewDiag.stage='새 지역 캐시 준비';
@@ -3672,6 +3705,8 @@ def run_online_viewer():
 
                 if name == "regions":
                     result = api.regions()
+                elif name == "trace":
+                    result = api.trace(data.get("stage"), data.get("detail"))
                 elif name == "select":
                     result = api.select(data.get("region"))
                 elif name == "fiber_cached":
