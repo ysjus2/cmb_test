@@ -191,7 +191,7 @@ assert "self._start_bbox_refresh(west, south, east, north)" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
-assert 'WINDOWS_RELEASE = "Windows_1.0_Rev3_OnlineConfig"' in online_source
+assert 'WINDOWS_RELEASE = "Windows_1.0_Rev5_RegionCenter"' in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
@@ -205,6 +205,10 @@ assert "activeRegionId===region" in activate_block
 assert "authorizedRegions.find(x=>x.id===region)" in activate_block
 assert "activeRegionId=region;" in activate_block
 assert "await loadRegionFiber(false);" in activate_block
+assert "const center=(info&&info.center)||null;" in activate_block
+assert "map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));" in activate_block
+assert "map.setLevel(9);" in activate_block
+assert "const networkQueryMode=mapLevelNow<=5;" in online_source
 assert "await loadObjects(true);" in activate_block
 assert activate_block.index("await loadRegionFiber(false);") < activate_block.index("await loadObjects(true);")
 assert "lastFiberQueryLat=null;" not in activate_block
