@@ -637,7 +637,7 @@ assert "redrawDevicesFromMemory();" in online_source
 assert "redrawFiberArrowsForZoom();" in online_source
 assert "const edge=boundaryPoint(" in online_source
 zoom_start = online_source.index("kakao.maps.event.addListener(map,'zoom_changed'")
-zoom_end = online_source.index("centerMyLocation(false);", zoom_start)
+zoom_end = online_source.index("    }}catch(err){{", zoom_start)
 zoom_block = online_source[zoom_start:zoom_end]
 assert "apiCall('objects'" not in zoom_block
 assert "'onu','amp','amp_input_arrow'," in online_source
