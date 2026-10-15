@@ -1,6 +1,9 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from openpyxl import load_workbook
 from pyproj import Transformer
 
-from network_extract import fetch_all_online_fiber
+from network_extract import fetch_all_online_fiber, export_network, _online_export_ids
 
 
 def feature(fid, coords, region):
@@ -54,6 +57,19 @@ def main():
     assert len(nodes)==3
     route=network.unique_route(nodes[0],nodes[-1])
     assert len(route['route'])==2
+
+    # Exported ends must match the next row's start exactly, not merely
+    # within the geometric connection tolerance.
+    with TemporaryDirectory() as temp:
+        out = Path(temp) / 'fiber.xlsx'
+        export_network(out, None, route, {edge.index for edge in network.edges.values()}, epsg=5174)
+        rows = list(load_workbook(out, read_only=True, data_only=True)['광케이블'].values)
+        assert len(rows) == 3, rows
+        assert rows[1][12:14] == rows[2][10:12], rows
+
+    pure, regional = _online_export_ids('CMB_GN_GS:432da6d7-bddd-410c-a48a-89128ddd4b4a:3CBAEE:0')
+    assert pure == '3CBAEE', (pure, regional)
+    assert regional == 'CMB_GN_GS_3CBAEE', (pure, regional)
 
     network_one,summary_one=fetch_all_online_fiber(client,regions=['R1'],epsg=5174)
     assert summary_one['regions']==1
