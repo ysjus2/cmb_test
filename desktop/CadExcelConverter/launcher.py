@@ -415,7 +415,13 @@ class Launcher(tk.Tk):
                 if isinstance(verified, dict):
                     self.user = verified
             env = self._child_env()
-        except Exception:
+        except Exception as exc:
+            if getattr(exc, "status", None) == 401:
+                # An expired/revoked server session must not leave the launcher
+                # displaying a logged-in user with disabled login controls.
+                self._reset_login_state("서버 세션이 종료되었습니다. 다시 로그인해주세요.")
+                self._restore_launcher()
+                return None
             if self.session_guard is not None:
                 self.session_guard.resume()
             raise
