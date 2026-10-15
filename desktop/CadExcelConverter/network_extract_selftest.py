@@ -22,21 +22,21 @@ def main():
         entities[5].dxf_data['insert']='10, 2, 0'
         out=Path(td)/'fiber.xlsx';export_network(out,scene,scope,scope['indices'])
         wb=load_workbook(out,data_only=True)
-        assert wb['광주간선'].max_row==3 and '함체' not in wb.sheetnames
-        assert wb.sheetnames==['광주간선']
+        assert wb['광케이블'].max_row==3 and '함체' not in wb.sheetnames
+        assert wb.sheetnames==['광케이블']
         from pyproj import Transformer
         transform=Transformer.from_crs('EPSG:5174','EPSG:4326',always_xy=True)
-        assert abs(wb['광주간선']['J2'].value-transform.transform(0,0)[0])<1e-9
-        assert abs(wb['광주간선']['M3'].value-transform.transform(20,0)[1])<1e-9
-        assert wb['광주간선']['L2'].value==wb['광주간선']['J3'].value
-        assert wb['광주간선']['M2'].value==wb['광주간선']['K3'].value
-        assert abs(wb['광주간선']['M2'].value-transform.transform(10,2)[1])<1e-9
+        assert abs(wb['광케이블']['K2'].value-transform.transform(0,0)[0])<1e-9
+        assert abs(wb['광케이블']['N3'].value-transform.transform(20,0)[1])<1e-9
+        assert wb['광케이블']['N2'].value==wb['광케이블']['L3'].value
+        assert wb['광케이블']['M2'].value==wb['광케이블']['K3'].value
+        assert abs(wb['광케이블']['M2'].value-transform.transform(10,2)[1])<1e-9
         reverse=net.unique_route('C','A')
         export_network(out,scene,reverse,reverse['indices'])
-        rev=load_workbook(out,data_only=True)['광주간선']
-        assert abs(rev['J2'].value-transform.transform(20,0)[0])<1e-9
-        assert abs(rev['M3'].value-transform.transform(0,0)[1])<1e-9
-        assert wb['광주간선']['H2'].value=='AB' and wb['광주간선']['H3'].value=='BC'
+        rev=load_workbook(out,data_only=True)['광케이블']
+        assert abs(rev['K2'].value-transform.transform(20,0)[0])<1e-9
+        assert abs(rev['N3'].value-transform.transform(0,0)[1])<1e-9
+        assert wb['광케이블']['I2'].value=='AB' and wb['광케이블']['I3'].value=='BC'
         try:net.unique_route('A','NOT_CONNECTED')
         except ValueError:pass
         else:raise AssertionError('Disconnected route must be rejected')
