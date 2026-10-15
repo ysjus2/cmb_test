@@ -15,7 +15,7 @@ from catv_poles import catv_pole_rows, export_catv_poles
 
 
 class NetworkExtractionMixin:
-    def _build_extract_toolbar(self,parent,fiber_parent=None):
+    def _build_extract_toolbar(self,parent,fiber_parent=None,online_parent=None):
         self.export_scope=None
         self.fiber_network=None
         self.route_start=None
@@ -40,6 +40,15 @@ class NetworkExtractionMixin:
             self.extract_menu.add_command(label='사용자 지정 영역 추출',command=self._begin_custom_area_extract)
             self.extract_menu.add_separator()
             self.extract_menu.add_command(label='Excel 추출',command=self._run_excel)
+
+            # 온라인 전체광망 추출은 일반 도면 버튼군과 분리해 맨 오른쪽 끝에 표시한다.
+            online_host=online_parent or self.extract_bar
+            self.online_fiber_btn=ttk.Button(
+                online_host,
+                text='온라인 광추출',
+                command=self._begin_online_fiber_route,
+            )
+            self.online_fiber_btn.pack(side='right',padx=(0,4))
 
         if bool(getattr(self,'is_admin',False)):
             ttk.Button(
@@ -82,6 +91,15 @@ class NetworkExtractionMixin:
             '보기 전용 계정 · 추출/Excel 기능 없음'
         )
         self.extract_hint=tk.StringVar(value=hint)
+
+    def _begin_online_fiber_route(self):
+        if not getattr(self,'can_extract',False):
+            return
+        messagebox.showinfo(
+            '온라인 광추출',
+            '온라인 전체 광망 추출 버튼을 분리했습니다.\n'
+            '전체 지역 FIBER 네트워크 연결은 다음 단계에서 이 버튼에 연결합니다.',
+        )
 
     def _show_extract_menu(self):
         menu=getattr(self,'extract_menu',None)
