@@ -161,6 +161,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         self._build_extract_toolbar(
             self.viewer.button_frame,
             self.viewer.fiber_controls_host,
+            self.viewer.far_action_frame,
         )
 
         status = ttk.Frame(root)
