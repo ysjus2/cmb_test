@@ -84,35 +84,12 @@ p.write_text(text.rstrip()+block,encoding="utf-8")
 print("ASGI_PATCH_OK")
 PY
 
-echo "[4/7] 문법/라우트 검사"
+echo "[4/7] 문법/패치 연결 검사"
 "${APP}/.venv/bin/python3" -m py_compile "${ENTRY}" "${MODULE}"
-
-# cmb_asgi.py는 DATABASE_URL 등 systemd EnvironmentFile 값을 import 시점에 요구한다.
-# 현재 실행 중인 서비스 프로세스 환경을 그대로 복사해 검증한다.
-MAIN_PID="$(systemctl show -p MainPID --value "${SERVICE}")"
-if [[ -z "${MAIN_PID}" || "${MAIN_PID}" == "0" || ! -r "/proc/${MAIN_PID}/environ" ]]; then
-  echo "ERROR: 실행 중인 ${SERVICE} 프로세스 환경을 읽을 수 없습니다."
-  false
-fi
-while IFS= read -r -d '' item; do
-  case "${item}" in
-    DATABASE_URL=*|CMB_DATABASE_URL=*|DB_URL=*|POSTGRES_DSN=*|PG_DSN=*|PGHOST=*|PGPORT=*|PGDATABASE=*|PGUSER=*|PGPASSWORD=*|PGSSLMODE=*)
-      export "${item}"
-      ;;
-  esac
-done < "/proc/${MAIN_PID}/environ"
-
-(
-  cd "${APP}"
-  PYTHONPATH="${APP}" "${APP}/.venv/bin/python3" - <<'PY'
-import cmb_asgi
-app=cmb_asgi.app
-routes={(getattr(r,"path",""),m) for r in app.routes for m in (getattr(r,"methods",None) or [])}
-assert ("/settings/kakao-js-key","GET") in routes
-print("KAKAO_KEY_ROUTE_OK")
-print(getattr(cmb_asgi,"_CMB_KAKAO_KEY_INFO",{}))
-PY
-)
+grep -q 'CMB_KAKAO_KEY_PATCH_V1_BEGIN' "${ENTRY}"
+grep -q '_cmb_install_kakao_key_patch(app)' "${ENTRY}"
+echo "PY_COMPILE_OK"
+echo "ASGI_PATCH_LINK_OK"
 
 echo "[5/7] 서비스 재시작"
 systemctl restart "${SERVICE}"
@@ -127,12 +104,23 @@ for i in $(seq 1 60); do
 done
 [[ "${READY}" == "1" ]] || { echo "ERROR: 서버 시작 실패"; false; }
 
-echo "[6/7] 환경키 확인"
-if grep -q '^KAKAO_JS_APP_KEY=' "${APP}/server.env"; then
+echo "[6/7] 실행 서버 라우트/환경키 확인"
+if grep -q '^KAKAO_JS_APP_KEY=.' "${APP}/server.env"; then
   echo "KAKAO_JS_APP_KEY_PRESENT_IN_SERVER_ENV"
 else
   echo "KAKAO_JS_APP_KEY_MISSING_IN_SERVER_ENV"
+  false
 fi
+
+"${APP}/.venv/bin/python3" - <<'PY'
+import json, urllib.request
+with urllib.request.urlopen("http://127.0.0.1:8000/openapi.json", timeout=5) as r:
+    spec=json.load(r)
+paths=spec.get("paths") or {}
+if "/settings/kakao-js-key" not in paths:
+    raise SystemExit("KAKAO_KEY_ROUTE_MISSING")
+print("KAKAO_KEY_ROUTE_OK")
+PY
 
 echo "[7/7] HEALTH"
 curl -fsS http://127.0.0.1:8000/health
