@@ -729,6 +729,8 @@ public class MapActivity extends Activity {
                             return;
                         }
                         server=candidate;allRecords.clear();renderMarkers();markServerOnline();logoutButton.setEnabled(true);
+                        if(regionButton!=null)regionButton.setEnabled(true);
+                        if(regionQuickButton!=null)regionQuickButton.setEnabled(true);
                         MobileCredentialHelper.offerSaveLogin(this,user,secret);
                         serverButton.setEnabled(true);serverButton.setText("서버 · "+user);
                         screen.removeView(loginScreen);loginScreen=null;mapScreen.setVisibility(android.view.View.VISIBLE);
@@ -837,8 +839,8 @@ public class MapActivity extends Activity {
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
         lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
         authorizedRegionIds.clear();authorizedRegionTitles.clear();
-        if(regionButton!=null)regionButton.setEnabled(false);
-        if(regionQuickButton!=null)regionQuickButton.setEnabled(false);
+        if(regionButton!=null)regionButton.setEnabled(server!=null);
+        if(regionQuickButton!=null)regionQuickButton.setEnabled(server!=null);
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
         status.setText("권한 지역 목록을 불러오는 중…");
         serverTask=serverWorker.submit(()->{
@@ -855,8 +857,10 @@ public class MapActivity extends Activity {
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
                     if(authorizedRegionIds.isEmpty()){
-                        status.setText("배정된 지역 권한이 없습니다.");
-                        regionStatus.setText("시설 도면 없음");
+                        if(regionButton!=null)regionButton.setEnabled(true);
+                        if(regionQuickButton!=null)regionQuickButton.setEnabled(true);
+                        status.setText("권한 지역을 불러오지 못했거나 배정된 지역이 없습니다. 지역 버튼으로 다시 조회하세요.");
+                        regionStatus.setText("지역 선택 필요");
                         return;
                     }
                     if(regionButton!=null)regionButton.setEnabled(true);
@@ -865,7 +869,15 @@ public class MapActivity extends Activity {
                     status.setText("권한 지역 "+authorizedRegionIds.size()+"개 · 지역 선택 필요");
                     showRegionSelection();
                 });
-            }catch(Exception error){runOnUiThread(()->{if(!destroyed&&generation==serverGeneration){markServerOffline();status.setText(serverMessage(error));}});}
+            }catch(Exception error){runOnUiThread(()->{
+                if(!destroyed&&generation==serverGeneration){
+                    markServerOffline();
+                    if(regionButton!=null)regionButton.setEnabled(server!=null);
+                    if(regionQuickButton!=null)regionQuickButton.setEnabled(server!=null);
+                    status.setText("지역 조회 실패: "+serverMessage(error));
+                    regionStatus.setText("지역 선택 필요");
+                }
+            });}
         });
     }
 
@@ -875,7 +887,8 @@ public class MapActivity extends Activity {
             return;
         }
         if(authorizedRegionIds.isEmpty()){
-            Toast.makeText(this,"선택 가능한 권한 지역이 없습니다.",Toast.LENGTH_SHORT).show();
+            status.setText("권한 지역 목록을 다시 조회합니다…");
+            chooseServerDataset();
             return;
         }
         String[] items=authorizedRegionTitles.toArray(new String[0]);
