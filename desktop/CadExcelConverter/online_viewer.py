@@ -806,7 +806,18 @@ class Api:
                             bounds = {k: float(raw_bounds.get(k)) for k in keys}
                 except Exception:
                     bounds = None
-                items.append({"id": region_id, "name": name or region_id, "bounds": bounds})
+                center = None
+                if bounds:
+                    center = {
+                        "lat": (float(bounds["south"]) + float(bounds["north"])) / 2.0,
+                        "lng": (float(bounds["west"]) + float(bounds["east"])) / 2.0,
+                    }
+                items.append({
+                    "id": region_id,
+                    "name": name or region_id,
+                    "bounds": bounds,
+                    "center": center,
+                })
                 if bounds:
                     self.region_bounds[region_id] = dict(bounds)
 
@@ -3270,6 +3281,15 @@ async function activateRegion(region){{
     }}
 
     activeRegionId=region;
+
+    // 지역 선택 시 서버가 이미 보유한 bounds 중심으로 즉시 이동한다.
+    // 전체 광 도면이 한 화면에 들어오도록 기본 레벨은 9로 고정한다.
+    const center=(info&&info.center)||null;
+    if(map&&center&&Number.isFinite(Number(center.lat))&&Number.isFinite(Number(center.lng))){{
+      map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));
+      map.setLevel(9);
+    }}
+
     viewDiag.region=region;
     viewDiag.stage='새 지역 캐시 준비';
     viewDiag.progress=(info?info.name:region);
