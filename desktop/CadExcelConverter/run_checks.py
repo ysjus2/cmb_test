@@ -1121,7 +1121,7 @@ assert "text='불러오기'" in extract_ui_source
 assert "fetch_all_online_fiber(" in extract_ui_source
 assert "def _activate_online_fiber_network(" in extract_ui_source
 assert "def fit_fiber_fast(self):" in viewer_source
-assert "endpoint_join_tolerance = 2.0" in network_extract_source
+assert "endpoint_join_tolerance = 5.0" in network_extract_source
 assert "선 중간 교차는 절대 연결하지 않는다." in network_extract_source
 assert 'elif kind == "online_fiber_loaded":' in main_source
 assert "routes=list(scope.get('routes') or [])" in network_extract_source
