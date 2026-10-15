@@ -86,6 +86,22 @@ PY
 
 echo "[4/7] 문법/라우트 검사"
 "${APP}/.venv/bin/python3" -m py_compile "${ENTRY}" "${MODULE}"
+
+# cmb_asgi.py는 DATABASE_URL 등 systemd EnvironmentFile 값을 import 시점에 요구한다.
+# 현재 실행 중인 서비스 프로세스 환경을 그대로 복사해 검증한다.
+MAIN_PID="$(systemctl show -p MainPID --value "${SERVICE}")"
+if [[ -z "${MAIN_PID}" || "${MAIN_PID}" == "0" || ! -r "/proc/${MAIN_PID}/environ" ]]; then
+  echo "ERROR: 실행 중인 ${SERVICE} 프로세스 환경을 읽을 수 없습니다."
+  false
+fi
+while IFS= read -r -d '' item; do
+  case "${item}" in
+    DATABASE_URL=*|CMB_DATABASE_URL=*|DB_URL=*|POSTGRES_DSN=*|PG_DSN=*|PGHOST=*|PGPORT=*|PGDATABASE=*|PGUSER=*|PGPASSWORD=*|PGSSLMODE=*)
+      export "${item}"
+      ;;
+  esac
+done < "/proc/${MAIN_PID}/environ"
+
 (
   cd "${APP}"
   PYTHONPATH="${APP}" "${APP}/.venv/bin/python3" - <<'PY'
