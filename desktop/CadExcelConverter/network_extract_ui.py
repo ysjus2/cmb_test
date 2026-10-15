@@ -318,7 +318,7 @@ class NetworkExtractionMixin:
         existing=next(
             (
                 i for i,r in enumerate(self.fiber_routes)
-                if r.get('start')==self.route_start and r.get('end')==node
+                if r.get('end')==node
             ),
             None,
         )
