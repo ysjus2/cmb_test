@@ -1036,7 +1036,8 @@ assert "selectedCableArrows" in online_source
 assert "selectCable(cableOverlay" in online_source
 assert "def _force_reload_drawing(self):" in main_source
 assert "force_refresh=True" in main_source
-assert "text='도면 다시 읽기'" in network_ui_source
+assert "text='도면 다시 읽기'" not in network_ui_source
+assert 'file_menu.add_command(label="도면 다시 읽기", command=self._force_reload_drawing)' in main_source
 assert "force_refresh=False" in drawing_cache_source
 assert "if not force_refresh:" in drawing_cache_source
 print("HYBRID_FORCE_RELOAD_FILLED_ARROW_OK")
@@ -1097,3 +1098,19 @@ assert '"_cmb_user_memo": memo_text' in admin_upload_source
 assert '"user_storage_schema"] = "memo-point-v1"' in admin_upload_source
 assert '"USER": "USER MEMO · 현장 공유 메모 좌표 + 텍스트"' in admin_upload_source
 print("EXTRACTION_APP_FINAL_POLICY_OK")
+
+
+# 파일 메뉴는 도면 파일 관리만 담당하고 추출/Excel 기능은 포함하지 않는다.
+main_source = (root / "main.py").read_text(encoding="utf-8")
+network_ui_source = (root / "network_extract_ui.py").read_text(encoding="utf-8")
+file_menu_block = main_source.split("file_menu = tk.Menu", 1)[1].split("menubar.add_cascade(label=\"파일\"", 1)[0]
+assert 'label="도면 열기..."' in file_menu_block
+assert 'label="도면 다시 읽기"' in file_menu_block
+assert 'label="종료"' in file_menu_block
+assert "Excel로 출력" not in file_menu_block
+assert "전체 레이어 Excel" not in file_menu_block
+assert "레이어 표시" not in file_menu_block
+assert 'view_menu.add_command(label="레이어 표시"' in main_source
+assert "<Control-e>" not in main_source
+assert "text='도면 다시 읽기'" not in network_ui_source
+print("FILE_MENU_DRAWING_ONLY_OK")
