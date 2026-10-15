@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from pyproj import Transformer
 from layer_defaults import is_default_hidden
-from network_extract import FiberNetwork, conduit_records, export_network, is_fiber, is_closure, network_export_indices
+from network_extract import FiberNetwork, fetch_all_online_fiber, conduit_records, export_network, is_fiber, is_closure, network_export_indices
 from catv_poles import catv_pole_rows, export_catv_poles
 
 
@@ -88,11 +88,116 @@ class NetworkExtractionMixin:
     def _begin_online_fiber_route(self):
         if not getattr(self,'can_extract',False):
             return
-        messagebox.showinfo(
-            '온라인 광추출',
-            '온라인 전체 광망 추출 버튼을 분리했습니다.\n'
-            '전체 지역 FIBER 네트워크 연결은 다음 단계에서 이 버튼에 연결합니다.',
-        )
+        if self.busy:
+            return
+
+        client=self._get_session_client()
+        try:
+            raw=client.regions() or []
+        except Exception as exc:
+            messagebox.showerror('온라인 광추출',f'지역 목록 조회 실패\n{exc}')
+            return
+
+        rows=raw.get('items') or raw.get('regions') or [] if isinstance(raw,dict) else raw
+        regions=[]
+        for row in rows or []:
+            if isinstance(row,str):
+                code=row.strip()
+                name=code
+            elif isinstance(row,dict):
+                code=str(row.get('id') or row.get('region_code') or row.get('code') or '').strip()
+                name=str(row.get('name') or code).strip()
+            else:
+                continue
+            if code:
+                regions.append((code,name or code))
+
+        if not regions:
+            messagebox.showinfo('온라인 광추출','선택 가능한 권한 지역이 없습니다.')
+            return
+
+        win=tk.Toplevel(self)
+        win.title('온라인 광추출 · 지역 선택')
+        win.geometry('520x560')
+        win.minsize(460,420)
+        win.transient(self)
+        win.grab_set()
+
+        root=ttk.Frame(win,padding=12)
+        root.pack(fill='both',expand=True)
+
+        ttk.Label(
+            root,
+            text='온라인 광추출 지역 선택',
+            font=('Malgun Gothic',14,'bold'),
+        ).pack(anchor='w')
+        ttk.Label(
+            root,
+            text='광경로가 통과할 수 있는 지역을 모두 선택하세요. 복수 선택 가능합니다.',
+        ).pack(anchor='w',pady=(3,10))
+
+        box=ttk.LabelFrame(root,text='권한 지역',padding=8)
+        box.pack(fill='both',expand=True)
+
+        canvas=tk.Canvas(box,highlightthickness=0)
+        scroll=ttk.Scrollbar(box,orient='vertical',command=canvas.yview)
+        body=ttk.Frame(canvas)
+        body_win=canvas.create_window((0,0),window=body,anchor='nw')
+        body.bind('<Configure>',lambda e:canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind('<Configure>',lambda e:canvas.itemconfigure(body_win,width=e.width))
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side='left',fill='both',expand=True)
+        scroll.pack(side='right',fill='y')
+
+        vars_by_region={}
+        for code,name in regions:
+            var=tk.BooleanVar(value=True)
+            vars_by_region[code]=var
+            label=f'{name}  ({code})' if name!=code else code
+            ttk.Checkbutton(body,text=label,variable=var).pack(anchor='w',pady=2)
+
+        def set_all(value):
+            for var in vars_by_region.values():
+                var.set(bool(value))
+
+        def load_selected():
+            selected=[code for code,var in vars_by_region.items() if var.get()]
+            if not selected:
+                messagebox.showinfo(
+                    '온라인 광추출',
+                    '지역을 하나 이상 선택해주세요.',
+                    parent=win,
+                )
+                return
+
+            win.destroy()
+            self.busy=True
+            self._show_progress()
+            self._set_progress(3,f'온라인 광망 준비 · 지역 {len(selected)}개')
+            self.viewer.status_var.set(
+                f'온라인 광추출 · 선택 지역 {len(selected)}개 불러오는 중'
+            )
+
+            def worker():
+                try:
+                    network,summary=fetch_all_online_fiber(
+                        client,
+                        regions=selected,
+                        epsg=int(self.epsg_var.get()),
+                        progress=lambda p,t:self.q.put(('progress',(p,t))),
+                    )
+                    self.q.put(('online_fiber_loaded',(network,summary,selected)))
+                except Exception as exc:
+                    self.q.put(('error',str(exc)))
+
+            threading.Thread(target=worker,daemon=True).start()
+
+        footer=ttk.Frame(root)
+        footer.pack(fill='x',pady=(10,0))
+        ttk.Button(footer,text='전체 선택',command=lambda:set_all(True)).pack(side='left')
+        ttk.Button(footer,text='전체 해제',command=lambda:set_all(False)).pack(side='left',padx=(6,0))
+        ttk.Button(footer,text='불러오기',command=load_selected).pack(side='right')
+        ttk.Button(footer,text='취소',command=win.destroy).pack(side='right',padx=(0,6))
 
     def _show_extract_menu(self):
         menu=getattr(self,'extract_menu',None)
