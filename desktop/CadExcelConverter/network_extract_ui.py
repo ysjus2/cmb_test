@@ -19,45 +19,169 @@ class NetworkExtractionMixin:
         self.export_scope=None
         self.fiber_network=None
         self.route_start=None
+        self.fiber_routes=[]
+        self.fiber_history=[]
+        self.fiber_pick_mode=None
         self.pipe_diameters={}
-        bar=ttk.Frame(parent)
-        bar.pack(fill='x',pady=(0,4))
+        self.extract_bar=ttk.Frame(parent)
+        self.extract_bar.pack(fill='x',pady=(0,4))
+
+        ttk.Button(
+            self.extract_bar,
+            text='도면 보기',
+            command=self._reset_network_filter,
+        ).pack(side='left',padx=(0,6))
+
         can_extract=bool(getattr(self,'can_extract',False))
         if can_extract:
-            actions=[
-                ('광주간선 추출',self._begin_fiber_route),
-                ('100mm 주관로 추출',self._begin_main_conduit),
-                ('자가주 좌표 추출',self._run_catv_pole_excel),
-                ('관로 속성 확인',self._inspect_conduits),
-                ('사용자 지정 영역 추출',self._begin_custom_area_extract),
-                ('Excel 추출',self._run_excel),
-                ('전체 도면 보기',self._reset_network_filter),
-            ]
-            hint='광주간선: 시작 함체/끝점 → 끝 함체/끝점 선택'
-        else:
-            actions=[('전체 도면 보기',self._reset_network_filter)]
-            hint='보기 전용 계정 · 추출/Excel 기능 없음'
-        for label,command in actions:
-            ttk.Button(bar,text=label,command=command).pack(side='left',padx=(0,5))
+            self.extract_menu_btn=ttk.Menubutton(
+                self.extract_bar,
+                text='위·경도 좌표 추출',
+            )
+            extract_menu=tk.Menu(self.extract_menu_btn,tearoff=False)
+            extract_menu.add_command(label='광케이블 추출',command=self._begin_fiber_route)
+            extract_menu.add_command(label='100mm 주관로 추출',command=self._begin_main_conduit)
+            extract_menu.add_command(label='자가주 좌표 추출',command=self._run_catv_pole_excel)
+            extract_menu.add_command(label='사용자 지정 영역 추출',command=self._begin_custom_area_extract)
+            extract_menu.add_separator()
+            extract_menu.add_command(label='Excel 추출',command=self._run_excel)
+            self.extract_menu_btn['menu']=extract_menu
+            self.extract_menu_btn.pack(side='left',padx=(0,6))
+
+        if bool(getattr(self,'is_admin',False)):
+            ttk.Button(
+                self.extract_bar,
+                text='도면 업로드',
+                command=self._open_admin_upload,
+            ).pack(side='left',padx=(0,6))
+
         ttk.Button(
-            bar,
+            self.extract_bar,
             text='도면 다시 읽기',
             command=self._force_reload_drawing,
-        ).pack(side='left',padx=(0,5))
-        if bool(getattr(self,'is_admin',False)):
-            ttk.Separator(bar,orient='vertical').pack(side='left',fill='y',padx=(4,8))
-            ttk.Button(
-                bar,
-                text='서버 도면 업로드',
-                command=self._open_admin_upload,
-            ).pack(side='left',padx=(0,5))
-            ttk.Button(
-                bar,
-                text='서버 도면 내려받기',
-                command=self._open_server_extract,
-            ).pack(side='left',padx=(0,5))
+        ).pack(side='left',padx=(0,6))
+
+        self.fiber_controls=ttk.Frame(parent)
+        self.fiber_start_btn=ttk.Button(
+            self.fiber_controls,text='시작점 선택',
+            command=lambda:self._set_fiber_pick_mode('start'),
+        )
+        self.fiber_end_btn=ttk.Button(
+            self.fiber_controls,text='끝점 선택',
+            command=lambda:self._set_fiber_pick_mode('end'),
+        )
+        self.fiber_undo_btn=ttk.Button(
+            self.fiber_controls,text='한 단계 취소',
+            command=self._undo_fiber_selection,
+        )
+        self.fiber_clear_btn=ttk.Button(
+            self.fiber_controls,text='전체 초기화',
+            command=self._clear_fiber_selections,
+        )
+        self.fiber_excel_btn=ttk.Button(
+            self.fiber_controls,text='Excel 추출',
+            command=self._run_excel,
+        )
+        for button in (
+            self.fiber_start_btn,self.fiber_end_btn,self.fiber_undo_btn,
+            self.fiber_clear_btn,self.fiber_excel_btn,
+        ):
+            button.pack(side='left',padx=(0,5))
+
+        hint=(
+            '위·경도 좌표 추출 메뉴에서 작업을 선택하세요.'
+            if can_extract else
+            '보기 전용 계정 · 추출/Excel 기능 없음'
+        )
         self.extract_hint=tk.StringVar(value=hint)
-        ttk.Label(bar,textvariable=self.extract_hint).pack(side='left',padx=8)
+        ttk.Label(self.extract_bar,textvariable=self.extract_hint).pack(side='left',padx=8)
+
+    def _show_fiber_controls(self,show=True):
+        if show:
+            if not self.fiber_controls.winfo_manager():
+                self.fiber_controls.pack(fill='x',pady=(0,4))
+        else:
+            if self.fiber_controls.winfo_manager():
+                self.fiber_controls.pack_forget()
+
+    def _set_fiber_pick_mode(self,mode):
+        if not self.fiber_network:
+            return
+        self.fiber_pick_mode=mode
+        if mode=='start':
+            self.extract_hint.set('시작점 선택 모드 · 국사/함체/광케이블 끝점을 클릭하세요. 같은 점 재클릭=취소')
+        else:
+            if self.route_start is None:
+                self.extract_hint.set('먼저 시작점 선택 버튼으로 국사/시작점을 지정해주세요.')
+                self.fiber_pick_mode='start'
+            else:
+                self.extract_hint.set('끝점 선택 모드 · 끝점을 계속 클릭하면 경로가 누적됩니다. 같은 끝점 재클릭=해제')
+        self.viewer.redraw()
+
+    def _fiber_snapshot(self):
+        return {
+            'start':self.route_start,
+            'routes':[dict(r) for r in self.fiber_routes],
+            'mode':self.fiber_pick_mode,
+        }
+
+    def _push_fiber_history(self):
+        self.fiber_history.append(self._fiber_snapshot())
+        if len(self.fiber_history)>100:
+            self.fiber_history=self.fiber_history[-100:]
+
+    def _restore_fiber_snapshot(self,snapshot):
+        self.route_start=snapshot.get('start')
+        self.fiber_routes=[dict(r) for r in snapshot.get('routes') or []]
+        self.fiber_pick_mode=snapshot.get('mode') or 'end'
+        self._refresh_fiber_selection()
+
+    def _undo_fiber_selection(self):
+        if not self.fiber_history:
+            self.extract_hint.set('되돌릴 선택이 없습니다.')
+            return
+        self._restore_fiber_snapshot(self.fiber_history.pop())
+        self.extract_hint.set(f'한 단계 취소 · 선택 경로 {len(self.fiber_routes)}개')
+
+    def _clear_fiber_selections(self):
+        if self.route_start is not None or self.fiber_routes:
+            self._push_fiber_history()
+        self.route_start=None
+        self.fiber_routes=[]
+        self.fiber_pick_mode='start'
+        self._refresh_fiber_selection()
+        self.extract_hint.set('광케이블 선택 초기화 · 시작점 선택 버튼을 누르세요.')
+
+    def _refresh_fiber_selection(self):
+        if not self.fiber_network:
+            return
+        selected=set()
+        for route in self.fiber_routes:
+            selected.update(route.get('indices') or set())
+        self.viewer.selected=selected
+        self.viewer.route_start_marker=(
+            self.fiber_network.positions.get(self.route_start)
+            if self.route_start in self.fiber_network.positions else None
+        )
+        self.viewer.route_selected_markers=[
+            self.fiber_network.positions.get(r.get('end'))
+            for r in self.fiber_routes
+            if r.get('end') in self.fiber_network.positions
+        ]
+        if self.fiber_routes:
+            all_indices=set().union(*(set(r.get('indices') or set()) for r in self.fiber_routes))
+            self.export_scope={
+                'kind':'fiber',
+                'network':self.fiber_network,
+                'routes':[{
+                    'route':list(r.get('route') or []),
+                    'nodes':list(r.get('nodes') or []),
+                } for r in self.fiber_routes],
+                'indices':all_indices,
+            }
+        else:
+            self.export_scope=None
+        self.viewer.redraw()
 
     def _run_catv_pole_excel(self):
         if not getattr(self,'can_extract',False): return
@@ -84,9 +208,12 @@ class NetworkExtractionMixin:
     def _clear_network_state(self):
         self.viewer.hide_extraction_text=False
         self.export_scope=None;self.fiber_network=None;self.route_start=None;self.pipe_diameters={}
+        self.fiber_routes=[];self.fiber_history=[];self.fiber_pick_mode=None
         self.viewer.entity_filter=None;self.viewer.network_click=None;self.viewer.route_nodes={};self.viewer.route_start_marker=None
+        self.viewer.route_selected_markers=[];self.viewer.selected.clear()
+        self._show_fiber_controls(False)
         self.extract_hint.set(
-            '광주간선: 시작 함체/끝점 → 끝 함체/끝점 선택'
+            '위·경도 좌표 추출 메뉴에서 작업을 선택하세요.'
             if bool(getattr(self,'can_extract',False))
             else '보기 전용 계정 · 추출/Excel 기능 없음'
         )
@@ -94,7 +221,10 @@ class NetworkExtractionMixin:
     def _reset_network_filter(self):
         self.viewer.hide_extraction_text=False
         self.export_scope=None;self.route_start=None
+        self.fiber_routes=[];self.fiber_history=[];self.fiber_pick_mode=None
         self.viewer.entity_filter=None;self.viewer.network_click=None;self.viewer.route_nodes={};self.viewer.route_start_marker=None
+        self.viewer.route_selected_markers=[]
+        self._show_fiber_controls(False)
         self.viewer.set_mode('select');self.viewer.selected.clear();self.viewer.fit_view()
         self.extract_hint.set(
             '전체 도면 표시 / 일반 Excel 추출 모드'
@@ -122,45 +252,103 @@ class NetworkExtractionMixin:
         if not getattr(self,'can_extract',False): return
         if self.busy:return
         if not self.viewer.scene or not self.input_path:
-            messagebox.showinfo('광주간선 추출','먼저 DXF 도면을 열어주세요.');return
+            messagebox.showinfo('광케이블 추출','먼저 DXF 도면을 열어주세요.');return
         try:self.fiber_network=FiberNetwork(self.viewer.scene,self.input_path)
-        except Exception as exc:messagebox.showerror('광주간선 추출',str(exc));return
+        except Exception as exc:messagebox.showerror('광케이블 추출',str(exc));return
         if not self.fiber_network.edges:
-            messagebox.showinfo('광주간선 추출','지선을 제외한 연결 가능한 광케이블이 없습니다.');return
+            messagebox.showinfo('광케이블 추출','지선을 제외한 연결 가능한 광케이블이 없습니다.');return
         self.viewer.hide_extraction_text=True
-        self.export_scope=None;self.route_start=None
-        self.viewer.entity_filter={e.index for e in self.viewer.scene.entities if is_fiber(e) or is_closure(e)}
-        layers={self.viewer.scene.entities[e.index].layer for e in self.fiber_network.edges.values()}
-        layers.update(e.layer for e in self.viewer.scene.entities if 'CLOSURE' in e.layer.upper())
-        for iid in self.tree.get_children():
-            if self.layer_names.get(iid) in layers and not is_default_hidden(self.layer_names.get(iid)):self._set_checked(iid,True)
+        self.export_scope=None
+        self.route_start=None
+        self.fiber_routes=[]
+        self.fiber_history=[]
+        self.fiber_pick_mode='start'
+        # 전체 도면은 그대로 유지하고 선택된 광케이블만 강조한다.
+        self.viewer.entity_filter=None
+        self.viewer.selected.clear()
         self.viewer.network_click=self._fiber_route_click
         self.viewer.route_nodes=self.fiber_network.positions
-        self.viewer.mode='fiber_route';self.viewer.redraw()
-        self.extract_hint.set('시작 함체/광케이블 끝점을 클릭하세요. ESC: 취소')
+        self.viewer.route_start_marker=None
+        self.viewer.route_selected_markers=[]
+        self.viewer.mode='fiber_route'
+        self._show_fiber_controls(True)
+        self.viewer.redraw()
+        self.extract_hint.set('광케이블 추출 · 시작점 선택 버튼을 누른 뒤 국사/시작점을 클릭하세요.')
 
-    def _fiber_route_click(self,event):
+    def _nearest_fiber_node(self,event):
         hits=[]
         for node,point in self.fiber_network.positions.items():
             sx,sy=self.viewer.world_to_screen(*point)
             distance=math.hypot(event.x-sx,event.y-sy)
             if distance<=18:hits.append((distance,node))
         if not hits:
-            self.extract_hint.set('표시된 작은 점(함체/광케이블 끝점)을 클릭해주세요.');return
+            self.extract_hint.set('표시된 선택점(함체/광케이블 끝점)을 클릭해주세요.')
+            return None
         hits.sort()
         if len(hits)>1 and abs(hits[0][0]-hits[1][0])<1:
-            self.extract_hint.set('끝점이 겹칩니다. 확대해서 구분되는 끝점을 선택해주세요.');return
-        node=hits[0][1]
+            self.extract_hint.set('선택점이 겹칩니다. 확대해서 구분되는 점을 선택해주세요.')
+            return None
+        return hits[0][1]
+
+    def _fiber_route_click(self,event):
+        node=self._nearest_fiber_node(event)
+        if node is None:
+            return
+
+        if self.fiber_pick_mode=='start':
+            self._push_fiber_history()
+            if self.route_start==node:
+                self.route_start=None
+                self.viewer.route_start_marker=None
+                self.extract_hint.set('시작점 선택 취소 · 새 시작점을 클릭하세요.')
+            else:
+                self.route_start=node
+                self.viewer.route_start_marker=self.fiber_network.positions[node]
+                self.fiber_pick_mode='end'
+                self.extract_hint.set('시작점 지정 완료 · 끝점 선택 버튼 또는 끝점을 계속 클릭하세요.')
+            self._refresh_fiber_selection()
+            return
+
         if self.route_start is None:
-            self.route_start=node;self.viewer.route_start_marker=self.fiber_network.positions[node]
-            self.extract_hint.set('끝 함체/광케이블 끝점을 클릭하세요. ESC: 취소');self.viewer.redraw();return
-        try:scope=self.fiber_network.unique_route(self.route_start,node)
+            self.fiber_pick_mode='start'
+            self.extract_hint.set('먼저 시작점을 선택해주세요.')
+            return
+
+        # 같은 시작점+끝점 경로를 다시 클릭하면 해당 경로만 해제한다.
+        existing=next(
+            (
+                i for i,r in enumerate(self.fiber_routes)
+                if r.get('start')==self.route_start and r.get('end')==node
+            ),
+            None,
+        )
+        if existing is not None:
+            self._push_fiber_history()
+            self.fiber_routes.pop(existing)
+            self._refresh_fiber_selection()
+            self.extract_hint.set(f'끝점 선택 해제 · 남은 경로 {len(self.fiber_routes)}개')
+            return
+
+        try:
+            scope=self.fiber_network.unique_route(self.route_start,node)
         except ValueError as exc:
-            messagebox.showwarning('광주간선 추출',str(exc));return
-        self._show_scope(scope)
-        cable_count=len(scope['route']);closure_count=len(scope['indices'])-cable_count
-        self.extract_hint.set(f'선택 경로: 광케이블 {cable_count}개 / 함체 {closure_count}개. Excel 추출을 누르세요.')
-        self.status_var.set('선택 광 경로와 시작·끝 기기만 표시')
+            messagebox.showwarning('광케이블 추출',str(exc));return
+
+        self._push_fiber_history()
+        self.fiber_routes.append({
+            'start':self.route_start,
+            'end':node,
+            'route':list(scope['route']),
+            'nodes':list(scope['nodes']),
+            'indices':set(scope['indices']),
+        })
+        self._refresh_fiber_selection()
+        cable_count=len(set().union(*(set(r['route']) for r in self.fiber_routes)))
+        self.extract_hint.set(
+            f'선택 경로 {len(self.fiber_routes)}개 · 광케이블 {cable_count}개 · '
+            '끝점을 계속 선택하거나 시작점 선택 버튼으로 국사를 변경할 수 있습니다.'
+        )
+        self.status_var.set('선택된 광케이블만 강조 표시 · 전체 도면 유지')
 
     def _begin_main_conduit(self):
         if not getattr(self,'can_extract',False): return
@@ -168,60 +356,24 @@ class NetworkExtractionMixin:
         if not self.viewer.scene or not self.input_path:
             messagebox.showinfo('100mm 주관로 추출','먼저 DXF 도면을 열어주세요.');return
         self._reset_network_filter()
-        records=conduit_records(self.viewer.scene,self.input_path,self.pipe_diameters)
+        records=conduit_records(self.viewer.scene,self.input_path,{})
         if not records:
             messagebox.showinfo('100mm 주관로 추출','읽을 수 있는 관로 객체가 없습니다.');return
         self._apply_main_conduit(records)
 
-    def _inspect_conduits(self):
-        if not getattr(self,'can_extract',False): return
-        if self.busy or not self.viewer.scene or not self.input_path:return
-        self._show_pipe_diameter_editor(conduit_records(self.viewer.scene,self.input_path,self.pipe_diameters))
-
     def _apply_main_conduit(self,records):
-        # Refresh local user assignments, but keep explicit DXF diameter authoritative.
-        records=conduit_records(self.viewer.scene,self.input_path,self.pipe_diameters)
+        # 관경은 원본 CAD만 기준으로 사용하며 추출앱에서 보정하지 않는다.
+        records=conduit_records(self.viewer.scene,self.input_path,{})
         main=[r for r in records if r['diameter']==100 and len(r['item']['points'])>=2]
         unknown=sum(r['diameter'] is None for r in records)
         drop=sum(r['diameter']==50 for r in records)
         other=sum(r['diameter'] not in (None,50,100) for r in records)
         missing=sum(len(r['item']['points'])<2 for r in records)
         if not main:
-            messagebox.showwarning('100mm 주관로 추출',f'지름이 확인된 100mm 관로가 없습니다. 미확인 {unknown}개 / 50mm {drop}개는 추출하지 않습니다. 원래 CAD의 관경 정보를 확인한 후 지정해주세요.');return False
+            messagebox.showwarning('100mm 주관로 추출',f'지름이 확인된 100mm 관로가 없습니다. 미확인 {unknown}개 / 50mm {drop}개는 추출하지 않습니다. 원본 CAD에서 관경 정보를 수정한 후 도면을 다시 읽어주세요.');return False
         self._show_scope({'kind':'pipe','records':records,'indices':{r['entity'].index for r in main}})
         self.extract_hint.set(f'100mm {len(main)}개 / 50mm {drop}·기타 {other}·미기재 {unknown} / 형상 미확인 {missing}')
         return True
-
-    def _show_pipe_diameter_editor(self,records):
-        win=tk.Toplevel(self);win.title('관로 속성 — 원본 관경·본수 확인');win.geometry('1000x520')
-        ttk.Label(win,text='100*3 = 100mm 관 3본. 원본 표기가 있는 관로는 자동 판독합니다. 미기재 관로만 실제 관경 확인 후 지정하세요.',wraplength=960).pack(fill='x',padx=10,pady=10)
-        tree=ttk.Treeview(win,columns=('id','code','diameter','count','raw','length'),show='headings',selectmode='extended')
-        for column,label in [('id','순수 객체ID'),('code','관로 코드'),('diameter','관경'),('count','본수'),('raw','원본관경표기'),('length','경로 길이(m)')]:tree.heading(column,text=label);tree.column(column,width=155)
-        tree.pack(fill='both',expand=True,padx=10)
-        from network_extract import cable_length
-        by={r['entity'].handle:r for r in records}
-        def refresh():
-            for r in conduit_records(self.viewer.scene,self.input_path,self.pipe_diameters):
-                h=r['entity'].handle
-                vals=(h,r['code'],f"{r['diameter']}mm" if r['diameter'] else '미확인',r['count'] or '미확인',r['raw'] or '미기재',round(cable_length(r['item']['points']),2) if r['item']['points'] else '형상 미확인')
-                if tree.exists(h):tree.item(h,values=vals)
-                else:tree.insert('','end',iid=h,values=vals)
-        def assign(diameter):
-            for handle in tree.selection():
-                if diameter is None:self.pipe_diameters.pop(handle,None)
-                else:self.pipe_diameters[handle]=diameter
-            refresh()
-        def preview():
-            indices={by[h]['entity'].index for h in tree.selection()}
-            if not indices:return
-            self._show_scope({'kind':'pipe','records':records,'indices':indices})
-            self.extract_hint.set('선택 관로 위치 확인 중 / 지름 미확인·50mm는 Excel에서 제외')
-        def apply():
-            if self._apply_main_conduit(records):win.destroy()
-        controls=ttk.Frame(win);controls.pack(fill='x',padx=10,pady=10)
-        for label,command in [('선택 관로 위치 보기',preview),('100mm 지정',lambda:assign(100)),('50mm 지정',lambda:assign(50)),('미확인으로',lambda:assign(None)),('100mm만 적용',apply)]:
-            ttk.Button(controls,text=label,command=command).pack(side='left',padx=3)
-        refresh()
 
     @staticmethod
     def _point_in_polygon(point, polygon):
@@ -486,7 +638,7 @@ class NetworkExtractionMixin:
         indices=network_export_indices(self.viewer.scene,scope,self.viewer.visible_layers,shown,self.viewer.entity_items)
         if not indices:
             messagebox.showinfo('필요 항목 Excel 추출','화면에 표시된 추출 대상이 없습니다.');return
-        label='광주간선' if scope['kind']=='fiber' else '100mm_주관로'
+        label='광케이블' if scope['kind']=='fiber' else '100mm_주관로'
         out=filedialog.asksaveasfilename(title=f'{label} Excel 추출',defaultextension='.xlsx',initialfile=Path(self.input_path).stem+'_'+label+'.xlsx',filetypes=[('Excel','*.xlsx')])
         if not out:return
         self.busy=True;self._show_progress();self._set_progress(10,'전체 100mm 관로와 시작·끝 시설 위치 추출' if scope['kind']=='pipe' else '화면에 표시된 필요 항목만 Excel 추출')
@@ -496,7 +648,11 @@ class NetworkExtractionMixin:
             try:
                 rows=export_network(out,scene,scope,indices,epsg,source_path=source_path)
                 if scope['kind']=='fiber':
-                    count=sum(scope['network'].edges[h].index in indices for h in scope['route'])
+                    handles={
+                        h for route in (scope.get('routes') or [])
+                        for h in (route.get('route') or [])
+                    }
+                    count=sum(scope['network'].edges[h].index in indices for h in handles)
                 else:
                     count=sum(r['diameter']==100 and r['entity'].index in indices for r in scope['records'])
                 stats=ConversionStats(entities=count,rows=rows)
