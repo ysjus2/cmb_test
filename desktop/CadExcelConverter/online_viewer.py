@@ -20,7 +20,7 @@ CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
 KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
-WINDOWS_RELEASE = "Windows_1.0_Rev3_OnlineConfig"
+WINDOWS_RELEASE = "Windows_1.0_Rev5_RegionCenter"
 
 
 def key(client=None):
