@@ -7,7 +7,8 @@ checks = ['essenpoly_selftest.py', 'conduit_selftest.py', 'full_layer_selftest.p
           'navigation_selftest.py', 'selftest.py', 'network_extract_selftest.py',
           'pipe_endpoint_selftest.py', 'identity_selftest.py', 'cache_selftest.py',
           'zoom_selftest.py', 'extract_display_selftest.py', 'current_features_selftest.py',
-          'fiber_branch_dedupe_selftest.py', 'online_fiber_extract_selftest.py']
+          'fiber_branch_dedupe_selftest.py', 'online_fiber_extract_selftest.py',
+          'fiber_missing_closure_selftest.py']
 for check in checks:
     print(f'CHECK {check}', flush=True)
     subprocess.run([sys.executable, str(root / check)], cwd=root, check=True)
@@ -1120,6 +1121,8 @@ assert "text='불러오기'" in extract_ui_source
 assert "fetch_all_online_fiber(" in extract_ui_source
 assert "def _activate_online_fiber_network(" in extract_ui_source
 assert "def fit_fiber_fast(self):" in viewer_source
+assert "endpoint_join_tolerance = 2.0" in network_extract_source
+assert "선 중간 교차는 절대 연결하지 않는다." in network_extract_source
 assert 'elif kind == "online_fiber_loaded":' in main_source
 assert "routes=list(scope.get('routes') or [])" in network_extract_source
 assert "sheet('광케이블'" in network_extract_source
