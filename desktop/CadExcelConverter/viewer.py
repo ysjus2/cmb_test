@@ -868,10 +868,14 @@ class DXFViewer(ttk.Frame):
         ]:
             ttk.Button(button_frame, text=text, command=cmd).pack(side="left", padx=(0, 4))
 
-        # 상태/좌표/거리 정보는 Viewer 상단 우측에만 표시한다.
+        # 온라인 전용 기능은 일반 버튼군과 분리해 줄 맨 오른쪽 끝에 둔다.
+        self.far_action_frame = ttk.Frame(bar)
+        self.far_action_frame.pack(side="right", padx=(28, 0))
+
+        # 상태/좌표/거리 정보는 Viewer 상단 우측, 온라인 전용 버튼 왼쪽에 표시한다.
         # 하단 정보창은 제거하여 Canvas 높이를 최대한 확보한다.
         info_frame = ttk.Frame(bar)
-        info_frame.pack(side="right", fill="x", expand=True, padx=(12, 0))
+        info_frame.pack(side="right", fill="x", expand=True, padx=(12, 10))
         ttk.Label(
             info_frame,
             textvariable=self.status_var,
