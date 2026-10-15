@@ -7,7 +7,7 @@ checks = ['essenpoly_selftest.py', 'conduit_selftest.py', 'full_layer_selftest.p
           'navigation_selftest.py', 'selftest.py', 'network_extract_selftest.py',
           'pipe_endpoint_selftest.py', 'identity_selftest.py', 'cache_selftest.py',
           'zoom_selftest.py', 'extract_display_selftest.py', 'current_features_selftest.py',
-          'fiber_branch_dedupe_selftest.py']
+          'fiber_branch_dedupe_selftest.py', 'online_fiber_extract_selftest.py']
 for check in checks:
     print(f'CHECK {check}', flush=True)
     subprocess.run([sys.executable, str(root / check)], cwd=root, check=True)
@@ -1111,6 +1111,16 @@ assert "한 번 선택한 시작점은 계속 고정한다." in extract_ui_sourc
 assert "self.fiber_pick_mode='end'" in extract_ui_source
 assert "self.viewer.set_fiber_fast_network(self.fiber_network)" in extract_ui_source
 assert "self.viewer.clear_fiber_fast_network()" in extract_ui_source
+assert "label='온라인 광추출'" in extract_ui_source
+assert "온라인 광추출 · 지역 선택" in extract_ui_source
+assert "복수 선택 가능합니다." in extract_ui_source
+assert "text='전체 선택'" in extract_ui_source
+assert "text='전체 해제'" in extract_ui_source
+assert "text='불러오기'" in extract_ui_source
+assert "fetch_all_online_fiber(" in extract_ui_source
+assert "def _activate_online_fiber_network(" in extract_ui_source
+assert "def fit_fiber_fast(self):" in viewer_source
+assert 'elif kind == "online_fiber_loaded":' in main_source
 assert "routes=list(scope.get('routes') or [])" in network_extract_source
 assert "sheet('광케이블'" in network_extract_source
 assert "from server_extract import ServerExtractWindow" not in main_source
