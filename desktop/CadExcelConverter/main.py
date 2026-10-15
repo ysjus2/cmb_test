@@ -761,6 +761,13 @@ class App(NetworkExtractionMixin, tk.Tk):
                     if scene.unsupported:
                         text = ", ".join(f"{k}:{v}" for k, v in sorted(scene.unsupported.items()))
                         self._log("Viewer 미표시 객체: " + text)
+                elif kind == "online_fiber_loaded":
+                    network, summary, selected_regions = data
+                    self._activate_online_fiber_network(
+                        network,
+                        summary,
+                        selected_regions,
+                    )
                 elif kind == "done":
                     stats, out = data
                     self.busy = False
