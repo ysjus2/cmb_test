@@ -20,12 +20,13 @@ app.update()
 network = SimpleNamespace(edges={'F': SimpleNamespace(index=0)}, positions={'C': (0, 0)})
 with patch('network_extract_ui.FiberNetwork', return_value=network):
     app._begin_fiber_route()
-assert app.viewer.entity_filter == {0, 1}
-assert not app.viewer.entity_items.get(2)
-assert not app.viewer.entity_items.get(3)
+assert app.viewer.entity_filter is None
+assert app.viewer.entity_items.get(2)
+assert app.viewer.entity_items.get(3)
 assert not app.viewer.canvas.find_withtag('annotation')
-app.viewer.redraw()  # The start-device click redraw must keep the same filter.
-assert not app.viewer.entity_items.get(2)
+app.viewer.redraw()  # 광케이블 선택 중에도 전체 도면은 그대로 유지한다.
+assert app.viewer.entity_items.get(2)
+assert app.viewer.entity_items.get(3)
 scope = {'kind': 'fiber', 'indices': {0, 1}, 'route': ['F'], 'network': network}
 app._show_scope(scope)
 assert app.viewer.entity_filter == {0, 1}
@@ -38,4 +39,4 @@ app._reset_network_filter()
 assert app.viewer.entity_filter is None
 assert not app.viewer.hide_extraction_text
 app.destroy()
-print('FIBER DISPLAY TEST OK: selection and result exclude terrain/coax; export scope and reset preserved')
+print('FIBER DISPLAY TEST OK: fiber selection keeps full drawing; explicit scope filter and reset preserved')
