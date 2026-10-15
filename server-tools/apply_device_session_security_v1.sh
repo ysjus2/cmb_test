@@ -139,7 +139,7 @@ def install(app):
     if not _has(app,"/admin/users/{user_id}/reset-device","POST"):
         @app.post("/admin/users/{user_id}/reset-device")
         async def reset_device(user_id:int,request:Request):
-            _admin(request)
+            admin=_admin(request)
             with _connect() as conn:
                 cur=conn.cursor()
                 cur.execute("SELECT id FROM app_users WHERE id=%s",(user_id,))
@@ -154,6 +154,7 @@ def install(app):
                 conn.commit()
             return {
                 "ok":True,
+                "self_reset":bool(user_id==admin["id"]),
                 "deleted_devices":deleted_devices,
                 "revoked_sessions":revoked_sessions,
                 "cleared_activity":cleared_activity,
