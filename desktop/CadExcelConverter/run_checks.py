@@ -1096,6 +1096,18 @@ assert "self.viewer.button_frame" in main_source
 assert "self.viewer.fiber_controls_host" in main_source
 assert "padx=(18,6)" in extract_ui_source
 assert "padx=(24,6)" in extract_ui_source
+viewer_source = (root / "viewer.py").read_text(encoding="utf-8")
+assert "def set_fiber_fast_network(self, network):" in viewer_source
+assert "def _redraw_fiber_fast(self):" in viewer_source
+assert 'if self.mode == "fiber_route" and self.fiber_fast_network is not None:' in viewer_source
+assert 'self.canvas.move("all", dx, dy)' in viewer_source
+assert 'self.canvas.scale("all", sx, sy, factor, factor)' in viewer_source
+assert "def _schedule_fast_redraw(self, delay=45):" in viewer_source
+assert "text='시작점 고정 ✓'" in extract_ui_source
+assert "한 번 선택한 시작점은 계속 고정한다." in extract_ui_source
+assert "self.fiber_pick_mode='end'" in extract_ui_source
+assert "self.viewer.set_fiber_fast_network(self.fiber_network)" in extract_ui_source
+assert "self.viewer.clear_fiber_fast_network()" in extract_ui_source
 assert "routes=list(scope.get('routes') or [])" in network_extract_source
 assert "sheet('광케이블'" in network_extract_source
 assert "from server_extract import ServerExtractWindow" not in main_source
