@@ -184,6 +184,25 @@ def _online_feature_identity(feature, region, part_index=0):
     return f'{region}:{base}:{part_index}'
 
 
+def _online_node_links(props):
+    """Return the two CAD endpoint node references, when transported by the API."""
+    raw = props.get('xdata') or _online_attrs(props).get('xdata') or {}
+    values = raw.get('EXMAP_NODELINK', []) if isinstance(raw, dict) else []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, (list, tuple)) and len(item) >= 2 and item[0] == 'EXMAP_NODELINK':
+                values = item[1]
+                break
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, (list, tuple)):
+        return []
+    links = [str(v).split(':', 1)[1].strip().upper() for v in values
+             if str(v).startswith('1005:')]
+    links = [v for v in links if v and v != '0']
+    return links if len(links) == 2 else []
+
+
 class OnlineFiberNetwork:
     """전체 권한 지역의 서버 FIBER GeoJSON을 하나의 경계 없는 광망으로 구성."""
 
@@ -222,12 +241,22 @@ class OnlineFiberNetwork:
         # 선 중간 교차는 절대 연결하지 않는다.
         endpoint_join_tolerance = 5.0
         endpoint_nodes = []
-        def coord_key(point):
+        endpoint_links = {}
+        def coord_key(point, link=None, region=''):
+            # CAD node reference wins over geometry distance within the same region.
+            # Separate regions can reuse CAD handles, so they are not globally keyed.
+            link_key = (region, link) if link else None
+            if link_key and link_key in endpoint_links:
+                return endpoint_links[link_key]
             for key,existing in endpoint_nodes:
                 if math.dist(point,existing) <= endpoint_join_tolerance:
+                    if link_key:
+                        endpoint_links[link_key] = key
                     return key
             key=f'XY:{len(endpoint_nodes)}'
             endpoint_nodes.append((key,tuple(point)))
+            if link_key:
+                endpoint_links[link_key] = key
             return key
 
         def nearest_point_feature(point, max_dist=1.5):
@@ -273,8 +302,9 @@ class OnlineFiberNetwork:
                     continue
                 seen_geometry.add(geom_key)
 
-                u = coord_key(points[0])
-                v = coord_key(points[-1])
+                links = _online_node_links(props)
+                u = coord_key(points[0], links[0] if links else None, region)
+                v = coord_key(points[-1], links[1] if links else None, region)
                 if u == v:
                     continue
 
