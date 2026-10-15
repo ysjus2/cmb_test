@@ -20,7 +20,7 @@ CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
 KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
-WINDOWS_RELEASE = "Windows_1.0_Rev7_StoredRegionCenter"
+WINDOWS_RELEASE = "Windows_1.0_Rev8_StrictRegionCenter"
 
 
 def key(client=None):
@@ -783,11 +783,6 @@ class Api:
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
-            try:
-                stored_centers = self.c.region_centers() or {}
-            except Exception:
-                stored_centers = {}
-
             items = []
             seen = set()
             for row in raw:
@@ -811,24 +806,10 @@ class Api:
                             bounds = {k: float(raw_bounds.get(k)) for k in keys}
                 except Exception:
                     bounds = None
-                center = None
-                raw_center = stored_centers.get(region_id) if isinstance(stored_centers, dict) else None
-                if isinstance(raw_center, dict):
-                    try:
-                        center_lat = float(raw_center.get("center_lat"))
-                        center_lon = float(raw_center.get("center_lon"))
-                        if (
-                            -90.0 <= center_lat <= 90.0
-                            and -180.0 <= center_lon <= 180.0
-                        ):
-                            center = {"lat": center_lat, "lng": center_lon}
-                    except Exception:
-                        center = None
                 items.append({
                     "id": region_id,
                     "name": name or region_id,
                     "bounds": bounds,
-                    "center": center,
                 })
                 if bounds:
                     self.region_bounds[region_id] = dict(bounds)
@@ -859,7 +840,37 @@ class Api:
             self.fiber_cache = {"version": "", "features": []}
             return {"ok": True, "bounds": None, "layers": []}
         try:
-            # UI 응답 우선: 지역 선택에서는 서버를 기다리지 않는다.
+            # 지역 선택 시 저장된 중심 좌표를 서버에서 즉시 확인한다.
+            # 조회 실패/미저장 상태에서는 도면 다운로드를 시작하지 않는다.
+            centers = self.c.region_centers() or {}
+            raw_center = centers.get(self.region) if isinstance(centers, dict) else None
+            if not isinstance(raw_center, dict):
+                return {
+                    "ok": False,
+                    "error": f"지역 중심점이 서버에 저장되지 않았습니다: {self.region}",
+                    "center": None,
+                }
+
+            try:
+                center_lat = float(raw_center.get("center_lat"))
+                center_lon = float(raw_center.get("center_lon"))
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "error": f"지역 중심점 좌표가 올바르지 않습니다: {self.region} · {exc}",
+                    "center": None,
+                }
+
+            if not (
+                -90.0 <= center_lat <= 90.0
+                and -180.0 <= center_lon <= 180.0
+            ):
+                return {
+                    "ok": False,
+                    "error": f"지역 중심점 좌표 범위 오류: {self.region}",
+                    "center": None,
+                }
+
             self._load_cache()
             self._load_fiber_cache()
 
@@ -881,6 +892,10 @@ class Api:
             return {
                 "ok": True,
                 "bounds": None,
+                "center": {
+                    "lat": center_lat,
+                    "lng": center_lon,
+                },
                 "layers": [],
                 "group_summary": group_summary,
                 "cache_ready": bool(fiber_count or self.cache_state.get("features")),
@@ -3244,8 +3259,7 @@ async function loadRegions(){{
   authorizedRegions=items.map(x=>({{
     id:String(x.id),
     name:String(x.name||x.id),
-    bounds:x.bounds||null,
-    center:x.center||null
+    bounds:x.bounds||null
   }}));
   sel.innerHTML='<option value="">지역 선택</option>';
   authorizedRegions.forEach(x=>{{
@@ -3285,6 +3299,7 @@ async function activateRegion(region){{
   setWorkStatus('지역 전환 · 이전 지역 취소/숨김 · '+region,5,true);
 
   try{{
+    setWorkStatus('지역 중심점 조회 · '+region,6,true);
     const r=await apiCall('select',{{region:region}});
     if(mySwitch!==regionSwitchGeneration)return false;
     if(!r.ok){{
@@ -3295,13 +3310,15 @@ async function activateRegion(region){{
 
     activeRegionId=region;
 
-    // 지역 선택 시 서버가 이미 보유한 bounds 중심으로 즉시 이동한다.
-    // 전체 광 도면이 한 화면에 들어오도록 기본 레벨은 9로 고정한다.
-    const center=(info&&info.center)||null;
-    if(map&&center&&Number.isFinite(Number(center.lat))&&Number.isFinite(Number(center.lng))){{
-      map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));
-      map.setLevel(9);
+    // 서버 DB에 저장된 지역 중심점만 사용한다.
+    // 중심 확인이 끝난 뒤에만 FIBER 다운로드 단계로 진행한다.
+    const center=(r&&r.center)||null;
+    if(!(map&&center&&Number.isFinite(Number(center.lat))&&Number.isFinite(Number(center.lng)))){{
+      setWorkStatus('지역 중심점 확인 실패 · '+region,100,false);
+      return false;
     }}
+    map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));
+    map.setLevel(9);
 
     viewDiag.region=region;
     viewDiag.stage='새 지역 캐시 준비';
