@@ -188,11 +188,16 @@ class NetworkExtractionMixin:
             self.fiber_network.positions.get(self.route_start)
             if self.route_start in self.fiber_network.positions else None
         )
-        self.viewer.route_selected_markers=[
-            self.fiber_network.positions.get(r.get('end'))
-            for r in self.fiber_routes
-            if r.get('end') in self.fiber_network.positions
-        ]
+        selected_ends=[]
+        seen_ends=set()
+        for r in self.fiber_routes:
+            end_node=r.get('selection_end',r.get('end'))
+            if end_node in seen_ends:
+                continue
+            seen_ends.add(end_node)
+            if end_node in self.fiber_network.positions:
+                selected_ends.append(self.fiber_network.positions.get(end_node))
+        self.viewer.route_selected_markers=selected_ends
         if self.fiber_routes:
             all_indices=set().union(*(set(r.get('indices') or set()) for r in self.fiber_routes))
             self.export_scope={
@@ -363,6 +368,40 @@ class NetworkExtractionMixin:
             return None
         return hits[0][1]
 
+    def _fiber_new_segments(self, scope, selected_handles):
+        """전체 경로에서 이미 선택된 케이블을 제거하고 새 연속구간만 반환."""
+        route=list(scope.get('route') or [])
+        nodes=list(scope.get('nodes') or [])
+        if not route or len(nodes) != len(route) + 1:
+            return []
+
+        segments=[]
+        start_i=None
+        for i,handle in enumerate(route):
+            is_new=handle not in selected_handles
+            if is_new and start_i is None:
+                start_i=i
+            if start_i is not None and (not is_new or i == len(route)-1):
+                end_i = i if (is_new and i == len(route)-1) else i-1
+                seg_route=route[start_i:end_i+1]
+                seg_nodes=nodes[start_i:end_i+2]
+                seg_indices={self.fiber_network.edges[h].index for h in seg_route}
+                # 분기 시작/끝을 포함한 연결 기기는 선택 표시 대상으로 유지한다.
+                by_handle=getattr(self.fiber_network,'by_handle',{}) or {}
+                for seg_node in seg_nodes:
+                    ent=by_handle.get(seg_node)
+                    if ent is not None and is_closure(ent):
+                        seg_indices.add(ent.index)
+                segments.append({
+                    'route':seg_route,
+                    'nodes':seg_nodes,
+                    'indices':seg_indices,
+                    'start':seg_nodes[0],
+                    'end':seg_nodes[-1],
+                })
+                start_i=None
+        return segments
+
     def _fiber_route_click(self,event):
         node=self._nearest_fiber_node(event)
         if node is None:
@@ -384,21 +423,25 @@ class NetworkExtractionMixin:
             self.extract_hint.set('먼저 시작점을 선택해주세요.')
             return
 
-        # 같은 시작점+끝점 경로를 다시 클릭하면 해당 경로만 해제한다.
-        existing=next(
-            (
-                i for i,r in enumerate(self.fiber_routes)
-                if r.get('end')==node
-            ),
-            None,
-        )
-        if existing is not None:
+        # 같은 끝점을 다시 클릭하면 그 끝점 선택으로 추가된 모든 구간을 해제한다.
+        existing=[
+            i for i,r in enumerate(self.fiber_routes)
+            if r.get('selection_end', r.get('end'))==node
+        ]
+        if existing:
             self._push_fiber_history()
-            self.fiber_routes.pop(existing)
+            self.fiber_routes=[
+                r for i,r in enumerate(self.fiber_routes)
+                if i not in set(existing)
+            ]
             self.fiber_pick_mode='end'
             self._update_fiber_pick_buttons()
             self._refresh_fiber_selection()
-            self.extract_hint.set(f'끝점 선택 해제 · 남은 경로 {len(self.fiber_routes)}개')
+            endpoint_count=len({
+                r.get('selection_end',r.get('end'))
+                for r in self.fiber_routes
+            })
+            self.extract_hint.set(f'끝점 선택 해제 · 남은 끝점 {endpoint_count}개')
             return
 
         try:
@@ -410,37 +453,48 @@ class NetworkExtractionMixin:
             h for route in self.fiber_routes
             for h in (route.get('route') or [])
         }
-        overlap=selected_handles.intersection(set(scope.get('route') or []))
-        if overlap:
-            messagebox.showwarning(
-                '광케이블 추출',
-                (
-                    f'이미 선택한 광케이블과 중복되는 구간이 {len(overlap)}개 있습니다.\n\n'
-                    '중복 경로는 추가하지 않습니다. 다른 끝점을 다시 선택해주세요.'
-                ),
-            )
-            self.extract_hint.set(
-                f'중복 구간 {len(overlap)}개 감지 · 경로 추가 취소 · 끝점을 다시 선택하세요.'
-            )
+        full_route=list(scope.get('route') or [])
+        overlap_count=len(selected_handles.intersection(full_route))
+        new_segments=self._fiber_new_segments(scope,selected_handles)
+
+        if not new_segments:
+            self.extract_hint.set('선택한 끝점까지의 광케이블은 이미 모두 포함되어 있습니다.')
+            self.viewer.status_var.set('추가할 새 광케이블 구간 없음')
             return
 
         self._push_fiber_history()
-        self.fiber_routes.append({
-            'start':self.route_start,
-            'end':node,
-            'route':list(scope['route']),
-            'nodes':list(scope['nodes']),
-            'indices':set(scope['indices']),
-        })
+        for segment in new_segments:
+            segment['selection_end']=node
+            segment['fixed_start']=self.route_start
+            self.fiber_routes.append(segment)
+
         self.fiber_pick_mode='end'
         self._update_fiber_pick_buttons()
         self._refresh_fiber_selection()
-        cable_count=len(set().union(*(set(r['route']) for r in self.fiber_routes)))
-        self.extract_hint.set(
-            f'선택 경로 {len(self.fiber_routes)}개 · 광케이블 {cable_count}개 · '
-            '끝점을 계속 선택하거나 시작점 선택 버튼으로 국사를 변경할 수 있습니다.'
-        )
-        self.status_var.set('선택된 광케이블만 강조 표시 · 전체 도면 유지')
+
+        cable_count=len({
+            h for r in self.fiber_routes for h in (r.get('route') or [])
+        })
+        endpoint_count=len({
+            r.get('selection_end',r.get('end'))
+            for r in self.fiber_routes
+        })
+        added_count=sum(len(s['route']) for s in new_segments)
+        branch_start=new_segments[0]['start']
+        if overlap_count:
+            self.extract_hint.set(
+                f'공통구간 {overlap_count}개 자동 제외 · 분기점부터 새 구간 {added_count}개 추가 · '
+                f'끝점 {endpoint_count}개'
+            )
+            self.viewer.status_var.set(
+                f'중복 자동 제거 · 분기 시작 {branch_start} · 선택 광케이블 {cable_count}개'
+            )
+        else:
+            self.extract_hint.set(
+                f'새 구간 {added_count}개 추가 · 끝점 {endpoint_count}개 · '
+                '시작점은 계속 고정되어 있습니다.'
+            )
+            self.viewer.status_var.set(f'선택 광케이블 {cable_count}개')
 
     def _begin_main_conduit(self):
         if not getattr(self,'can_extract',False): return
