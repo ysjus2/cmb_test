@@ -191,7 +191,7 @@ assert "self._start_bbox_refresh(west, south, east, north)" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
-assert 'WINDOWS_RELEASE = "Windows_1.0_Rev7_StoredRegionCenter"' in online_source
+assert 'WINDOWS_RELEASE = "Windows_1.0_Rev8_StrictRegionCenter"' in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
@@ -205,12 +205,15 @@ assert "activeRegionId===region" in activate_block
 assert "authorizedRegions.find(x=>x.id===region)" in activate_block
 assert "activeRegionId=region;" in activate_block
 assert "await loadRegionFiber(false);" in activate_block
-assert "const center=(info&&info.center)||null;" in activate_block
+assert "const center=(r&&r.center)||null;" in activate_block
 assert "center:x.center||null" in online_source
 assert "centerMyLocation(false);" not in online_source
 assert "map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));" in activate_block
 assert "map.setLevel(9);" in activate_block
 assert "const networkQueryMode=mapLevelNow<=5;" in online_source
+assert "지역 중심점 조회 · " in online_source
+assert "지역 중심점이 서버에 저장되지 않았습니다" in online_source
+assert activate_block.index("apiCall('select'") < activate_block.index("await loadRegionFiber(false);")
 assert "await loadObjects(true);" in activate_block
 assert activate_block.index("await loadRegionFiber(false);") < activate_block.index("await loadObjects(true);")
 assert "lastFiberQueryLat=null;" not in activate_block
@@ -1042,7 +1045,7 @@ print("HYBRID_FORCE_RELOAD_FILLED_ARROW_OK")
 from admin_upload import payload_center
 assert hasattr(CMBServerClient, "region_centers")
 assert hasattr(CMBServerClient, "update_region_center")
-assert "stored_centers = self.c.region_centers()" in online_source
+assert "centers = self.c.region_centers() or {}" in online_source
 assert '"lat": (float(bounds["south"]) + float(bounds["north"])) / 2.0' not in online_source
 assert "def payload_center(payload):" in admin_upload_source
 assert 'if str(group or "").upper() == "FIBER":' in admin_upload_source
