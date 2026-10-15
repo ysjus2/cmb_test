@@ -775,6 +775,50 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     return payload
 
 
+def payload_center(payload):
+    """Return the fixed WGS84 center of an upload package.
+
+    The center is calculated once from the local upload payload, never from
+    server-side regional bounds at view time.
+    """
+    min_lon = min_lat = None
+    max_lon = max_lat = None
+
+    def visit(coords):
+        nonlocal min_lon, min_lat, max_lon, max_lat
+        if not isinstance(coords, (list, tuple)):
+            return
+        if (
+            len(coords) >= 2
+            and isinstance(coords[0], (int, float))
+            and isinstance(coords[1], (int, float))
+        ):
+            lon = float(coords[0])
+            lat = float(coords[1])
+            if not (math.isfinite(lon) and math.isfinite(lat)):
+                return
+            if abs(lon) > 180 or abs(lat) > 90:
+                return
+            min_lon = lon if min_lon is None else min(min_lon, lon)
+            max_lon = lon if max_lon is None else max(max_lon, lon)
+            min_lat = lat if min_lat is None else min(min_lat, lat)
+            max_lat = lat if max_lat is None else max(max_lat, lat)
+            return
+        for item in coords:
+            visit(item)
+
+    for obj in (payload or {}).get("objects") or []:
+        geometry = (obj or {}).get("geometry") or {}
+        visit(geometry.get("coordinates"))
+
+    if None in (min_lon, min_lat, max_lon, max_lat):
+        return None
+    return {
+        "lat": (min_lat + max_lat) / 2.0,
+        "lon": (min_lon + max_lon) / 2.0,
+    }
+
+
 
 _POLEMAP_GRID_RE = re.compile(r"(?<![0-9A-Za-z])(\d{4}[A-Za-z])(?![0-9A-Za-z])")
 
@@ -1502,6 +1546,26 @@ class AdminUploadWindow(tk.Toplevel):
                 package_mb=package_mb,
                 progress_state=transfer,
             )
+
+            # 지역 중심은 광(FIBER) 원본 업로드 패키지에서 한 번만 확정한다.
+            # Viewer에서는 bounds 중심을 다시 계산하지 않는다.
+            if str(group or "").upper() == "FIBER":
+                center = payload_center(payload)
+                if not center:
+                    raise RuntimeError(
+                        "FIBER 업로드는 완료됐지만 지역 중심점을 계산할 수 없습니다."
+                    )
+                try:
+                    self.client.update_region_center(
+                        region_code,
+                        center["lat"],
+                        center["lon"],
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        "FIBER 업로드는 완료됐지만 지역 중심점 서버 저장에 실패했습니다: "
+                        + str(exc)
+                    ) from exc
 
             self.status.set(
                 f"{group} 업로드 완료 · "
