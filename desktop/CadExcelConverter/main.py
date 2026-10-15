@@ -153,13 +153,15 @@ class App(NetworkExtractionMixin, tk.Tk):
         root = ttk.Frame(self, padding=4)
         root.pack(fill="both", expand=True)
 
-        self._build_extract_toolbar(root)
-
         # Viewer 자체가 전체 폭을 차지한다.
-        # 레이어는 Viewer의 상단 도구바 아래 side_host에 실제 위젯으로 도킹된다.
+        # 추출/업로드 버튼도 Viewer의 기존 버튼 줄에 함께 배치한다.
         self.viewer = DXFViewer(root)
         self.viewer.pack(fill="both", expand=True)
         self.viewer.set_source_epsg(self.epsg_var.get())
+        self._build_extract_toolbar(
+            self.viewer.button_frame,
+            self.viewer.fiber_controls_host,
+        )
 
         status = ttk.Frame(root)
         status.pack(fill="x", pady=(3, 0))
