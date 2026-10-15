@@ -74,9 +74,12 @@ class FiberNetwork:
         recovered = {r['handle']:r for r in recover_essenpoly_polylines(input_path)}
         self.excluded_stubs = 0
         self.geometry_nodes = []
+        endpoint_join_tolerance = 2.0
         def coordinate_node(point):
+            # 함체/NODELINK가 없어도 케이블 끝점끼리 가까우면 동일 연결점으로 본다.
+            # 선 중간 교차는 보지 않고 시작/끝점에만 적용한다.
             for key, existing in self.geometry_nodes:
-                if math.dist(point,existing) <= 0.1:
+                if math.dist(point,existing) <= endpoint_join_tolerance:
                     return key
             key = 'XY' + str(len(self.geometry_nodes))
             self.geometry_nodes.append((key,point))
@@ -131,7 +134,7 @@ class FiberNetwork:
         # Exact coordinate association is only used for drawings without node handles.
         for node in nodes:
             if not node.startswith('XY'):continue
-            closures.update(e.index for e in self.scene.entities if is_closure(e) and entity_position(e) and math.dist(entity_position(e),self.positions[node])<=0.1)
+            closures.update(e.index for e in self.scene.entities if is_closure(e) and entity_position(e) and math.dist(entity_position(e),self.positions[node])<=2.0)
         return {'kind':'fiber','route':route,'nodes':nodes,'network':self,'indices':{self.edges[h].index for h in route}|closures}
 
 
@@ -214,11 +217,18 @@ class OnlineFiberNetwork:
                 continue
             point_features.append((x,y,feature))
 
-        # 0.5m 좌표 그리드: 서로 다른 지역에서 동일 경계점으로 끝나는 케이블을 하나의 노드로 결합.
-        tolerance = 0.5
+        # 함체가 없거나 행정구역 경계에서 심벌 공백이 있어도
+        # 케이블의 실제 시작/끝점끼리 2m 이내면 동일 연결점으로 결합한다.
+        # 선 중간 교차는 절대 연결하지 않는다.
+        endpoint_join_tolerance = 2.0
+        endpoint_nodes = []
         def coord_key(point):
-            x,y = point
-            return f'XY:{round(x/tolerance)}:{round(y/tolerance)}'
+            for key,existing in endpoint_nodes:
+                if math.dist(point,existing) <= endpoint_join_tolerance:
+                    return key
+            key=f'XY:{len(endpoint_nodes)}'
+            endpoint_nodes.append((key,tuple(point)))
+            return key
 
         def nearest_point_feature(point, max_dist=1.5):
             best = None
