@@ -1536,23 +1536,100 @@ class UserAdminWindow(tk.Toplevel):
         if not user:
             messagebox.showinfo("단말 초기화", "사용자를 선택해주세요.", parent=self)
             return
+
         user_id = user.get("id")
         username = str(user.get("username") or "").strip()
+
+        current = self.current_user or {}
+        current_id = current.get("id")
+        current_username = str(current.get("username") or "").strip()
+
+        same_id = (
+            user_id is not None
+            and current_id is not None
+            and str(user_id) == str(current_id)
+        )
+        same_username = (
+            bool(username)
+            and bool(current_username)
+            and username.casefold() == current_username.casefold()
+        )
+        self_reset = same_id or same_username
+
+        if self_reset:
+            message = (
+                f"{username} 계정은 현재 이 관리자 프로그램에 로그인 중인 본인 계정입니다.\n\n"
+                "단말 초기화를 실행하면:\n"
+                "• 현재 PC의 등록 단말 정보가 삭제됩니다.\n"
+                "• 현재 관리자 로그인 세션을 포함한 기존 세션이 모두 종료됩니다.\n"
+                "• 이 관리자 창도 즉시 닫히고 다시 로그인해야 합니다.\n"
+                "• 이후 다른 PC에서 로그인하면 그 PC가 새 Windows 단말로 등록됩니다.\n\n"
+                "계속하시겠습니까?"
+            )
+        else:
+            message = (
+                f"{username} 사용자의 등록 단말을 초기화하시겠습니까?\n\n"
+                "등록 단말과 기존 로그인 세션이 모두 해제됩니다.\n"
+                "다음 로그인 단말이 새 단말로 등록됩니다."
+            )
+
         if not messagebox.askyesno(
-            "단말 초기화",
-            f"{username} 사용자의 등록 단말을 초기화하시겠습니까?\n\n등록 단말과 기존 로그인 세션이 모두 해제됩니다.\n다음 로그인 단말이 새 단말로 등록됩니다.",
+            "본인 단말 초기화 경고" if self_reset else "단말 초기화",
+            message,
             parent=self,
         ):
             return
+
+        guard = getattr(self.master, "session_guard", None)
+        if self_reset and guard is not None:
+            try:
+                guard.pause()
+            except Exception:
+                pass
+
         try:
-            self.client.reset_user_device(user_id)
+            result = self.client.reset_user_device(user_id) or {}
             self.status.set(f"{username} 단말 초기화 완료")
+
+            if self_reset:
+                # 서버가 현재 세션까지 revoke 했으므로 이 PC에서 더 이상
+                # heartbeat/API를 보내 기존 단말이 재등록되지 않도록 즉시 로컬 세션도 폐기한다.
+                try:
+                    self.client.access_token = ""
+                    self.client.refresh_token = ""
+                    self.client.clear_shared_state()
+                except Exception:
+                    pass
+
+                messagebox.showinfo(
+                    "본인 단말 초기화 완료",
+                    "현재 관리자 계정의 등록 단말과 로그인 세션을 모두 초기화했습니다.\n\n"
+                    "이 PC의 로그인은 종료됩니다.\n"
+                    "다른 PC에서 새로 로그인하면 그 PC가 새 Windows 단말로 등록됩니다.",
+                    parent=self,
+                )
+
+                try:
+                    if hasattr(self.master, "_reset_login_state"):
+                        self.master._reset_login_state(
+                            "단말 초기화로 현재 세션이 종료되었습니다. 다시 로그인해주세요."
+                        )
+                finally:
+                    self.destroy()
+                return
+
             messagebox.showinfo(
                 "단말 초기화",
-                "등록 단말과 기존 로그인 세션을 모두 초기화했습니다.\n다음 정상 로그인 단말이 새 단말로 등록됩니다.",
+                "등록 단말과 기존 로그인 세션을 모두 초기화했습니다.\n"
+                "다음 정상 로그인 단말이 새 단말로 등록됩니다.",
                 parent=self,
             )
         except Exception as exc:
+            if self_reset and guard is not None:
+                try:
+                    guard.resume()
+                except Exception:
+                    pass
             messagebox.showerror("단말 초기화 오류", str(exc), parent=self)
 
     def set_level(self):
