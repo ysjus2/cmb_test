@@ -16,7 +16,6 @@ from drawing_cache import open_drawing
 from layer_defaults import is_default_hidden
 from network_extract_ui import NetworkExtractionMixin
 from admin_upload import AdminUploadWindow
-from server_extract import ServerExtractWindow
 from admin_users import UserAdminWindow
 from server_client_windows import CMBServerClient
 from session_guard import TkIdleSessionGuard
@@ -428,18 +427,6 @@ class App(NetworkExtractionMixin, tk.Tk):
             self.epsg_var.get(),
             client=client,
             current_user=self.session_user,
-        )
-
-    def _open_server_extract(self):
-        if not self._require_admin_permission():
-            return
-        client = self._get_session_client()
-        ServerExtractWindow(
-            self,
-            self.viewer,
-            client=client,
-            current_user=self.session_user,
-            source_epsg=int(self.epsg_var.get()),
         )
 
     def _open_user_admin(self):
