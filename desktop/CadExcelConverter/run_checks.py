@@ -191,7 +191,7 @@ assert "self._start_bbox_refresh(west, south, east, north)" in online_source
 assert "self._feature_intersects(feature, west, south, east, north)" in online_source
 clear_group_block = online_source.split("function clearGroupOverlays(group)",1)[1].split("function hideGroupOverlays",1)[0]
 assert "loadGeneration++" not in clear_group_block
-assert 'WINDOWS_RELEASE = "Windows_1.0_Coordinate_BBox"' in online_source
+assert 'WINDOWS_RELEASE = "Windows_1.0_Rev2_ServerKey"' in online_source
 bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
