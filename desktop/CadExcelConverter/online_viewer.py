@@ -20,7 +20,7 @@ CACHE_BASIS = "coordinate_region"
 SESSION_ENDED_EXIT_CODE = 41
 KAKAO_KEY_MISSING_EXIT_CODE = 42
 KAKAO_KEY_FETCH_ERROR_EXIT_CODE = 43
-WINDOWS_RELEASE = "Windows_1.0_Rev6_RegionCenterFix"
+WINDOWS_RELEASE = "Windows_1.0_Rev7_StoredRegionCenter"
 
 
 def key(client=None):
@@ -783,6 +783,11 @@ class Api:
             if isinstance(raw, dict):
                 raw = raw.get("items") or raw.get("regions") or []
 
+            try:
+                stored_centers = self.c.region_centers() or {}
+            except Exception:
+                stored_centers = {}
+
             items = []
             seen = set()
             for row in raw:
@@ -807,11 +812,18 @@ class Api:
                 except Exception:
                     bounds = None
                 center = None
-                if bounds:
-                    center = {
-                        "lat": (float(bounds["south"]) + float(bounds["north"])) / 2.0,
-                        "lng": (float(bounds["west"]) + float(bounds["east"])) / 2.0,
-                    }
+                raw_center = stored_centers.get(region_id) if isinstance(stored_centers, dict) else None
+                if isinstance(raw_center, dict):
+                    try:
+                        center_lat = float(raw_center.get("center_lat"))
+                        center_lon = float(raw_center.get("center_lon"))
+                        if (
+                            -90.0 <= center_lat <= 90.0
+                            and -180.0 <= center_lon <= 180.0
+                        ):
+                            center = {"lat": center_lat, "lng": center_lon}
+                    except Exception:
+                        center = None
                 items.append({
                     "id": region_id,
                     "name": name or region_id,
