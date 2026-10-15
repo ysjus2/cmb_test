@@ -1,4 +1,4 @@
-name: Build CMB DXF Viewer Windows 1.0 Rev4
+name: Build CMB DXF Viewer Windows 1.0 Rev5
 
 on:
   workflow_dispatch:
@@ -36,23 +36,23 @@ jobs:
         shell: powershell
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name CMB_DXF_Viewer_Windows_1.0_Rev4 --collect-all pyproj --collect-all ezdxf --collect-all webview `
+            --name CMB_DXF_Viewer_Windows_1.0_Rev5 --collect-all pyproj --collect-all ezdxf --collect-all webview `
             --add-data "cmb_dev_ca.crt;." `
             --exclude-module numpy --exclude-module fontTools main.py
-          Get-FileHash dist/CMB_DXF_Viewer_Windows_1.0_Rev4.exe -Algorithm SHA256
+          Get-FileHash dist/CMB_DXF_Viewer_Windows_1.0_Rev5.exe -Algorithm SHA256
       - name: Verify packaged executable
         shell: powershell
         run: |
-          $process = Start-Process -FilePath dist/CMB_DXF_Viewer_Windows_1.0_Rev4.exe -ArgumentList '--build-smoke-test', 'dist/build-smoke.json' -WindowStyle Hidden -PassThru
+          $process = Start-Process -FilePath dist/CMB_DXF_Viewer_Windows_1.0_Rev5.exe -ArgumentList '--build-smoke-test', 'dist/build-smoke.json' -WindowStyle Hidden -PassThru
           if (-not $process.WaitForExit(120000)) { Stop-Process -Id $process.Id; throw "Packaged smoke test timed out" }
           if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed" }
-          python verify_release.py dist/CMB_DXF_Viewer_Windows_1.0_Rev4.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
+          python verify_release.py dist/CMB_DXF_Viewer_Windows_1.0_Rev5.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
       - name: Upload current build
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-DXF-Viewer-Windows-1.0-Rev4
+          name: CMB-DXF-Viewer-Windows-1.0-Rev5
           path: |
-            desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev4.exe
+            desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev5.exe
             desktop/CadExcelConverter/dist/BUILD_MANIFEST.json
           if-no-files-found: error
           retention-days: 7
@@ -60,16 +60,16 @@ jobs:
       - name: Package direct download ZIP
         shell: powershell
         run: |
-          Compress-Archive -Path dist/CMB_DXF_Viewer_Windows_1.0_Rev4.exe, dist/BUILD_MANIFEST.json -DestinationPath dist/CMB_DXF_Viewer_Windows_1.0_Rev4.zip -Force
+          Compress-Archive -Path dist/CMB_DXF_Viewer_Windows_1.0_Rev5.exe, dist/BUILD_MANIFEST.json -DestinationPath dist/CMB_DXF_Viewer_Windows_1.0_Rev5.zip -Force
 
       - name: Publish direct-download GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: windows-v1.0-rev4
-          name: CMB DXF Viewer Windows 1.0 Rev4
+          tag_name: windows-v1.0-rev5
+          name: CMB DXF Viewer Windows 1.0 Rev5
           body: |
-            Windows 1.0 Rev4 final verified build: explicit authorized-region selection; immediate regional FIBER cache display; mandatory first-entry full FIBER synchronization with live object-count progress; interruptible region switching; manual full FIBER refresh; then COAX/devices within 500m with 200m movement refresh.
+            Windows 1.0 Rev5 region-center build: explicit authorized-region selection; immediate regional FIBER cache display; mandatory first-entry full FIBER synchronization with live object-count progress; interruptible region switching; manual full FIBER refresh; then COAX/devices within 500m with 200m movement refresh.
           target_commitish: ${{ github.sha }}
-          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev4.zip
+          files: desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev5.zip
           make_latest: true
 
