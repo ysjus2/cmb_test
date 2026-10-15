@@ -123,12 +123,12 @@ print("WINDOWS_REVISION_CACHE_OK")
 
 
 # map-viewer는 최초 실행을 서버와 완전히 분리한다.
-# DXF/추출/Excel은 로컬에서 즉시 사용하고 서버 업/다운 시점에만 client를 만든다.
+# 다만 추출/업로드 버튼 노출은 로그인 등급을 그대로 따른다.
 main_source = (root / "main.py").read_text(encoding="utf-8")
 launcher_source = (root / "launcher.py").read_text(encoding="utf-8")
 assert "def __init__(self, session_user=None, session_client=None, local_map_mode=False):" in main_source
 assert "self.local_map_mode = bool(local_map_mode)" in main_source
-assert "self.can_extract = True if self.local_map_mode" in main_source
+assert "self.can_extract = self.user_level <= 3" in main_source
 assert 'if "--map-viewer" in sys.argv:' in main_source
 assert "verified_user = session_client.me()" not in main_source
 assert "local_map_mode=True" in main_source
@@ -140,7 +140,7 @@ map_block = main_source.split('if "--map-viewer" in sys.argv:', 1)[1].split("imp
 for forbidden in ("session_client.me(", ".health(", ".regions(", ".online_layers("):
     assert forbidden not in map_block
 assert "def _spawn(self, flag, verify_server=True):" in launcher_source
-assert main_source.count("client = self._get_session_client()") == 3
+assert main_source.count("client = self._get_session_client()") == 2
 print("OFFLINE_MAP_VIEWER_LAZY_SERVER_OK")
 
 subprocess.run([sys.executable, str(root / "session_regression_selftest.py")], cwd=root, check=True)
