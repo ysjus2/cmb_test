@@ -1066,9 +1066,13 @@ main_source = (root / "main.py").read_text(encoding="utf-8")
 admin_upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
 network_extract_source = (root / "network_extract.py").read_text(encoding="utf-8")
 
-assert "text='도면 보기'" in extract_ui_source
-assert "text='위·경도 좌표 추출'" in extract_ui_source
+assert "text='도면 보기'" not in extract_ui_source
+assert "text='위·경도 좌표 추출  ▼'" in extract_ui_source
 assert "text='도면 업로드'" in extract_ui_source
+assert "ttk.Menubutton" not in extract_ui_source
+assert "command=self._show_extract_menu" in extract_ui_source
+assert "ttk.Label(self.extract_bar,textvariable=self.extract_hint)" not in extract_ui_source
+assert "전체 도면 표시 / 일반 Excel 추출 모드" in extract_ui_source
 assert "광주간선 추출" not in extract_ui_source
 assert "label='광케이블 추출'" in extract_ui_source
 assert "관로 속성 확인" not in extract_ui_source
