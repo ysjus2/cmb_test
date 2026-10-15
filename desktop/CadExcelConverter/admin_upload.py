@@ -1590,19 +1590,9 @@ class AdminUploadWindow(tk.Toplevel):
             uploaded = []
             failed = []
 
-            # 광 + 동축 + 관로만 순차 교체한다.
-            # POLE/USER는 선택 업로드로 유지한다.
-            # Polemap 격자는 성능용 경량 메타데이터이므로 함께 갱신한다.
-            try:
-                polemap = build_polemap_payload(
-                    self.scene, self.source_path, self.epsg,
-                    self._selected_region_code(),
-                )
-                if polemap.get("cells"):
-                    self.client.replace_polemap(self._selected_region_code(), polemap)
-            except Exception as exc:
-                failed.append(f"POLEMAP: {exc}")
-
+            # 전체 업로드는 광 + 동축 + 관로만 순차 교체한다.
+            # POLE/POLEMAP/USER는 전체 업로드에서 절대 건드리지 않는다.
+            # 전주 관련 데이터는 POLE 선택 업로드에서만 갱신한다.
             for item in FULL_UPLOAD_ITEMS:
                 try:
                     self._upload(item, allow_empty=True)
