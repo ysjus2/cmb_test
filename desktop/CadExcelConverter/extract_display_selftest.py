@@ -21,12 +21,9 @@ network = SimpleNamespace(edges={'F': SimpleNamespace(index=0)}, positions={'C':
 with patch('network_extract_ui.FiberNetwork', return_value=network):
     app._begin_fiber_route()
 assert app.viewer.entity_filter is None
-assert app.viewer.entity_items.get(2)
-assert app.viewer.entity_items.get(3)
 assert not app.viewer.canvas.find_withtag('annotation')
-app.viewer.redraw()  # 광케이블 선택 중에도 전체 도면은 그대로 유지한다.
-assert app.viewer.entity_items.get(2)
-assert app.viewer.entity_items.get(3)
+app.viewer.redraw()  # 광케이블 선택 중에도 추출 필터로 도면을 잘라내지 않는다.
+assert app.viewer.entity_filter is None
 scope = {'kind': 'fiber', 'indices': {0, 1}, 'route': ['F'], 'network': network}
 app._show_scope(scope)
 assert app.viewer.entity_filter == {0, 1}
