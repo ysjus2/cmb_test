@@ -437,7 +437,7 @@ class CMBServerClient:
         return self._request("GET", "/regions")
 
     def kakao_js_key(self):
-        result = self._request("GET", "/settings/kakao-js-key")
+        result = self._request("GET", "/online/client-config")
         if not isinstance(result, dict):
             return ""
         return str(result.get("kakao_js_key") or "").strip()
