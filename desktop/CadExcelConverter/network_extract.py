@@ -3,6 +3,7 @@ import math
 import re
 from collections import deque
 from dataclasses import dataclass
+from types import SimpleNamespace
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from pyproj import Transformer
@@ -132,6 +133,328 @@ class FiberNetwork:
             if not node.startswith('XY'):continue
             closures.update(e.index for e in self.scene.entities if is_closure(e) and entity_position(e) and math.dist(entity_position(e),self.positions[node])<=0.1)
         return {'kind':'fiber','route':route,'nodes':nodes,'network':self,'indices':{self.edges[h].index for h in route}|closures}
+
+
+
+def _online_attrs(props):
+    raw = props.get('attributes') if isinstance(props, dict) else {}
+    attrs = {}
+    if isinstance(raw, dict):
+        attrs.update({k:v for k,v in raw.items() if k != 'fields'})
+        fields = raw.get('fields')
+        if isinstance(fields, dict):
+            attrs.update(fields)
+    return attrs
+
+
+def _online_xdata(props):
+    raw = props.get('xdata') if isinstance(props, dict) else {}
+    if isinstance(raw, dict):
+        return list(raw.items())
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
+def _online_geometry_lines(geometry):
+    typ = str((geometry or {}).get('type') or '')
+    coords = (geometry or {}).get('coordinates') or []
+    if typ == 'LineString':
+        return [coords]
+    if typ == 'MultiLineString':
+        return list(coords)
+    return []
+
+
+def _online_feature_identity(feature, region, part_index=0):
+    props = feature.get('properties') or {}
+    base = (
+        feature.get('id')
+        or props.get('source_handle')
+        or props.get('entity_id')
+        or props.get('regional_object_id')
+        or props.get('object_id')
+        or ''
+    )
+    if not base:
+        base = f'geom-{abs(hash(str(feature.get("geometry") or {})))}'
+    return f'{region}:{base}:{part_index}'
+
+
+class OnlineFiberNetwork:
+    """전체 권한 지역의 서버 FIBER GeoJSON을 하나의 경계 없는 광망으로 구성."""
+
+    online = True
+
+    def __init__(self, features, epsg=5174):
+        self.scene = None
+        self.edges = {}
+        self.positions = {}
+        self.adj = {}
+        self.by_handle = {}
+        self.excluded_stubs = 0
+        self.source_regions = set()
+        self._transform = Transformer.from_crs('EPSG:4326', f'EPSG:{int(epsg)}', always_xy=True)
+
+        point_features = []
+        for feature in features:
+            props = feature.get('properties') or {}
+            region = str(props.get('_cmb_region_code') or props.get('region_code') or '')
+            if region:
+                self.source_regions.add(region)
+            geometry = feature.get('geometry') or {}
+            if str(geometry.get('type') or '') != 'Point':
+                continue
+            coords = geometry.get('coordinates') or []
+            if not (isinstance(coords, (list, tuple)) and len(coords) >= 2):
+                continue
+            try:
+                x,y = self._transform.transform(float(coords[0]), float(coords[1]))
+            except Exception:
+                continue
+            point_features.append((x,y,feature))
+
+        # 0.5m 좌표 그리드: 서로 다른 지역에서 동일 경계점으로 끝나는 케이블을 하나의 노드로 결합.
+        tolerance = 0.5
+        def coord_key(point):
+            x,y = point
+            return f'XY:{round(x/tolerance)}:{round(y/tolerance)}'
+
+        def nearest_point_feature(point, max_dist=1.5):
+            best = None
+            best_d = max_dist
+            for px,py,feature in point_features:
+                d = math.hypot(point[0]-px, point[1]-py)
+                if d <= best_d:
+                    best_d = d
+                    best = (px,py,feature)
+            return best
+
+        edge_index = 0
+        seen_geometry = set()
+        for feature in features:
+            props = feature.get('properties') or {}
+            if str(props.get('group_id') or '').upper() != 'FIBER':
+                continue
+            region = str(props.get('_cmb_region_code') or props.get('region_code') or '')
+            attrs = _online_attrs(props)
+            layer = str(props.get('layer') or attrs.get('layer') or 'ONLINE_FIBER')
+            entity_type = str(props.get('entity_type') or '')
+            if entity_type.upper() in {'POINT','INSERT'}:
+                continue
+
+            for part_index, raw_line in enumerate(_online_geometry_lines(feature.get('geometry') or {})):
+                points = []
+                for coord in raw_line or []:
+                    if not (isinstance(coord, (list, tuple)) and len(coord) >= 2):
+                        continue
+                    try:
+                        points.append(self._transform.transform(float(coord[0]), float(coord[1])))
+                    except Exception:
+                        pass
+                if len(points) < 2:
+                    continue
+
+                # 동일 형상이 지역 경계 양쪽 데이터에 중복 저장된 경우 한 번만 사용.
+                signature = tuple((round(x,2),round(y,2)) for x,y in points)
+                reverse_signature = tuple(reversed(signature))
+                geom_key = min(signature, reverse_signature)
+                if geom_key in seen_geometry:
+                    continue
+                seen_geometry.add(geom_key)
+
+                u = coord_key(points[0])
+                v = coord_key(points[-1])
+                if u == v:
+                    continue
+
+                handle = _online_feature_identity(feature, region, part_index)
+                while handle in self.edges:
+                    handle += '#'
+
+                edge = FiberEdge(handle,u,v,points,edge_index,attrs)
+                self.edges[handle] = edge
+                edge_index += 1
+
+                for node,point in ((u,points[0]),(v,points[-1])):
+                    chosen = nearest_point_feature(point)
+                    node_pos = (chosen[0],chosen[1]) if chosen else tuple(point)
+                    self.positions.setdefault(node,node_pos)
+                    self.adj.setdefault(node,[]).append((v if node==u else u,handle))
+
+                    if node not in self.by_handle:
+                        if chosen:
+                            pprops = chosen[2].get('properties') or {}
+                            pattrs = _online_attrs(pprops)
+                            self.by_handle[node] = SimpleNamespace(
+                                index=-1,
+                                handle=node,
+                                layer=str(pprops.get('layer') or 'ONLINE_FIBER_NODE'),
+                                entity_type=str(pprops.get('entity_type') or 'INSERT'),
+                                block_name=str(pprops.get('block_name') or ''),
+                                text=str(pprops.get('text') or ''),
+                                attributes=pattrs,
+                                xdata=_online_xdata(pprops),
+                                bbox=(node_pos[0],node_pos[1],node_pos[0],node_pos[1]),
+                                primitives=[('point',node_pos)],
+                            )
+                        else:
+                            self.by_handle[node] = SimpleNamespace(
+                                index=-1, handle=node, layer='ONLINE_FIBER_NODE',
+                                entity_type='POINT', block_name='', text='',
+                                attributes={}, xdata=[], bbox=(node_pos[0],node_pos[1],node_pos[0],node_pos[1]),
+                                primitives=[('point',node_pos)],
+                            )
+
+    def unique_route(self,start,end):
+        if start == end:
+            raise ValueError('시작점과 끝점이 같습니다. 다른 끝점을 선택해주세요.')
+        parents = {start: None}
+        q = deque([start])
+        while q:
+            node = q.popleft()
+            if node == end:
+                break
+            for to,handle in self.adj.get(node,[]):
+                if to not in parents:
+                    parents[to] = (node,handle)
+                    q.append(to)
+        if end not in parents:
+            raise ValueError('전체 온라인 광망에서도 두 점 사이의 연결 경로를 찾지 못했습니다.')
+        route = []
+        nodes = [end]
+        node = end
+        while parents[node] is not None:
+            previous,handle = parents[node]
+            route.append(handle)
+            nodes.append(previous)
+            node = previous
+        route.reverse()
+        nodes.reverse()
+        return {
+            'kind':'fiber',
+            'route':route,
+            'nodes':nodes,
+            'network':self,
+            'indices':{self.edges[h].index for h in route},
+            'online':True,
+        }
+
+
+def _normalize_regions(raw):
+    if isinstance(raw, dict):
+        raw = raw.get('items') or raw.get('regions') or []
+    result = []
+    seen = set()
+    for row in raw or []:
+        if isinstance(row, str):
+            region = row.strip()
+        elif isinstance(row, dict):
+            region = str(row.get('id') or row.get('region_code') or row.get('code') or '').strip()
+        else:
+            region = ''
+        if region and region.casefold() not in seen:
+            seen.add(region.casefold())
+            result.append(region)
+    return result
+
+
+def fetch_all_online_fiber(client, epsg=5174, progress=None):
+    """권한 지역 전체의 FIBER를 지역별 bounds로 완전 수집 후 하나의 네트워크로 결합."""
+    regions = _normalize_regions(client.regions() or [])
+    if not regions:
+        raise RuntimeError('온라인 광추출 가능한 권한 지역이 없습니다.')
+
+    merged = {}
+    region_stats = []
+    total_regions = len(regions)
+    limit = 5000
+    max_depth = 14
+
+    def feature_key(feature, region):
+        props = feature.get('properties') or {}
+        ident = (
+            feature.get('id')
+            or props.get('source_handle')
+            or props.get('entity_id')
+            or props.get('regional_object_id')
+            or props.get('object_id')
+            or str(feature.get('geometry') or {})
+        )
+        return f'{region}|{ident}'
+
+    for region_no,region in enumerate(regions,1):
+        if progress:
+            progress(
+                int(5 + (region_no-1) / max(total_regions,1) * 80),
+                f'온라인 광망 수집 · {region_no}/{total_regions} · {region}',
+            )
+
+        meta = client.online_layers(region) or {}
+        bounds = meta.get('bounds') if isinstance(meta, dict) else None
+        if not isinstance(bounds, dict):
+            region_stats.append((region,0,'bounds_missing'))
+            continue
+        try:
+            west=float(bounds['west']); south=float(bounds['south'])
+            east=float(bounds['east']); north=float(bounds['north'])
+        except Exception:
+            region_stats.append((region,0,'bounds_invalid'))
+            continue
+
+        def fetch_cell(w,s,e,n,depth=0):
+            raw = client.online_objects(
+                region,
+                f'{w},{s},{e},{n}',
+                limit=limit,
+                groups='FIBER',
+                timeout=120,
+            ) or {}
+            raw_features = list(raw.get('features') or [])
+            features = [
+                f for f in raw_features
+                if str(((f.get('properties') or {}).get('group_id') or '')).upper() == 'FIBER'
+            ]
+            if len(raw_features) < limit:
+                return features
+            if depth >= max_depth:
+                raise RuntimeError(
+                    f'온라인 FIBER 전체수집 제한 도달 · {region} · depth={depth}'
+                )
+            mx=(w+e)/2.0; my=(s+n)/2.0
+            cell_merged={}
+            for cell in ((w,s,mx,my),(mx,s,e,my),(w,my,mx,n),(mx,my,e,n)):
+                for feature in fetch_cell(*cell,depth+1):
+                    cell_merged[feature_key(feature,region)] = feature
+            return list(cell_merged.values())
+
+        features = fetch_cell(west,south,east,north)
+        for feature in features:
+            props = dict(feature.get('properties') or {})
+            props['_cmb_region_code'] = region
+            feature = dict(feature)
+            feature['properties'] = props
+            merged[feature_key(feature,region)] = feature
+        region_stats.append((region,len(features),'ok'))
+
+    features = list(merged.values())
+    if not features:
+        raise RuntimeError('권한 지역에서 온라인 FIBER 데이터를 찾지 못했습니다.')
+
+    if progress:
+        progress(90,f'전체 광망 연결 구성 · FIBER 객체 {len(features):,}개')
+    network = OnlineFiberNetwork(features,epsg=epsg)
+    if not network.edges:
+        raise RuntimeError('온라인 FIBER 선형 케이블을 구성하지 못했습니다.')
+    if progress:
+        progress(100,f'온라인 전체 광망 준비 · 케이블 {len(network.edges):,}개')
+    return network, {
+        'regions':len(regions),
+        'features':len(features),
+        'edges':len(network.edges),
+        'nodes':len(network.positions),
+        'region_stats':region_stats,
+    }
 
 
 def conduit_records(scene,input_path,diameters=None):
