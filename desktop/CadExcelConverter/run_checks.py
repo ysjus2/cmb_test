@@ -199,7 +199,7 @@ bootstrap_tail = online_source.split("let authBootstrapped=false;",1)[1]
 assert "const ok=await bootstrapAuth();" in bootstrap_tail
 assert "initMap();" in bootstrap_tail
 assert bootstrap_tail.index("const ok=await bootstrapAuth();") < bootstrap_tail.index("initMap();")
-assert "<select id='region' title='권한 지역 선택'>" in online_source
+assert "<select id='region' title='현재 도면 조회 지역 (통합 검색으로 이동)' style='display:none'" in online_source
 assert "apiCall('region_at_point'" not in online_source
 assert "def region_at_point(" not in online_source
 assert "async function autoRegionForMapCenter()" not in online_source
