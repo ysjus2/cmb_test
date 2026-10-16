@@ -3432,16 +3432,14 @@ async function activateRegion(region, preservePosition=false){{
     lastDetailMode=null;
 
     // 새 지역 광 캐시를 먼저 표시하고, 이전 지역 전체수집은 backend generation으로 취소된다.
-    const fiberPromise=loadRegionFiber(false);
-    // Load the visible neighborhood without waiting for region-wide optical sync.
-    const objectsPromise=loadObjects(true);
-    const fiberResult=await fiberPromise;
-    if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
-    if(fiberResult<0)setStatus('광 동기화 실패 · 현재 주변 도면은 계속 조회');
-    await objectsPromise;
-    if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
-
-    setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 완료',100,false);
+    // Neither optical full synchronization nor viewport fetching may hold
+    // the region-switch lock. Every request is tied to its original region.
+    loadRegionFiber(false).catch(e=>{{
+      if(activeRegionId===region)setStatus('광 동기화 오류 · '+e.message);
+    }});
+    loadObjects(true).catch(e=>{{
+      if(activeRegionId===region)setStatus('주변 도면 조회 오류 · '+e.message);
+    }});
     return true;
   }} finally {{
     if(mySwitch===regionSwitchGeneration){{
@@ -3757,7 +3755,14 @@ function initMap(){{
         regionResolveTimer=setTimeout(async()=>{{
           regionResolveTimer=null;
           if(generation!==regionResolveGeneration||!map)return;
-          if(regionSwitching){{regionRecheckNeeded=true;return;}}
+          if(regionSwitching){{
+            // Position wins over an in-flight region switch; ignore its stale completion.
+            regionSwitchGeneration++;
+            regionSwitching=false;
+            clearOverlays();
+            activeRegionId='';
+            document.getElementById('region').value='';
+          }}
           await reconcileMapRegion();
         }},REGION_SETTLE_DELAY_MS);
       }});
