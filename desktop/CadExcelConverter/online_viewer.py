@@ -1211,8 +1211,13 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
 #detail{{position:absolute;z-index:8;top:60px;right:10px;max-width:360px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:8px;display:none;max-height:50vh;overflow:auto;font-size:12px}}
 .row{{display:grid;grid-template-columns:max-content 1fr;gap:4px 9px;margin:2px 0}}
 .key{{color:#64748b}}
+#searchPanel{{position:absolute;top:63px;left:10px;z-index:11;background:#fff;padding:8px;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 2px 8px #0002;width:370px;max-width:calc(100vw - 30px)}}
+#searchPanel select,#searchPanel input,#searchPanel button{{height:29px;box-sizing:border-box}}
+#searchResults{{max-height:230px;overflow:auto;margin-top:6px}}
+#searchResults button{{display:block;width:100%;height:auto;text-align:left;background:#fff;border:0;border-bottom:1px solid #eee;padding:8px;cursor:pointer}}
+#searchResults button:hover{{background:#e8f3ff}}
 </style>
-<script src='https://dapi.kakao.com/v2/maps/sdk.js?appkey={k}&autoload=false'></script>
+<script src='https://dapi.kakao.com/v2/maps/sdk.js?appkey={k}&autoload=false&libraries=services'></script>
 </head>
 <body>
 <div id='map'></div>
@@ -1247,6 +1252,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
   </div>
 </div>
 
+<div id='searchPanel'><div style='display:flex;gap:4px'><select id='searchType'><option value='address'>주소</option><option value='pole'>전주</option><option value='device'>기기</option><option value='coordinate'>좌표</option></select><input id='searchValue' style='flex:1;min-width:80px' placeholder='도로명주소 또는 지번'><button id='searchGo'>검색</button><button id='searchClose' title='검색표시 삭제'>×</button></div><div id='searchResults'></div></div>
 <div id='detail'></div>
 
 <script>
@@ -1313,6 +1319,10 @@ let currentPointFeatures=[];
 let currentFiberPointFeatures=[];
 let currentLineFeatures=[];
 let currentDevices=[];
+let searchCandidates=[];
+let searchMarker=null;
+let searchGeocoder=null;
+let searchPlaces=null;
 let viewDiag={{region:'',centerLat:null,centerLng:null,stage:'대기',progress:''}};
 let lastRegionResolveLat=null,lastRegionResolveLng=null,lastRegionResolveId='';
 
@@ -2564,7 +2574,7 @@ function applyZoomVisibility(mapLevel){{
       // 광 선로 자체(kind 없음)는 기존처럼 계속 표시한다.
       if(visible && kind){{
         if(kind==='closure')visible=(mapLevel<=3);
-        else if(isDeviceOverlayKind(kind))visible=(mapLevel<=2);
+        else if(isDeviceOverlayKind(kind))visible=(mapLevel<=1);
         else visible=(mapLevel<=3);
       }}
     }}else if(group==='COAX' && kind==='cell_boundary'){{
@@ -3037,6 +3047,7 @@ async function loadObjects(force=false){{
   overlays=overlays.filter(x=>overlayGroups.get(x)==='FIBER');
   selectedOverlay=null;
   const allFeatures=r.features||[];
+  searchCandidates=allFeatures.filter(f=>String(((f.properties||{{}}).group_id)||'').toUpperCase()!=='FIBER');
   const mapLevel=map.getLevel();
   const isMaxDetail=mapLevel<=3;
   const features=allFeatures.filter(f=>{{
@@ -3502,6 +3513,89 @@ function centerMyLocation(loadAfter){{
   );
 }}
 
+function clearSearchMarker(){{
+  if(searchMarker){{try{{searchMarker.setMap(null)}}catch(e){{}} searchMarker=null;}}
+}}
+function searchPosition(f){{
+  const g=(f||{{}}).geometry||{{}};
+  let xy=g.coordinates||[];
+  if(g.type==='LineString')xy=xy[Math.floor(xy.length/2)]||[];
+  if(g.type==='MultiLineString'){{const a=xy[0]||[];xy=a[Math.floor(a.length/2)]||[];}}
+  return Array.isArray(xy)&&xy.length>=2&&Number.isFinite(Number(xy[0]))&&Number.isFinite(Number(xy[1]))?[Number(xy[0]),Number(xy[1])]:null;
+}}
+function searchPoleNumber(f){{
+  const p=(f||{{}}).properties||{{}};
+  const a=p.attributes||{{}};const fields=a.fields||a;
+  return String(p._cmb_pole_no||(p._cmb_pole_position||{{}}).pole_no||fields.POLE_NO||fields.POLE_CODE||fields['전주번호']||'').trim();
+}}
+function searchShowFeature(f,label){{
+  const pos=searchPosition(f);
+  if(!pos){{setStatus('선택 객체의 좌표가 없습니다');return;}}
+  clearSearchMarker();
+  const ll=new kakao.maps.LatLng(pos[1],pos[0]);
+  map.setCenter(ll);map.setLevel(3);
+  searchMarker=new kakao.maps.CustomOverlay({{
+    position:ll,yAnchor:1.4,zIndex:100,
+    content:'<div style="background:#fff4cc;border:2px solid #e11d48;border-radius:6px;padding:5px 9px;font-weight:bold;white-space:nowrap">'+esc(label)+'</div>'
+  }});
+  searchMarker.setMap(map);setStatus('검색 위치: '+label);
+}}
+function searchResults(items){{
+  const root=document.getElementById('searchResults');root.textContent='';
+  if(!items.length){{root.textContent='검색 결과가 없습니다. 현재 불러온 범위 외의 전주는 검색되지 않습니다.';return;}}
+  items.slice(0,100).forEach(item=>{{
+    const b=document.createElement('button');b.textContent=item.label;
+    b.addEventListener('click',()=>item.pick());root.appendChild(b);
+  }});
+  if(items.length>100){{const d=document.createElement('div');d.textContent='상위 100건 표시 · 조건을 더 입력하세요';root.appendChild(d);}}
+}}
+function doViewerSearch(){{
+  if(!map)return;
+  const kind=document.getElementById('searchType').value;
+  const q=document.getElementById('searchValue').value.trim();
+  if(!q)return;
+  if(kind==='coordinate'){{
+    const v=q.split(/[ ,，]+/).map(Number);
+    if(v.length!==2||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>180||Math.abs(v[1])>90){{setStatus('경도, 위도 순서로 입력하세요');return;}}
+    searchShowFeature({{geometry:{{type:'Point',coordinates:v}}}},q);return;
+  }}
+  if(kind==='address'){{
+    if(!searchGeocoder){{setStatus('카카오 주소 검색 서비스가 준비되지 않았습니다');return;}}
+    searchGeocoder.addressSearch(q,(list,status)=>{{
+      if(status===kakao.maps.services.Status.OK){{
+        searchResults(list.map(x=>({{label:x.address_name,pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.x),Number(x.y)]}}}},x.address_name)}})));return;
+      }}
+      searchPlaces.keywordSearch(q,(list2,status2)=>{{
+        searchResults(status2===kakao.maps.services.Status.OK?list2.map(x=>({{label:x.place_name+' · '+x.address_name,pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.x),Number(x.y)]}}}},x.place_name)}})):[]);
+      }});
+    }});return;
+  }}
+  const up=q.toUpperCase();
+  if(kind==='pole'&&q.length<5){{setStatus('전주번호 앞 5자리(예: 1234X) 이상 입력하세요');return;}}
+  const items=searchCandidates.filter(f=>{{
+    const p=f.properties||{{}};const group=String(p.group_id||'').toUpperCase();
+    if(kind==='pole')return group==='POLE'&&searchPoleNumber(f).toUpperCase().startsWith(up);
+    if(group==='POLE')return false;
+    const a=p.attributes||{{}};const fields=a.fields||a;
+    return [p.regional_object_id,p.source_handle,p.entity_id,p.object_id,p.block_name,p.text,fields.ESSEN_302,fields.NAME,fields.ID]
+      .some(x=>String(x||'').toUpperCase().includes(up));
+  }}).map(f=>{{
+    const p=f.properties||{{}};
+    const label=kind==='pole'?searchPoleNumber(f):String(p.regional_object_id||p.source_handle||p.entity_id||p.block_name||'기기');
+    return {{label:label||'번호 미등록',pick:()=>searchShowFeature(f,label)}};
+  }});
+  searchResults(items);
+}}
+function bindViewerSearch(){{
+  document.getElementById('searchType').addEventListener('change',e=>{{
+    const placeholders={{address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
+    document.getElementById('searchValue').placeholder=placeholders[e.target.value];
+    document.getElementById('searchResults').textContent='';
+  }});
+  document.getElementById('searchGo').addEventListener('click',doViewerSearch);
+  document.getElementById('searchValue').addEventListener('keydown',e=>{{if(e.key==='Enter')doViewerSearch();}});
+  document.getElementById('searchClose').addEventListener('click',()=>{{clearSearchMarker();document.getElementById('searchResults').textContent='';}});
+}}
 function initMap(){{
   try{{
     if(!(window.kakao&&kakao.maps)){{
@@ -3509,6 +3603,7 @@ function initMap(){{
       return;
     }}
     kakao.maps.load(()=>{{
+      if(kakao.maps.services){{searchGeocoder=new kakao.maps.services.Geocoder();searchPlaces=new kakao.maps.services.Places();}}
       map=new kakao.maps.Map(document.getElementById('map'),{{
         center:new kakao.maps.LatLng(35.1595,126.8526),
         level:3
@@ -3577,6 +3672,7 @@ document.addEventListener('keydown',e=>{{
   }}
 }});
 bindUi();
+bindViewerSearch();
 
 let authBootstrapped=false;
 async function runBootstrapOnce(){{
