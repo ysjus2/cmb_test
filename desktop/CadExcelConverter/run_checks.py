@@ -226,7 +226,8 @@ assert "kakao.maps.event.addListener(map,'idle',()=>{{" in init_block
 assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
-assert "if(generation!==regionResolveGeneration||!map||regionSwitching)return;" in init_block
+assert "if(generation!==regionResolveGeneration||!map)return;" in init_block
+assert "regionRecheckNeeded=true;" in init_block
 assert "await reconcileMapRegion();" in init_block
 assert "await loadFiberViewport(false);" not in init_block
 assert "await reconcileMapRegion();" in init_block
@@ -828,7 +829,8 @@ assert "let regionSwitchGeneration=0;" in online_source
 assert "const mySwitch=++regionSwitchGeneration;" in online_source
 assert "activeRegionId='';" in activate_block
 assert "mySwitch!==regionSwitchGeneration" in activate_block
-assert "if(mySwitch===regionSwitchGeneration)regionSwitching=false;" in activate_block
+assert "if(mySwitch===regionSwitchGeneration){{" in activate_block
+assert "regionRecheckNeeded" in activate_block
 assert "self.region_generation = 0" in online_source
 assert "self.region_generation += 1" in online_source
 assert "REGION_SWITCH_CANCELLED" in online_source
