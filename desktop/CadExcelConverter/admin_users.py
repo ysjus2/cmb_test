@@ -1033,12 +1033,30 @@ class UserAdminWindow(tk.Toplevel):
                     tree.delete(item)
                 data=self.client.drawing_status(rid) or {}
                 rows=data.get("groups") or data.get("items") or data.get("revisions") or []
+                # 가능할 때 전체 이력을 조회하여 날짜별·그룹별 실제 저장 차수를 계산한다.
+                try:
+                    history=self.client.revisions(rid) or []
+                    if isinstance(history, dict):
+                        history=history.get("items") or history.get("revisions") or []
+                except Exception:
+                    history=[]
+                counts={}
+                labels={}
+                for entry in sorted(history, key=lambda x: (str(x.get("created_at") or ""), int(x.get("revision") or 0))):
+                    group_key=str(entry.get("group_id") or entry.get("group") or "").upper()
+                    day=str(entry.get("created_at") or "")[:10].replace("-", "")
+                    if not day:
+                        continue
+                    key=(group_key,day)
+                    counts[key]=counts.get(key,0)+1
+                    labels[(group_key,str(entry.get("revision") or ""))]=f"{day}-{counts[key]:02d}"
                 for idx,row in enumerate(rows):
                     group=str(row.get("group_id") or row.get("group") or "")
                     rev=row.get("revision")
                     created_raw=str(row.get("created_at") or "")
                     day=created_raw[:10].replace("-", "") if len(created_raw)>=10 else ""
-                    display_rev=(f"{day}-{int(rev):02d}" if day and str(rev or "").isdigit() else (rev if rev is not None else "-"))
+                    group_key=str(row.get("group_id") or row.get("group") or "").upper()
+                    display_rev=labels.get((group_key,str(rev or "")), day + " (차수 미확인)" if day else "-")
                     active=row.get("active", True)
                     state="현재" if active else "백업"
                     count=int(row.get("object_count") or row.get("count") or 0)
