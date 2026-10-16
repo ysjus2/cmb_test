@@ -3978,8 +3978,6 @@ def run_online_viewer():
                     result = api.regions()
                 elif name == "user_level":
                     result = {"ok": True, "level": int((api.user or {}).get("level") or 0)}
-                elif name == "user_level":
-                    result = {"ok": True, "level": int((api.user or {}).get("level") or 0)}
                 elif name == "save_region_center":
                     result = api.save_region_center(data.get("region"), data.get("lat"), data.get("lng"))
                 elif name == "select":
