@@ -70,6 +70,7 @@ class App(NetworkExtractionMixin, tk.Tk):
         self._build_docked_layer_panel()
 
         self.bind("<F11>", lambda e: self._toggle_fullscreen())
+        self.bind("<Control-f>", lambda e: self._open_fast_search())
         self.bind("<Escape>", self._escape_key)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.after(100, self._drain)
@@ -124,6 +125,7 @@ class App(NetworkExtractionMixin, tk.Tk):
 
         view_menu = tk.Menu(menubar, tearoff=False)
         view_menu.add_command(label="레이어 표시", command=self._show_layer_window)
+        view_menu.add_command(label="빠른 검색 (Ctrl+F)", command=self._open_fast_search)
         view_menu.add_command(label="도면 점검 결과", command=self._show_drawing_audit)
         view_menu.add_command(label="전체 화면", command=self._toggle_fullscreen, accelerator="F11")
         menubar.add_cascade(label="보기", menu=view_menu)
