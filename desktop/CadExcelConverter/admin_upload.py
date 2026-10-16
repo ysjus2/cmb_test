@@ -1594,15 +1594,8 @@ class AdminUploadWindow(tk.Toplevel):
         self._begin_busy()
 
         try:
-            if group == "POLE":
-                polemap = build_polemap_payload(
-                    self.scene,
-                    self.source_path,
-                    self.epsg,
-                    region_code,
-                )
-                if polemap.get("cells"):
-                    self.client.replace_polemap(region_code, polemap)
+            # POLE도 다른 그룹과 동일한 /admin/drawings/upload 경로를 사용한다.
+            # 폐기된 Polemap 격자 API는 호출하지 않는다.
 
             preview_count = int((self.group_counts or {}).get(group, 0))
             self.status.set(f"{group} · 업로드 패키지 생성 중")
