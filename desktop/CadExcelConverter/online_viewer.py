@@ -3312,7 +3312,7 @@ function matchAdministrativeRegion(records){{
   const matches=authorizedRegions.filter(r=>{{
     const name=normalizeRegionName(r.name);
     if(!name)return false;
-    return [...districtNames].some(d=>name===d||name.startsWith(d+'(')||name.endsWith(' '+d));
+    return [...districtNames].some(d=>name===d||name.endsWith(d)||name.startsWith(d+'('));
   }});
   return matches.length===1?matches[0].id:null;
 }}
