@@ -69,7 +69,7 @@ def main():
         finally:
             workbook.close()
         assert len(rows) == 3, rows
-        assert rows[1][12:14] == rows[2][10:12], rows
+        assert rows[1][13:15] == rows[2][11:13], rows
         assert rows[1][8] == 'R1-A-B', rows[1]
         assert rows[1][9] == 'R1_R1-A-B', rows[1]
         assert rows[2][8] == 'R2-B-C', rows[2]
