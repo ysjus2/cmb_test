@@ -3658,7 +3658,18 @@ function searchShowFeature(f,label){{
 }}
 function searchResults(items){{
   const root=document.getElementById('searchResults');root.textContent='';
-  if(!items.length){{root.textContent='검색 결과가 없습니다. 현재 불러온 범위 외의 전주는 검색되지 않습니다.';return;}}
+  if(!items.length){{
+    const type=document.getElementById('searchType').value;
+    const messages={{
+      region:'일치하는 등록 지역이 없습니다. 지역명 또는 지역코드를 확인하세요.',
+      address:'검색된 주소나 장소가 없습니다. 주소 또는 장소명을 확인하세요.',
+      pole:'현재 불러온 범위에서 일치하는 전주가 없습니다. 다른 지역의 전주는 검색되지 않을 수 있습니다.',
+      device:'현재 불러온 데이터에서 일치하는 기기나 케이블이 없습니다.',
+      coordinate:'좌표 검색 결과가 없습니다. 경도, 위도 입력값을 확인하세요.'
+    }};
+    root.textContent=messages[type]||'일치하는 검색 결과가 없습니다.';
+    return;
+  }}
   items.slice(0,100).forEach(item=>{{
     const b=document.createElement('button');b.textContent=item.label;
     b.addEventListener('click',()=>item.pick());root.appendChild(b);
