@@ -573,7 +573,7 @@ def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
         headers[id_column:id_column+1]=['순수 객체ID','지역객체ID']
         ws.append(headers)
         for row in data:
-            if scope.get('online'):
+            if bool(scope.get('online') or getattr(scope.get('network'), 'online', False)):
                 pure_id, regional_id = _online_export_ids(row[id_column])
                 row[id_column] = pure_id
                 row.insert(id_column+1, regional_id)
@@ -608,16 +608,16 @@ def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
                     except ValueError:pass
                 points = edge.points if edge.u == a else list(reversed(edge.points))
                 start_point, end_point = points[0], points[-1]
-                if scope.get('online'):
+                if bool(scope.get('online') or getattr(network, 'online', False)):
                     # Use one canonical coordinate per graph node so consecutive
                     # rows are exactly continuous even when source endpoints differ.
                     start_point = network.positions.get(a, start_point)
                     end_point = network.positions.get(b, end_point)
                 start_closure = network.by_handle.get(a)
                 end_closure = network.by_handle.get(b)
-                if order > 1 and start_closure and is_closure(start_closure):
+                if not getattr(network, 'online', False) and order > 1 and start_closure and is_closure(start_closure):
                     start_point = entity_position(start_closure) or start_point
-                if order < len(route) and end_closure and is_closure(end_closure):
+                if not getattr(network, 'online', False) and order < len(route) and end_closure and is_closure(end_closure):
                     end_point = entity_position(end_closure) or end_point
                 start_lon, start_lat = transform.transform(*start_point)
                 end_lon, end_lat = transform.transform(*end_point)
