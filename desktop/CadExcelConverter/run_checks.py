@@ -203,7 +203,7 @@ assert "<select id='region' title='현재 도면 조회 지역 (통합 검색으
 assert "apiCall('region_at_point'" not in online_source
 assert "def region_at_point(" not in online_source
 assert "async function autoRegionForMapCenter()" not in online_source
-activate_block = online_source.split("async function activateRegion(region){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
+activate_block = online_source.split("async function activateRegion(region, preservePosition=false){{",1)[1].split("async function autoRegionForMapCenter(){{",1)[0]
 assert "activeRegionId===region" in activate_block
 assert "authorizedRegions.find(x=>x.id===region)" in activate_block
 assert "activeRegionId=region;" in activate_block
@@ -226,7 +226,8 @@ assert "kakao.maps.event.addListener(map,'idle',()=>{{" in init_block
 assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
-assert "if(generation!==regionResolveGeneration||!map||!activeRegionId)return;" in init_block
+assert "if(generation!==regionResolveGeneration||!map||regionSwitching)return;" in init_block
+assert "regionForPosition(" in init_block
 assert "await loadFiberViewport(false);" not in init_block
 assert "await loadObjects(false);" in init_block
 reload_block = online_source.split("document.getElementById('reload').onclick=async()=>{{",1)[1].split("document.getElementById('myLocation')",1)[0]
