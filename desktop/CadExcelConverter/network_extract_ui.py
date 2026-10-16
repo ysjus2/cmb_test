@@ -15,6 +15,124 @@ from catv_poles import catv_pole_rows, export_catv_poles
 
 
 class NetworkExtractionMixin:
+    def _open_fast_search(self):
+        """Search only the current scene, or the current extracted network."""
+        from network_extract import entity_position, _online_export_ids
+        from pyproj import Transformer
+        import re
+        if getattr(self,'_search_window',None) is not None:
+            try:
+                if self._search_window.winfo_exists():
+                    self._search_window.lift()
+                    return
+            except Exception:
+                pass
+        scope = getattr(self,'export_scope',None)
+        network = (scope or {}).get('network') if scope and scope.get('kind')=='fiber' else None
+        entries = []
+        if network is not None:
+            allowed = set((scope or {}).get('indices') or [])
+            for handle,edge in network.edges.items():
+                if edge.index not in allowed:
+                    continue
+                pts = list(edge.points or [])
+                if not pts:
+                    continue
+                attrs = edge.attributes or {}
+                cable = str(attrs.get('ESSEN_302') or
+                            str(attrs.get('ESSEN_300') or '').split('/')[0]).strip()
+                pure, regional = _online_export_ids(handle) if getattr(network,'online',False) else (handle,handle)
+                entries.append((str(pure),str(regional),cable,tuple(pts[len(pts)//2]),edge.index,pts))
+        elif getattr(self.viewer,'scene',None) is not None:
+            for entity in self.viewer.scene.entities:
+                attrs = entity.attributes or {}
+                cable = str(attrs.get('ESSEN_302') or
+                            str(attrs.get('ESSEN_300') or '').split('/')[0]).strip()
+                points = next((list(v) for k,v in entity.primitives
+                               if k in ('line','polyline') and len(v)>=2),[])
+                position = entity_position(entity)
+                if position is None and points:
+                    position = points[len(points)//2]
+                if position is not None:
+                    entries.append((str(entity.handle),str(entity.handle),cable,
+                                    tuple(position[:2]),entity.index,points))
+        if not entries:
+            messagebox.showinfo('빠른 검색','현재 검색할 도면 또는 추출 데이터가 없습니다.')
+            return
+        win=tk.Toplevel(self)
+        self._search_window=win
+        win.title('현재 도면 / 광추출 빠른 검색')
+        win.geometry('550x390')
+        win.transient(self)
+        pane=ttk.Frame(win,padding=10)
+        pane.pack(fill='both',expand=True)
+        mode=tk.StringVar(value='객체ID')
+        term=tk.StringVar()
+        top=ttk.Frame(pane)
+        top.pack(fill='x')
+        ttk.Combobox(top,textvariable=mode,values=('객체ID','좌표','케이블번호'),state='readonly',width=11).pack(side='left',padx=(0,4))
+        box=ttk.Entry(top,textvariable=term)
+        box.pack(side='left',fill='x',expand=True)
+        table=ttk.Treeview(pane,columns=('id','cable'),show='headings',height=12)
+        table.heading('id',text='객체ID')
+        table.heading('cable',text='케이블번호')
+        table.column('id',width=330)
+        table.column('cable',width=125)
+        table.pack(fill='both',expand=True,pady=(10,3))
+        info=ttk.Label(pane,text=f'검색 대상 {len(entries):,}개 · 현재 데이터만 조회')
+        info.pack(anchor='w')
+        matches=[]
+        transformer=Transformer.from_crs('EPSG:4326',f'EPSG:{int(self.epsg_var.get())}',always_xy=True)
+
+        def search(*_):
+            nonlocal matches
+            query=term.get().strip()
+            table.delete(*table.get_children())
+            if not query:
+                matches=[]
+                return
+            option=mode.get()
+            if option=='좌표':
+                try:
+                    items=[float(v) for v in re.split(r'[,\\s]+',query) if v]
+                    if len(items)!=2 or not (-180<=items[0]<=180 and -90<=items[1]<=90):
+                        raise ValueError()
+                    x,y=transformer.transform(*items)
+                    ranked=sorted(entries,key=lambda e:(e[3][0]-x)**2+(e[3][1]-y)**2)
+                    matches=ranked[:50]
+                except (ValueError,TypeError):
+                    info.configure(text='경도, 위도 순서로 입력해주세요.')
+                    return
+            elif option=='케이블번호':
+                matches=[e for e in entries if query.upper() in e[2].upper()][:100]
+            else:
+                matches=[e for e in entries if query.upper() in e[0].upper() or query.upper() in e[1].upper()][:100]
+            for i,e in enumerate(matches):
+                table.insert('', 'end', iid=str(i),values=(e[1],e[2]))
+            info.configure(text=f'검색 결과 {len(matches):,}개 · 더블클릭 또는 Enter로 이동')
+
+        def move(_=None):
+            choice=table.selection()
+            if not choice:
+                return
+            e=matches[int(choice[0])]
+            x,y=e[3]
+            viewer=self.viewer
+            viewer.update_idletasks()
+            w=max(100,viewer.canvas.winfo_width())
+            h=max(100,viewer.canvas.winfo_height())
+            viewer.ox=w/2-x*viewer.scale
+            viewer.oy=h/2+y*viewer.scale
+            viewer.selected.clear()
+            viewer.selected.add(e[4])
+            viewer.redraw()
+            info.configure(text=f'선택: {e[1]} · 도면 중앙으로 이동')
+        ttk.Button(top,text='검색',command=search).pack(side='left',padx=(4,0))
+        box.bind('<Return>',search)
+        table.bind('<Double-1>',move)
+        table.bind('<Return>',move)
+        box.focus_set()
+
     def _build_extract_toolbar(self,parent,fiber_parent=None):
         self.export_scope=None
         self.fiber_network=None
