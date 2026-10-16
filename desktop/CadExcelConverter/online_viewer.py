@@ -3530,7 +3530,7 @@ function searchPosition(f){{
 function searchPoleNumber(f){{
   const p=(f||{{}}).properties||{{}};
   const a=p.attributes||{{}};const fields=a.fields||a;
-  return String(p._cmb_pole_no||(p._cmb_pole_position||{{}}).pole_no||fields.POLE_NO||fields.POLE_CODE||fields['전주번호']||'').trim();
+  return String(f._cmb_pole_no||(f._cmb_pole_position||{{}}).pole_no||p._cmb_pole_no||(p._cmb_pole_position||{{}}).pole_no||fields.POLE_NO||fields.POLE_CODE||fields['전주번호']||'').trim();
 }}
 function searchShowFeature(f,label){{
   const pos=searchPosition(f);
