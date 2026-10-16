@@ -1091,7 +1091,7 @@ class AdminUploadWindow(tk.Toplevel):
             text="지역 새로고침",
             command=self._load_server_regions,
         ).pack(side="left", padx=(6, 0))
-        ttk.Button(region_box, text="도면 중심점 저장", command=self._save_drawing_center).pack(side="left", padx=(6, 0))
+        ttk.Button(region_box, text="도면 중심점 변경", command=self._save_drawing_center).pack(side="left", padx=(6, 0))
         self.region_rows = []
         self.region_display_to_id = {}
 
@@ -1281,7 +1281,7 @@ class AdminUploadWindow(tk.Toplevel):
                 return
             if not messagebox.askyesno(
                 "도면 중심점 변경",
-                f"지역: {self.region_var.get()}\n지정한 위도: {lat:.6f}\n지정한 경도: {lon:.6f}\n\n기존 저장위치를 바꾸시겠습니까?",
+                f"지역: {self.region_var.get()}\n\n선택한 위치 좌표\n위도: {lat:.6f}\n경도: {lon:.6f}\n\n기존 저장위치를 바꾸시겠습니까?",
                 parent=self,
             ):
                 return
