@@ -207,7 +207,7 @@ activate_block = online_source.split("async function activateRegion(region, pres
 assert "activeRegionId===region" in activate_block
 assert "authorizedRegions.find(x=>x.id===region)" in activate_block
 assert "activeRegionId=region;" in activate_block
-assert "await loadRegionFiber(false);" in activate_block
+assert "const fiberPromise=loadRegionFiber(false);" in activate_block
 assert "const center=(r&&r.center)||null;" in activate_block
 assert "centerMyLocation(false);" not in online_source
 assert "map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));" in activate_block
@@ -215,9 +215,9 @@ assert "map.setLevel(9);" in activate_block
 assert "const networkQueryMode=mapLevelNow<=5;" in online_source
 assert "지역 중심점 조회 · " in online_source
 assert "지역 중심점이 서버에 저장되지 않았습니다" in online_source
-assert activate_block.index("apiCall('select'") < activate_block.index("await loadRegionFiber(false);")
-assert "await loadObjects(true);" in activate_block
-assert activate_block.index("await loadRegionFiber(false);") < activate_block.index("await loadObjects(true);")
+assert activate_block.index("apiCall('select'") < activate_block.index("const fiberPromise=loadRegionFiber(false);")
+assert "const objectsPromise=loadObjects(true);" in activate_block
+assert activate_block.index("const fiberPromise=loadRegionFiber(false);") < activate_block.index("const objectsPromise=loadObjects(true);")
 assert "lastFiberQueryLat=null;" not in activate_block
 assert "activeRegionId='';" in online_source
 assert "document.getElementById('region').onchange=async e=>" in online_source
