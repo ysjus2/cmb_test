@@ -69,7 +69,10 @@ def main():
         finally:
             workbook.close()
         assert len(rows) == 3, rows
-        assert rows[1][13:15] == rows[2][11:13], rows
+        headers = rows[0]
+        end_cols = [headers.index('끝경도'), headers.index('끝위도')]
+        start_cols = [headers.index('시작경도'), headers.index('시작위도')]
+        assert tuple(rows[1][i] for i in end_cols) == tuple(rows[2][i] for i in start_cols), rows
         assert rows[1][8] == 'R1-A-B', rows[1]
         assert rows[1][9] == 'R1_R1-A-B', rows[1]
         assert rows[2][8] == 'R2-B-C', rows[2]
