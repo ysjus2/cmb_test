@@ -3672,10 +3672,10 @@ function doViewerSearch(){{
   if(!q)return;
   if(kind==='region'){{
     const needle=normalizeRegionName(q).replace(/(시|군|구)$/,'');
-    const entries=authorizedRegions.filter(x=>{
+    const entries=authorizedRegions.filter(x=>{{
       const registered=normalizeRegionName(x.name).replace(/(시|군|구)$/,'');
       return x.id.toUpperCase().includes(q.toUpperCase()) || (needle.length>0 && registered.includes(needle));
-    });
+    }});
     searchResults(entries.map(x=>({{label:x.name+' ('+x.id+')',pick:async()=>{{clearSearchMarker();await activateRegion(x.id,false);}}}})));
     return;
   }}
