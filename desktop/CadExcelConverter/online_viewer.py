@@ -1260,7 +1260,6 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
       <button id='mapHybrid' title='일반지도 / 위성지도 전환'>위성지도</button>
       <button id='roadviewBtn' title='현재 지도 중심의 로드뷰 열기'>로드뷰</button>
       <button id='reload'>새로고침</button>
-      <button id='saveRegionCenter' style='display:none' title='1등급 관리자 전용 · 현재 지도 중심을 지역 시작점으로 저장'>시작점 저장</button>
       <div id='measureBox'>
         <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
         <button id='measureDistance' title='거리 측정 시작'>거리</button>
@@ -3482,8 +3481,6 @@ async function bootstrapAuth(){{
     // 런처가 자식 실행 직전에 /me 검증을 완료한다.
     // pywebview 예약/미노출 함수명 문제를 피하기 위해 별도 bootstrap RPC를 사용하지 않는다.
     authenticated=true;
-    const me=await apiCall('user_level');
-    if(Number(me.level)===1)document.getElementById('saveRegionCenter').style.display='';
     setStatus('권한 지역 조회 중');
     await loadRegions();
 
@@ -3500,19 +3497,6 @@ async function bootstrapAuth(){{
 }}
 
 function bindUi(){{
-  document.getElementById('saveRegionCenter').onclick=async()=>{{
-    if(!map||!activeRegionId){{setStatus('먼저 저장할 지역을 선택하세요');return;}}
-    const current=authorizedRegions.find(x=>x.id===activeRegionId);
-    const c=map.getCenter();
-    const lat=Number(c.getLat()),lng=Number(c.getLng());
-    if(!confirm('지역 '+(current?current.name:activeRegionId)+' ('+activeRegionId+')의 시작점을 현재 지도 중심 ('+lat.toFixed(6)+', '+lng.toFixed(6)+')으로 저장하시겠습니까?'))return;
-    const region=activeRegionId;
-    try{{
-      const result=await apiCall('save_region_center',{{region,lat,lng}});
-      if(!result.ok)throw new Error(result.error||'서버 저장 오류');
-      setStatus('지역 시작점 저장 완료 · '+region+' · '+lat.toFixed(6)+','+lng.toFixed(6));
-    }}catch(e){{setStatus('지역 시작점 저장 실패 · '+(e.message||e));}}
-  }};
   document.getElementById('reload').onclick=async()=>{{
     if(!activeRegionId){{
       setStatus('먼저 지역을 선택하세요');
