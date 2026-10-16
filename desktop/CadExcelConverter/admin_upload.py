@@ -1091,6 +1091,7 @@ class AdminUploadWindow(tk.Toplevel):
             text="지역 새로고침",
             command=self._load_server_regions,
         ).pack(side="left", padx=(6, 0))
+        ttk.Button(region_box, text="도면 중심점 저장", command=self._save_drawing_center).pack(side="left", padx=(6, 0))
         self.region_rows = []
         self.region_display_to_id = {}
 
@@ -1243,6 +1244,38 @@ class AdminUploadWindow(tk.Toplevel):
             self.upload_one_btn.configure(state="disabled")
             self.upload_all_btn.configure(state="disabled")
             self.status.set("1등급 관리자만 업로드할 수 있습니다.")
+
+    def _save_drawing_center(self):
+        if int((self.current_user or {}).get("level") or 0) != 1:
+            messagebox.showerror("권한 오류", "1등급 관리자만 저장 가능합니다.", parent=self)
+            return
+        region = self.region_display_to_id.get(self.region_var.get().strip())
+        if not region or region != Path(self.source_path).stem.strip():
+            messagebox.showerror("지역 확인", "현재 DXF 파일명과 서버 지역코드가 일치해야 합니다.", parent=self)
+            return
+        viewer = getattr(self.master, "viewer", None)
+        if viewer is None or viewer.scene is not self.scene:
+            messagebox.showerror("도면 확인", "열린 도면 정보를 확인할 수 없습니다.", parent=self)
+            return
+        try:
+            viewer.update_idletasks()
+            x, y = viewer.screen_to_world(viewer.canvas.winfo_width() / 2, viewer.canvas.winfo_height() / 2)
+            lon, lat = Transformer.from_crs(f"EPSG:{int(self.epsg)}", "EPSG:4326", always_xy=True).transform(x, y)
+            if not (math.isfinite(lon) and math.isfinite(lat) and 33 <= lat <= 39 and 124 <= lon <= 132):
+                raise ValueError("현재 도면 중심점이 한국 좌표 범위를 벗어났습니다.")
+        except Exception as exc:
+            messagebox.showerror("좌표 확인 실패", str(exc), parent=self)
+            return
+        if not messagebox.askyesno("도면 중심점 변경", f"지역: {self.region_var.get()}\n위도 {lat:.6f} / 경도 {lon:.6f}\n\n기존 저장위치를 바꾸시겠습니까?", parent=self):
+            return
+        try:
+            result = self.client.update_region_center(region, lat, lon)
+            if isinstance(result, dict) and (result.get("ok") is False or result.get("error")):
+                raise RuntimeError(str(result.get("error") or "서버 저장 오류"))
+            self.status.set(f"도면 중심점 저장 완료 · {region}")
+            messagebox.showinfo("저장 완료", "지역 시작점을 저장했습니다.", parent=self)
+        except Exception as exc:
+            messagebox.showerror("저장 실패", str(exc), parent=self)
 
     def _load_server_regions(self):
         self.upload_one_btn.configure(state="disabled")
