@@ -828,7 +828,7 @@ class Api:
                 },
             )
 
-    def select(self, region):
+    def select(self, region, preserve_position=False):
         new_region = str(region or "")
         if new_region != self.region:
             self.region_generation += 1
@@ -840,9 +840,9 @@ class Api:
         try:
             # 지역 선택 시 저장된 중심 좌표를 서버에서 즉시 확인한다.
             # 조회 실패/미저장 상태에서는 도면 다운로드를 시작하지 않는다.
-            centers = self.c.region_centers() or {}
+            centers = {} if preserve_position else (self.c.region_centers() or {})
             raw_center = centers.get(self.region) if isinstance(centers, dict) else None
-            if not isinstance(raw_center, dict):
+            if not preserve_position and not isinstance(raw_center, dict):
                 return {
                     "ok": False,
                     "error": f"지역 중심점이 서버에 저장되지 않았습니다: {self.region}",
@@ -850,8 +850,8 @@ class Api:
                 }
 
             try:
-                center_lat = float(raw_center.get("center_lat"))
-                center_lon = float(raw_center.get("center_lon"))
+                center_lat = float(raw_center.get("center_lat")) if raw_center else None
+                center_lon = float(raw_center.get("center_lon")) if raw_center else None
             except Exception as exc:
                 return {
                     "ok": False,
@@ -859,7 +859,7 @@ class Api:
                     "center": None,
                 }
 
-            if not (
+            if not preserve_position and not (
                 -90.0 <= center_lat <= 90.0
                 and -180.0 <= center_lon <= 180.0
             ):
@@ -3391,7 +3391,7 @@ async function activateRegion(region, preservePosition=false){{
 
   try{{
     setWorkStatus('지역 중심점 조회 · '+region,6,true);
-    const r=await apiCall('select',{{region:region}});
+    const r=await apiCall('select',{{region:region,preserve_position:preservePosition}});
     if(mySwitch!==regionSwitchGeneration)return false;
     if(!r.ok){{
       sel.value='';
@@ -3404,7 +3404,7 @@ async function activateRegion(region, preservePosition=false){{
     // 서버 DB에 저장된 지역 중심점만 사용한다.
     // 중심 확인이 끝난 뒤에만 FIBER 다운로드 단계로 진행한다.
     const center=(r&&r.center)||null;
-    if(!(map&&center&&Number.isFinite(Number(center.lat))&&Number.isFinite(Number(center.lng)))){{
+    if(!map||(!preservePosition&&(!center||!Number.isFinite(Number(center.lat))||!Number.isFinite(Number(center.lng))))){{
       setWorkStatus('지역 중심점 확인 실패 · '+region,100,false);
       return false;
     }}
@@ -3425,15 +3425,13 @@ async function activateRegion(region, preservePosition=false){{
     lastDetailMode=null;
 
     // 새 지역 광 캐시를 먼저 표시하고, 이전 지역 전체수집은 backend generation으로 취소된다.
-    const fiberResult=await loadRegionFiber(false);
+    const fiberPromise=loadRegionFiber(false);
+    // Load the visible neighborhood without waiting for region-wide optical sync.
+    const objectsPromise=loadObjects(true);
+    const fiberResult=await fiberPromise;
     if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
-    if(fiberResult<0){{
-      // 광 전체 동기화 실패 상태를 동축/기기 85% 메시지가 덮어쓰지 않게 한다.
-      return false;
-    }}
-
-    setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 동축/기기 조회 시작',80,true);
-    await loadObjects(true);
+    if(fiberResult<0)setStatus('광 동기화 실패 · 현재 주변 도면은 계속 조회');
+    await objectsPromise;
     if(mySwitch!==regionSwitchGeneration||activeRegionId!==region)return false;
 
     setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 완료',100,false);
@@ -3869,7 +3867,7 @@ def run_online_viewer():
                 if name == "regions":
                     result = api.regions()
                 elif name == "select":
-                    result = api.select(data.get("region"))
+                    result = api.select(data.get("region"), preserve_position=bool(data.get("preserve_position")))
                 elif name == "fiber_cached":
                     result = api.cached_fiber()
                 elif name == "fiber_progress":
