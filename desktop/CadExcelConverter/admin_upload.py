@@ -1848,13 +1848,14 @@ class AdminUploadWindow(tk.Toplevel):
 
         tree = ttk.Treeview(
             root,
-            columns=("group", "state", "date", "count", "memo"),
+            columns=("group", "state", "version", "date", "count", "memo"),
             show="headings",
             height=13,
         )
         for key, title, width in (
             ("group", "종류", 90),
             ("state", "상태", 70),
+            ("version", "저장일-차수", 125),
             ("date", "저장일시", 155),
             ("count", "객체수", 90),
             ("memo", "메모", 420),
@@ -1888,6 +1889,17 @@ class AdminUploadWindow(tk.Toplevel):
                 ),
             )
 
+            daily_counts = {}
+            display_ids = {}
+            for row in sorted(rows, key=lambda r: (str(r.get("created_at") or ""), int(r.get("revision") or 0))):
+                group_key = str(row.get("group_id") or "").upper()
+                day = str(row.get("created_at") or "")[:10].replace("-", "")
+                if not day:
+                    continue
+                key = (group_key, day)
+                daily_counts[key] = daily_counts.get(key, 0) + 1
+                display_ids[id(row)] = f"{day}-{daily_counts[key]:02d}"
+
             for idx, item in enumerate(rows):
                 group = str(item.get("group_id") or "")
                 state = "현재" if item.get("active") else "백업"
@@ -1899,9 +1911,9 @@ class AdminUploadWindow(tk.Toplevel):
                     "",
                     "end",
                     iid=iid,
-                    values=(group, state, created or "날짜 없음", f"{count:,}", memo),
+                    values=(group, state, display_ids.get(id(item), "날짜 없음"), created or "날짜 없음", f"{count:,}", memo),
                 )
-                row_map[iid] = item
+                row_map[iid] = {**item, "_display_version": display_ids.get(id(item), "날짜 없음")}
 
         def restore_selected():
             selected = tree.selection()
@@ -1940,6 +1952,7 @@ class AdminUploadWindow(tk.Toplevel):
                 (
                     f"지역: {region}\n"
                     f"종류: {group}\n"
+                    f"저장버전: {item.get('_display_version', '-')}\n"
                     f"백업일시: {created or '날짜 없음'}\n"
                     f"메모: {memo}\n\n"
                     "이 백업을 현재 도면으로 복원하시겠습니까?\n"
@@ -1958,7 +1971,7 @@ class AdminUploadWindow(tk.Toplevel):
                 load_rows()
                 self.status.set(
                     f"{group} 백업 복원 완료 · "
-                    f"revision {result.get('revision') or item.get('revision')}"
+                    f"선택 버전 {item.get('_display_version', '-')}"
                 )
                 messagebox.showinfo(
                     "백업 복원",
