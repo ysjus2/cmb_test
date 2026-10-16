@@ -227,9 +227,9 @@ assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
 assert "if(generation!==regionResolveGeneration||!map||regionSwitching)return;" in init_block
-assert "regionForPosition(" in init_block
+assert "await reconcileMapRegion();" in init_block
 assert "await loadFiberViewport(false);" not in init_block
-assert "await loadObjects(false);" in init_block
+assert "await reconcileMapRegion();" in init_block
 reload_block = online_source.split("document.getElementById('reload').onclick=async()=>{{",1)[1].split("document.getElementById('myLocation')",1)[0]
 assert "await loadRegionFiber(true);" in reload_block
 assert "lastQueryLat=null;" in reload_block
@@ -690,8 +690,8 @@ assert region_fiber_block.index("apiCall('fiber_cached')") < region_fiber_block.
 init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdown'",1)[0]
 assert "loadRegionFiber(" not in init_block
 assert "loadFiberViewport(" not in init_block
-assert "await loadObjects(false);" in init_block
-assert "regionForPosition(Number(center.getLng()),Number(center.getLat()))" in init_block
+assert "await reconcileMapRegion();" in init_block
+assert "await reconcileMapRegion();" in init_block
 
 assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
 fetch_bbox_block = online_source.split("    def _fetch_bbox_network(self, west, south, east, north):",1)[1].split("    def _commit_bbox_cache",1)[0]
