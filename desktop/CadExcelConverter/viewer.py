@@ -1732,6 +1732,12 @@ class DXFViewer(ttk.Frame):
         return "break"
 
     def _left_click(self, event):
+        center_pick = getattr(self, "region_center_pick", None)
+        if center_pick is not None:
+            self.region_center_pick = None
+            x, y = self.screen_to_world(event.x, event.y)
+            center_pick(x, y)
+            return
         if self.network_click is not None:
             self.network_click(event)
             return
