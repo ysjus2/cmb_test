@@ -207,7 +207,7 @@ activate_block = online_source.split("async function activateRegion(region, pres
 assert "activeRegionId===region" in activate_block
 assert "authorizedRegions.find(x=>x.id===region)" in activate_block
 assert "activeRegionId=region;" in activate_block
-assert "const fiberPromise=loadRegionFiber(false);" in activate_block
+assert "loadRegionFiber(false).catch(" in activate_block
 assert "const center=(r&&r.center)||null;" in activate_block
 assert "centerMyLocation(false);" not in online_source
 assert "map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));" in activate_block
@@ -215,9 +215,9 @@ assert "map.setLevel(9);" in activate_block
 assert "const networkQueryMode=mapLevelNow<=5;" in online_source
 assert "지역 중심점 조회 · " in online_source
 assert "지역 중심점이 서버에 저장되지 않았습니다" in online_source
-assert activate_block.index("apiCall('select'") < activate_block.index("const fiberPromise=loadRegionFiber(false);")
-assert "const objectsPromise=loadObjects(true);" in activate_block
-assert activate_block.index("const fiberPromise=loadRegionFiber(false);") < activate_block.index("const objectsPromise=loadObjects(true);")
+assert activate_block.index("apiCall('select'") < activate_block.index("loadRegionFiber(false).catch(")
+assert "loadObjects(true).catch(" in activate_block
+assert activate_block.index("loadRegionFiber(false).catch(") < activate_block.index("loadObjects(true).catch(")
 assert "lastFiberQueryLat=null;" not in activate_block
 assert "activeRegionId='';" in online_source
 assert "document.getElementById('region').onchange=async e=>" in online_source
@@ -227,7 +227,7 @@ assert "REGION_SETTLE_DELAY_MS=700" in online_source
 assert "regionResolveGeneration" in init_block
 assert "setTimeout(async()=>{{" in init_block
 assert "if(generation!==regionResolveGeneration||!map)return;" in init_block
-assert "regionRecheckNeeded=true;" in init_block
+assert "regionSwitchGeneration++;" in init_block
 assert "await reconcileMapRegion();" in init_block
 assert "await loadFiberViewport(false);" not in init_block
 assert "await reconcileMapRegion();" in init_block
@@ -823,7 +823,7 @@ assert "fiberViewportGeneration++;" in clear_all_block
 assert "이전 지역 취소/숨김" in online_source
 assert "이동 '+Math.round(moved)+'m / '+QUERY_RECENTER_METERS+'m" in online_source
 assert "STAGE 새 지역 광 캐시 확인" in online_source
-assert "const objectsPromise=loadObjects(true);" in online_source
+assert "loadObjects(true).catch(" in online_source
 assert "STAGE 완료" in online_source
 assert "let regionSwitchGeneration=0;" in online_source
 assert "const mySwitch=++regionSwitchGeneration;" in online_source
