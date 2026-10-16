@@ -262,7 +262,7 @@ print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
 # 지역 전환은 Windows 1.0 방식대로 좌표 기반 기존 캐시를 즉시 읽어야 한다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fetch_bbox_network", 1)[0]
+select_block = online_source.split("    def select(self, region, preserve_position=False):", 1)[1].split("    def _fetch_bbox_network", 1)[0]
 assert "self._load_cache()" in select_block
 assert "self._load_fiber_cache()" in select_block
 assert "cache_ready" in select_block
@@ -279,7 +279,7 @@ print("CONDUIT_CLASSIFICATION_PRIORITY_OK")
 
 # 지역 전환은 좌표 기반 지역 캐시와 광 캐시를 즉시 읽는다.
 online_source = (root / "online_viewer.py").read_text(encoding="utf-8")
-select_block = online_source.split("    def select(self, region):", 1)[1].split("    def _fetch_bbox_network", 1)[0]
+select_block = online_source.split("    def select(self, region, preserve_position=False):", 1)[1].split("    def _fetch_bbox_network", 1)[0]
 assert "self._load_cache()" in select_block
 assert "self._load_fiber_cache()" in select_block
 assert "cache_ready" in select_block
