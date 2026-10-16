@@ -3607,6 +3607,11 @@ function centerMyLocation(loadAfter){{
   );
 }}
 
+function clearSearchUi(){{
+  document.getElementById('searchValue').value='';
+  document.getElementById('searchResults').textContent='';
+  clearSearchMarker();
+}}
 function clearSearchMarker(){{
   if(searchMarker){{try{{searchMarker.setMap(null)}}catch(e){{}} searchMarker=null;}}
   if(searchLine){{try{{searchLine.setMap(null)}}catch(e){{}} searchLine=null;}}
@@ -3626,7 +3631,7 @@ function searchPoleNumber(f){{
 function searchShowFeature(f,label){{
   const pos=searchPosition(f);
   if(!pos){{setStatus('선택 객체의 좌표가 없습니다');return;}}
-  clearSearchMarker();
+  clearSearchUi();
   // The previous office/network is never pinned to an address search result.
   // Hide its overlays before navigating; stale network responses are invalidated.
   if(activeRegionId||regionSwitching){{
@@ -3682,12 +3687,12 @@ function doViewerSearch(){{
   const q=document.getElementById('searchValue').value.trim();
   if(!q)return;
   if(kind==='region'){{
-    const needle=normalizeRegionName(q).replace(/(시|군|구)$/,'');
-    const entries=authorizedRegions.filter(x=>{{
-      const registered=normalizeRegionName(x.name).replace(/(시|군|구)$/,'');
-      return x.id.toUpperCase().includes(q.toUpperCase()) || (needle.length>0 && registered.includes(needle));
-    }});
-    searchResults(entries.map(x=>({{label:x.name+' ('+x.id+')',pick:async()=>{{clearSearchMarker();await activateRegion(x.id,false);}}}})));
+    const needle=q.trim().toLocaleLowerCase();
+    const entries=authorizedRegions.filter(x=>
+      String(x.name||'').toLocaleLowerCase().includes(needle) ||
+      String(x.id||'').toLocaleLowerCase().includes(needle)
+    );
+    searchResults(entries.map(x=>({{label:x.name+' ('+x.id+')',pick:async()=>{{clearSearchUi();await activateRegion(x.id,false);}}}})));
     return;
   }}
   if(kind==='coordinate'){{
@@ -3731,7 +3736,7 @@ function bindViewerSearch(){{
   }});
   document.getElementById('searchGo').addEventListener('click',doViewerSearch);
   document.getElementById('searchValue').addEventListener('keydown',e=>{{if(e.key==='Enter')doViewerSearch();}});
-  document.getElementById('searchClose').addEventListener('click',()=>{{clearSearchMarker();document.getElementById('searchResults').textContent='';}});
+  document.getElementById('searchClose').addEventListener('click',clearSearchUi);
 }}
 function initMap(){{
   try{{
@@ -3746,6 +3751,8 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>{{
+        // Do not retain stale address/region search results after a map move.
+        clearSearchUi();
         // Immediately hide stale drawings when moving beyond the loaded-region bbox.
         // Coordinate verification and server fetch follow the brief debounce.
         if(activeRegionId&&!regionSwitching){{
