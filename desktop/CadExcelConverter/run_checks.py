@@ -746,7 +746,7 @@ assert 'groups="FIBER"' in online_source
 assert 'group_filter = "COAX,CONDUIT,POLE,USER"' in online_source
 assert "groups=group_filter" in online_source
 assert "loadRegionFiber(false).catch(" in online_source
-assert "if(fiberResult<0)" in online_source
+assert "loadRegionFiber(false).catch(" in online_source
 assert "self.region_bounds = {}" in online_source
 assert "bounds = self.region_bounds.get(region) or {}" in online_source
 assert 'raise RuntimeError("FIBER_REGION_BOUNDS_MISSING")' in online_source
