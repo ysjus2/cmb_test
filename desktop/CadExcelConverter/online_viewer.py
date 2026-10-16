@@ -1304,6 +1304,8 @@ let regionSwitching=false;
 let regionSwitchGeneration=0;
 let regionResolveTimer=null;
 let regionResolveGeneration=0;
+let regionRecheckNeeded=false;
+let regionLookupGeneration=0;
 const REGION_SETTLE_DELAY_MS=700;
 let fiberViewportGeneration=0;
 let authenticated=false;
@@ -3335,12 +3337,16 @@ async function resolveRegionAt(lng,lat){{
   return regionForPosition(lng,lat);
 }}
 async function reconcileMapRegion(){{
-  if(!map||regionSwitching)return;
+  if(!map)return;
+  if(regionSwitching){{regionRecheckNeeded=true;return;}}
+  const lookupGeneration=++regionLookupGeneration;
   const center=map.getCenter();
   const lng=Number(center.getLng()),lat=Number(center.getLat());
   const expectedLng=lng,expectedLat=lat;
   const region=await resolveRegionAt(lng,lat);
-  if(!map||regionSwitching)return;
+  if(!map)return;
+  if(regionSwitching){{regionRecheckNeeded=true;return;}}
+  if(lookupGeneration!==regionLookupGeneration)return;
   const now=map.getCenter();
   if(Math.abs(now.getLng()-expectedLng)>0.00005||Math.abs(now.getLat()-expectedLat)>0.00005)return;
   if(region){{
@@ -3381,6 +3387,7 @@ async function activateRegion(region, preservePosition=false){{
 
   const mySwitch=++regionSwitchGeneration;
   regionSwitching=true;
+  regionRecheckNeeded=false;
 
   // 새 지역을 선택하는 순간 이전 지역 화면/재렌더 메모리를 즉시 제거한다.
   clearOverlays();
@@ -3437,7 +3444,14 @@ async function activateRegion(region, preservePosition=false){{
     setWorkStatus('L'+map.getLevel()+' · REGION '+region+' · STAGE 완료',100,false);
     return true;
   }} finally {{
-    if(mySwitch===regionSwitchGeneration)regionSwitching=false;
+    if(mySwitch===regionSwitchGeneration){{
+      regionSwitching=false;
+      // A map drag during fiber/network synchronization must never be discarded.
+      if(regionRecheckNeeded){{
+        regionRecheckNeeded=false;
+        Promise.resolve().then(()=>reconcileMapRegion()).catch(e=>setStatus('지역 확인 오류: '+e.message));
+      }}
+    }}
   }}
 }}
 
@@ -3742,7 +3756,8 @@ function initMap(){{
         if(regionResolveTimer)clearTimeout(regionResolveTimer);
         regionResolveTimer=setTimeout(async()=>{{
           regionResolveTimer=null;
-          if(generation!==regionResolveGeneration||!map||regionSwitching)return;
+          if(generation!==regionResolveGeneration||!map)return;
+          if(regionSwitching){{regionRecheckNeeded=true;return;}}
           await reconcileMapRegion();
         }},REGION_SETTLE_DELAY_MS);
       }});
