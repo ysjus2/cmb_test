@@ -560,6 +560,104 @@ def _online_export_ids(handle):
     return pure, f'{region}_{pure}'
 
 
+def export_submission_network(path, scene, scope, visible_indices, epsg=5174, source_path=None):
+    """Eight-column submission export; only verified installation references are used."""
+    from tempfile import TemporaryDirectory
+    from pathlib import Path
+    from openpyxl import load_workbook
+    from pipe_endpoints import facility_name, facility_type
+
+    if scope.get('kind') != 'fiber':
+        raise ValueError('제출용 추출은 광케이블 경로에서만 지원합니다.')
+    with TemporaryDirectory() as temp:
+        staging = Path(temp) / 'fiber_detail.xlsx'
+        export_network(staging, scene, scope, visible_indices, epsg, source_path)
+        source = load_workbook(staging, read_only=True, data_only=True)
+        try:
+            src_rows = source['광케이블'].iter_rows(values_only=True)
+            heads = next(src_rows)
+            columns = {name:i for i,name in enumerate(heads)}
+            result = Workbook()
+            ws = result.active
+            ws.title = '광선로_제출'
+            ws.append(['ID','선로구분','시작경도','시작위도',
+                       '끝경도','끝위도','끝점설비구분','끝점설치장소'])
+            network = scope['network']
+            routes = list(scope.get('routes') or [])
+            if not routes:
+                routes = [{'route':scope.get('route') or [],
+                           'nodes':scope.get('nodes') or []}]
+            ordered_nodes = []
+            seen = set()
+            for item in routes:
+                for handle,node in zip(item.get('route') or [], (item.get('nodes') or [])[1:]):
+                    edge = network.edges[handle]
+                    if edge.index in visible_indices and handle not in seen:
+                        ordered_nodes.append(node)
+                        seen.add(handle)
+            from pyproj import Transformer
+            to_local = Transformer.from_crs('EPSG:4326', f'EPSG:{int(epsg)}', always_xy=True)
+            poles = []
+            if scene is not None:
+                for entity in scene.entities:
+                    if facility_type(entity) != '전주':
+                        continue
+                    pos = entity_position(entity)
+                    if pos is not None:
+                        number = facility_name(entity)
+                        if number and number != '코드미등록':
+                            poles.append((pos, number))
+            count = 0
+            for row,node in zip(src_rows,ordered_nodes):
+                end_lon = row[columns['끝경도']]
+                end_lat = row[columns['끝위도']]
+                device = network.by_handle.get(node)
+                layer = str(getattr(device,'layer','') or '').upper()
+                block = str(getattr(device,'block_name','') or '').upper()
+                if 'CLOSURE' in layer or 'CLOSURE' in block or '함체' in layer:
+                    kind = '광함체'
+                elif 'CENTER' in layer or 'RACK' in block:
+                    kind = '국사'
+                elif 'TERMINAL' in layer or 'FTS' in block:
+                    kind = 'FTS'
+                elif 'OFD' in layer or 'OFD' in block:
+                    kind = 'OFD'
+                else:
+                    kind = ''
+                place = ''
+                if kind == '광함체' and poles and end_lon is not None and end_lat is not None:
+                    xy = to_local.transform(float(end_lon),float(end_lat))
+                    found = {number for position,number in poles if math.dist(xy,position)<=0.25}
+                    if len(found)==1:
+                        place = found.pop()
+                if kind in ('국사','OFD','FTS') and device is not None:
+                    attrs = getattr(device,'attributes',{}) or {}
+                    for key in ('INSTALL_PLACE_ID','PLACE_ID','설치장소ID'):
+                        if attrs.get(key):
+                            place = str(attrs[key]).strip()
+                            break
+                ws.append([row[columns['순수 객체ID']], '광',
+                           row[columns['시작경도']],row[columns['시작위도']],
+                           end_lon,end_lat,kind,place])
+                count += 1
+            ws.freeze_panes='A2'
+            ws.auto_filter.ref=ws.dimensions
+            for cell in ws[1]:
+                cell.font=Font(bold=True,color='FFFFFF')
+                cell.fill=PatternFill('solid',fgColor='176D85')
+            for col in ws.columns:
+                col[0].column_letter
+                ws.column_dimensions[col[0].column_letter].width=20
+            for row in ws.iter_rows(min_row=2,min_col=3,max_col=6):
+                for cell in row:
+                    cell.number_format='0.0000000'
+            result.save(path)
+            result.close()
+            return count
+        finally:
+            source.close()
+
+
 def export_network(path,scene,scope,visible_indices,epsg=5174,source_path=None):
     visible_indices=set(visible_indices) & set(scope.get("indices", visible_indices))
     wb=Workbook();wb.remove(wb.active)
