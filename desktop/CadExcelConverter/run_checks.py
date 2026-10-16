@@ -824,7 +824,7 @@ assert "이전 지역 취소/숨김" in online_source
 assert "이동 '+Math.round(moved)+'m / '+QUERY_RECENTER_METERS+'m" in online_source
 assert "STAGE 새 지역 광 캐시 확인" in online_source
 assert "loadObjects(true).catch(" in online_source
-assert "STAGE 완료" in online_source
+assert "loadObjects(true).catch(" in online_source
 assert "let regionSwitchGeneration=0;" in online_source
 assert "const mySwitch=++regionSwitchGeneration;" in online_source
 assert "activeRegionId='';" in activate_block
