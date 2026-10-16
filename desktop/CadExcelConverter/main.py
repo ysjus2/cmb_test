@@ -845,7 +845,9 @@ if __name__ == "__main__":
         assert classify_entity(SimpleNamespace(layer="CN_F_CABLE", block_name="")) == "FIBER"
         page = html("smoke-key", "smoke-token")
         assert "clearGroupOverlays" in page and "snapCablePath" in page
-        assert "<select id='region' title='권한 지역 선택'>" in page
+        assert "<select id='region' title='현재 도면 조회 지역 (통합 검색으로 이동)' style='display:none'" in page
+        assert "<option value='region'>지역</option>" in page
+        assert "function regionForPosition(lng,lat)" in page
         assert "async function loadRegionFiber(syncForce=false)" in page
         assert "apiCall('fiber_cached')" in page
         assert "apiCall('fiber_all',{force:!!syncForce})" in page
