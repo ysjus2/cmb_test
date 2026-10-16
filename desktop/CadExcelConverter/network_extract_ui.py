@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from pyproj import Transformer
 from layer_defaults import is_default_hidden
-from network_extract import FiberNetwork, fetch_all_online_fiber, conduit_records, export_network, is_fiber, is_closure, network_export_indices
+from network_extract import FiberNetwork, fetch_all_online_fiber, conduit_records, export_network, export_submission_network, is_fiber, is_closure, network_export_indices
 from catv_poles import catv_pole_rows, export_catv_poles
 
 
@@ -40,6 +40,7 @@ class NetworkExtractionMixin:
             self.extract_menu.add_command(label='사용자 지정 영역 추출',command=self._begin_custom_area_extract)
             self.extract_menu.add_separator()
             self.extract_menu.add_command(label='Excel 추출',command=self._run_excel)
+            self.extract_menu.add_command(label='광선로 제출용 엑셀 (8열)',command=lambda:self._run_network_excel(submission=True))
             self.extract_menu.add_separator()
             self.extract_menu.add_command(label='온라인 광추출',command=self._begin_online_fiber_route)
 
@@ -918,11 +919,14 @@ class NetworkExtractionMixin:
             except Exception as exc:self.q.put(('error',str(exc)))
         threading.Thread(target=worker,daemon=True).start()
 
-    def _run_network_excel(self):
+    def _run_network_excel(self, submission=False):
         if not getattr(self,'can_extract',False): return
         if self.busy:return
         scope=self.export_scope
         if not scope:return
+        if submission and scope['kind']!='fiber':
+            messagebox.showinfo('제출용 엑셀','먼저 광케이블 경로를 추출해주세요.')
+            return
         if scope['kind']=='custom':
             self._run_custom_area_excel();return
         if scope['kind']=='catv':
@@ -940,14 +944,17 @@ class NetworkExtractionMixin:
             messagebox.showinfo('필요 항목 Excel 추출','화면에 표시된 추출 대상이 없습니다.');return
         label='광케이블' if scope['kind']=='fiber' else '100mm_주관로'
         base_name=Path(self.input_path).stem if self.input_path else ('온라인_광망' if online_fiber else '추출')
-        out=filedialog.asksaveasfilename(title=f'{label} Excel 추출',defaultextension='.xlsx',initialfile=base_name+'_'+label+'.xlsx',filetypes=[('Excel','*.xlsx')])
+        export_title='광선로 제출용 Excel' if submission else f'{label} Excel 추출'
+        export_name=base_name+('_광선로_제출.xlsx' if submission else '_'+label+'.xlsx')
+        out=filedialog.asksaveasfilename(title=export_title,defaultextension='.xlsx',initialfile=export_name,filetypes=[('Excel','*.xlsx')])
         if not out:return
         self.busy=True;self._show_progress();self._set_progress(10,'전체 100mm 관로와 시작·끝 시설 위치 추출' if scope['kind']=='pipe' else '화면에 표시된 필요 항목만 Excel 추출')
         scene=self.viewer.scene;epsg=int(self.epsg_var.get())
         source_path=self.input_path or ('ONLINE' if online_fiber else '')
         def worker():
             try:
-                rows=export_network(out,scene,scope,indices,epsg,source_path=source_path)
+                exporter=export_submission_network if submission else export_network
+                rows=exporter(out,scene,scope,indices,epsg,source_path=source_path)
                 if scope['kind']=='fiber':
                     handles={
                         h for route in (scope.get('routes') or [])
