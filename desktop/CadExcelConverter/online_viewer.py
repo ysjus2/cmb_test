@@ -1227,7 +1227,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
   <div class='card' id='tools'>
     <div id='toolButtons'>
       <b>CMB 온라인 Viewer</b>
-      <select id='region' title='권한 지역 선택'><option value=''>지역 선택</option></select>
+      <select id='region' title='현재 도면 조회 지역 (통합 검색으로 이동)' style='display:none' aria-hidden='true'><option value=''>지역 선택</option></select>
       <button class='layerBtn on' data-group='FIBER'>광</button>
       <button class='layerBtn on' data-group='COAX'>동축</button>
       <button class='layerBtn' data-group='CONDUIT'>관로</button>
