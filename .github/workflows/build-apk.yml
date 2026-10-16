@@ -1,4 +1,4 @@
-name: Build Signed APK v2.23_FINAL
+name: Build Signed APK v1.0
 
 permissions:
   contents: write
@@ -61,31 +61,31 @@ jobs:
           keytool -printcert -jarfile app/build/outputs/apk/release/app-release.apk -rfc \
             | openssl x509 -outform DER \
             | openssl sha1 -binary | openssl base64 > kakao-key-hash.txt
-          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v2.23_FINAL.apk
+          cp app/build/outputs/apk/release/app-release.apk CMB_Android_v1.0.apk
 
       - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: CMB-Android-v2.23-FINAL
+          name: CMB-Android-v1.0
           path: |
-            CMB_Android_v2.23_FINAL.apk
+            CMB_Android_v1.0.apk
             kakao-key-hash.txt
           if-no-files-found: error
 
       - name: Publish direct-download Android Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.23_FINAL
-          name: CMB Android v2.23 FINAL
+          tag_name: v1.0
+          name: CMB Android v1.0
           body: |
             Mobile viewer synced to current Windows online-view policy:
-            - manual authorized-region selection; map movement never changes the selected region
-            - full regional FIBER cache first; movement refresh excludes FIBER and loads nearby non-fiber data
+            - map idle auto region switching when unique authorized region bounds identify the new position
+            - full regional FIBER fetch is isolated from nearby viewport request queue
             - optical closure visible from L3; all other optical devices visible from L2
             - existing COAX level policy remains unchanged
             - minimal POLE metadata supported; pole detail shows pole number only
             - stale cache remains visible until successful refresh
             - hybrid Kakao map and distance measurement retained
           target_commitish: ${{ github.sha }}
-          files: CMB_Android_v2.23_FINAL.apk
+          files: CMB_Android_v1.0.apk
           make_latest: false
