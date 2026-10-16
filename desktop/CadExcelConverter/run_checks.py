@@ -691,7 +691,7 @@ init_block = online_source.split("function initMap(){{",1)[1].split("['pointerdo
 assert "loadRegionFiber(" not in init_block
 assert "loadFiberViewport(" not in init_block
 assert "await loadObjects(false);" in init_block
-assert "!activeRegionId" in init_block
+assert "regionForPosition(Number(center.getLng()),Number(center.getLat()))" in init_block
 
 assert "def _fetch_bbox_network(self, west, south, east, north):" in online_source
 fetch_bbox_block = online_source.split("    def _fetch_bbox_network(self, west, south, east, north):",1)[1].split("    def _commit_bbox_cache",1)[0]
