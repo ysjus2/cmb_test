@@ -58,6 +58,7 @@ jobs:
       - name: Package direct download ZIP
         shell: powershell
         run: |
+          Compress-Archive -Path dist/CMB_DXF_Viewer_Windows_1.0_Rev36.exe, dist/BUILD_MANIFEST.json, RELEASE_NOTICE.txt -DestinationPath dist/CMB_DXF_Viewer_Windows_1.0_Rev36.zip -Force
 
       - name: Publish direct-download GitHub Release
         uses: softprops/action-gh-release@v2
