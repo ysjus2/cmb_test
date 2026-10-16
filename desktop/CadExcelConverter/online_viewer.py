@@ -1654,7 +1654,7 @@ const SYMBOL_LIBRARY={{
   onu:{{shape:'rect',w:38.4,h:19.2,fill:'#12c978',stroke:'#075c3c',label:'ONU',labelColor:'#053b2b'}},
   amp:{{shape:'triangle',w:18,h:18,fill:'#ff8f00',stroke:'#6d3b00'}},
   pole:{{shape:'circle_x',r:2.2,fill:'#ffffff',stroke:'#6d4c41'}},
-  tap:{{shape:'hexagon',w:18,h:16,fill:'#ffc928',stroke:'#6d4c00'}},
+  tap:{{shape:'hexagon',w:9,h:8,fill:'#ffc928',stroke:'#6d4c00'}},
   splitter:{{shape:'circle',r:8,fill:'#ffffff',stroke:'#424242',labelColor:'#212121'}},
   pi:{{shape:'rect',w:18,h:12,fill:'#ffffff',stroke:'#424242',label:'I',labelColor:'#212121'}},
   manhole:{{shape:'double_circle',r:9,fill:'#f5f5f5',stroke:'#424242'}},
