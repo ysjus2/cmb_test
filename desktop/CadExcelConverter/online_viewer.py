@@ -3320,14 +3320,17 @@ async function resolveRegionAt(lng,lat){{
   // Determine administrative region from Kakao's coordinate reverse geocoder.
   // A previous active region must never win solely because its bounding box overlaps.
   if(searchGeocoder&&typeof searchGeocoder.coord2RegionCode==='function'){{
-    const found=await new Promise(resolve=>{{
+    const lookup=await new Promise(resolve=>{{
       try{{
         searchGeocoder.coord2RegionCode(lng,lat,(items,status)=>{{
-          resolve(status===kakao.maps.services.Status.OK?matchAdministrativeRegion(items):null);
+          resolve({{valid:status===kakao.maps.services.Status.OK && Array.isArray(items) && items.length>0,
+            id:status===kakao.maps.services.Status.OK?matchAdministrativeRegion(items):null}});
         }});
-      }}catch(e){{resolve(null);}}
+      }}catch(e){{resolve({{valid:false,id:null}});}}
     }});
-    if(found)return found;
+    // A verified administrative district that matches no authorized region
+    // must not fall back to an overlapping bbox from the previous region.
+    if(lookup.valid)return lookup.id;
   }}
   return regionForPosition(lng,lat);
 }}
