@@ -63,7 +63,8 @@ def main():
     with TemporaryDirectory() as temp:
         out = Path(temp) / 'fiber.xlsx'
         export_network(out, None, route, {edge.index for edge in network.edges.values()}, epsg=5174)
-        rows = list(load_workbook(out, read_only=True, data_only=True)['광케이블'].values)
+        with load_workbook(out, read_only=True, data_only=True) as workbook:
+            rows = list(workbook['광케이블'].values)
         assert len(rows) == 3, rows
         assert rows[1][12:14] == rows[2][10:12], rows
 
