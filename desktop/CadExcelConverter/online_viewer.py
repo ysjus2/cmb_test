@@ -1321,6 +1321,8 @@ let currentLineFeatures=[];
 let currentDevices=[];
 let searchCandidates=[];
 let searchMarker=null;
+let searchLine=null;
+let currentFiberSearchFeatures=[];
 let searchGeocoder=null;
 let searchPlaces=null;
 let viewDiag={{region:'',centerLat:null,centerLng:null,stage:'대기',progress:''}};
@@ -2759,6 +2761,7 @@ function redrawFiberArrowsForZoom(){{
 }}
 
 function renderFiberFeatures(features){{
+  currentFiberSearchFeatures=(features||[]).filter(f=>String(((f.properties||{{}}).group_id)||'').toUpperCase()==='FIBER');
   if(!map)return 0;
   clearGroupOverlays('FIBER');
   if(!groupEnabled.FIBER){{
@@ -3515,6 +3518,7 @@ function centerMyLocation(loadAfter){{
 
 function clearSearchMarker(){{
   if(searchMarker){{try{{searchMarker.setMap(null)}}catch(e){{}} searchMarker=null;}}
+  if(searchLine){{try{{searchLine.setMap(null)}}catch(e){{}} searchLine=null;}}
 }}
 function searchPosition(f){{
   const g=(f||{{}}).geometry||{{}};
@@ -3538,7 +3542,14 @@ function searchShowFeature(f,label){{
     position:ll,yAnchor:1.4,zIndex:100,
     content:'<div style="background:#fff4cc;border:2px solid #e11d48;border-radius:6px;padding:5px 9px;font-weight:bold;white-space:nowrap">'+esc(label)+'</div>'
   }});
-  searchMarker.setMap(map);setStatus('검색 위치: '+label);
+  searchMarker.setMap(map);
+  const geo=(f||{{}}).geometry||{{}};
+  const segment=geo.type==='LineString'?geo.coordinates:(geo.type==='MultiLineString'?(geo.coordinates||[])[0]:null);
+  if(Array.isArray(segment)&&segment.length>=2){{
+    const path=segment.filter(p=>Array.isArray(p)&&p.length>=2).map(p=>new kakao.maps.LatLng(Number(p[1]),Number(p[0])));
+    if(path.length>=2){{searchLine=new kakao.maps.Polyline({{path,strokeWeight:7,strokeColor:'#e11d48',strokeOpacity:0.9}});searchLine.setMap(map);}}
+  }}
+  setStatus('검색 위치: '+label);
 }}
 function searchResults(items){{
   const root=document.getElementById('searchResults');root.textContent='';
@@ -3572,7 +3583,8 @@ function doViewerSearch(){{
   }}
   const up=q.toUpperCase();
   if(kind==='pole'&&q.length<5){{setStatus('전주번호 앞 5자리(예: 1234X) 이상 입력하세요');return;}}
-  const items=searchCandidates.filter(f=>{{
+  const pool=kind==='device'?[...searchCandidates,...currentFiberSearchFeatures]:searchCandidates;
+  const items=pool.filter(f=>{{
     const p=f.properties||{{}};const group=String(p.group_id||'').toUpperCase();
     if(kind==='pole')return group==='POLE'&&searchPoleNumber(f).toUpperCase().startsWith(up);
     if(group==='POLE')return false;
