@@ -3292,6 +3292,7 @@ function regionForPosition(lng,lat){{
   const inside=authorizedRegions.filter(r=>{{
     const b=r.bounds||{{}};
     const w=Number(b.west),e=Number(b.east),s=Number(b.south),n=Number(b.north);
+    if(!['west','east','south','north'].every(k=>b[k]!==null&&b[k]!==undefined&&b[k]!==''))return false;
     if(![w,e,s,n].every(Number.isFinite))return false;
     return lng>=w&&lng<=e&&lat>=s&&lat<=n;
   }});
@@ -3314,7 +3315,16 @@ async function activateRegion(region, preservePosition=false){{
     setStatus('권한이 없는 지역입니다');
     return false;
   }}
-  if(activeRegionId===region && !regionSwitching)return true;
+  if(activeRegionId===region && !regionSwitching && preservePosition)return true;
+  if(activeRegionId===region && !regionSwitching && !preservePosition){{
+    const result=await apiCall('select',{{region}});
+    if(result.ok&&result.center&&map){{
+      map.setCenter(new kakao.maps.LatLng(Number(result.center.lat),Number(result.center.lng)));
+      map.setLevel(9);
+      return true;
+    }}
+    return false;
+  }}
 
   const mySwitch=++regionSwitchGeneration;
   regionSwitching=true;
