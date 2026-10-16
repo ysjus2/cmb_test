@@ -775,6 +775,29 @@ class Api:
     def logout(self):
         return self.end_session()
 
+    def save_region_center(self, region, lat, lng):
+        try:
+            if int((self.user or {}).get("level") or 0) != 1:
+                return {"ok": False, "error": "1등급 관리자만 지역 시작점을 저장할 수 있습니다."}
+            region = str(region or "").strip()
+            if not region:
+                return {"ok": False, "error": "저장할 지역을 선택하세요."}
+            accessible = self.c.regions() or []
+            if isinstance(accessible, dict):
+                accessible = accessible.get("items") or accessible.get("regions") or []
+            if region not in {str(x.get("id")) for x in accessible if isinstance(x, dict)}:
+                return {"ok": False, "error": "등록된 지역코드가 아닙니다."}
+            lat = float(lat)
+            lng = float(lng)
+            if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+                return {"ok": False, "error": "좌표 범위를 확인하세요."}
+            result = self.c.update_region_center(region, lat, lng)
+            if isinstance(result, dict) and (result.get("ok") is False or result.get("error")):
+                return {"ok": False, "error": str(result.get("error") or "서버 저장 오류")}
+            return {"ok": True, "region": region, "lat": lat, "lng": lng}
+        except Exception as exc:
+            return self._handle_error(exc)
+
     def regions(self):
         try:
             raw = self.c.regions() or []
@@ -1237,6 +1260,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
       <button id='mapHybrid' title='일반지도 / 위성지도 전환'>위성지도</button>
       <button id='roadviewBtn' title='현재 지도 중심의 로드뷰 열기'>로드뷰</button>
       <button id='reload'>새로고침</button>
+      <button id='saveRegionCenter' style='display:none' title='1등급 관리자 전용 · 현재 지도 중심을 지역 시작점으로 저장'>시작점 저장</button>
       <div id='measureBox'>
         <button id='clearDistance' title='모든 거리 측정 삭제'>거리 삭제</button>
         <button id='measureDistance' title='거리 측정 시작'>거리</button>
@@ -3458,6 +3482,8 @@ async function bootstrapAuth(){{
     // 런처가 자식 실행 직전에 /me 검증을 완료한다.
     // pywebview 예약/미노출 함수명 문제를 피하기 위해 별도 bootstrap RPC를 사용하지 않는다.
     authenticated=true;
+    const me=await apiCall('user_level');
+    if(Number(me.level)===1)document.getElementById('saveRegionCenter').style.display='';
     setStatus('권한 지역 조회 중');
     await loadRegions();
 
@@ -3474,6 +3500,19 @@ async function bootstrapAuth(){{
 }}
 
 function bindUi(){{
+  document.getElementById('saveRegionCenter').onclick=async()=>{{
+    if(!map||!activeRegionId){{setStatus('먼저 저장할 지역을 선택하세요');return;}}
+    const current=authorizedRegions.find(x=>x.id===activeRegionId);
+    const c=map.getCenter();
+    const lat=Number(c.getLat()),lng=Number(c.getLng());
+    if(!confirm('지역 '+(current?current.name:activeRegionId)+' ('+activeRegionId+')의 시작점을 현재 지도 중심 ('+lat.toFixed(6)+', '+lng.toFixed(6)+')으로 저장하시겠습니까?'))return;
+    const region=activeRegionId;
+    try{{
+      const result=await apiCall('save_region_center',{{region,lat,lng}});
+      if(!result.ok)throw new Error(result.error||'서버 저장 오류');
+      setStatus('지역 시작점 저장 완료 · '+region+' · '+lat.toFixed(6)+','+lng.toFixed(6));
+    }}catch(e){{setStatus('지역 시작점 저장 실패 · '+(e.message||e));}}
+  }};
   document.getElementById('reload').onclick=async()=>{{
     if(!activeRegionId){{
       setStatus('먼저 지역을 선택하세요');
@@ -3937,6 +3976,12 @@ def run_online_viewer():
 
                 if name == "regions":
                     result = api.regions()
+                elif name == "user_level":
+                    result = {"ok": True, "level": int((api.user or {}).get("level") or 0)}
+                elif name == "user_level":
+                    result = {"ok": True, "level": int((api.user or {}).get("level") or 0)}
+                elif name == "save_region_center":
+                    result = api.save_region_center(data.get("region"), data.get("lat"), data.get("lng"))
                 elif name == "select":
                     result = api.select(data.get("region"), preserve_position=bool(data.get("preserve_position")))
                 elif name == "fiber_cached":
