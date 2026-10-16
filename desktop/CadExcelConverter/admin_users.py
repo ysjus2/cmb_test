@@ -1010,7 +1010,7 @@ class UserAdminWindow(tk.Toplevel):
         tree=ttk.Treeview(root, columns=columns, show="headings", height=16)
         for key,title,width in (
             ("group","그룹",90),
-            ("revision","Revision",90),
+            ("revision","저장일-차수",125),
             ("state","상태",80),
             ("count","객체수",90),
             ("date","저장일시",170),
@@ -1036,12 +1036,15 @@ class UserAdminWindow(tk.Toplevel):
                 for idx,row in enumerate(rows):
                     group=str(row.get("group_id") or row.get("group") or "")
                     rev=row.get("revision")
+                    created_raw=str(row.get("created_at") or "")
+                    day=created_raw[:10].replace("-", "") if len(created_raw)>=10 else ""
+                    display_rev=(f"{day}-{int(rev):02d}" if day and str(rev or "").isdigit() else (rev if rev is not None else "-"))
                     active=row.get("active", True)
                     state="현재" if active else "백업"
                     count=int(row.get("object_count") or row.get("count") or 0)
                     created=str(row.get("created_at") or "").replace("T"," ")[:19]
                     memo=str(row.get("memo") or "").strip()
-                    tree.insert("", "end", iid=f"r{idx}", values=(group, rev if rev is not None else "-", state, f"{count:,}", created or "-", memo or "-"))
+                    tree.insert("", "end", iid=f"r{idx}", values=(group, display_rev, state, f"{count:,}", created or "-", memo or "-"))
                 status_var.set(f"{rid} · 조회 완료 · {len(rows)}개 항목")
             except Exception as exc:
                 messagebox.showerror("도면 현황 조회", str(exc), parent=win)
