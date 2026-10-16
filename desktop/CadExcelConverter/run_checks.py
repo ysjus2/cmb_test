@@ -863,7 +863,8 @@ assert 'entity_type == "INSERT" and (actual_pole_layer or actual_pole_block)' in
 assert "def build_polemap_payload(" in admin_upload_source
 assert '"CN_L_POLEMAP_BOUND"' in admin_upload_source
 assert '"CN_L_POLEMAP_IDXMAIN"' in admin_upload_source
-assert "self.client.replace_polemap" in admin_upload_source
+assert "self.client.replace_polemap" not in admin_upload_source
+assert 'self.client.upload_group(' in admin_upload_source
 client_source = (root / "server_client_windows.py").read_text(encoding="utf-8")
 assert "def replace_polemap(" in client_source
 assert "def online_polemap(" in client_source
