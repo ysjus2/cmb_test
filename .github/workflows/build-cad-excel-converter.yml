@@ -1,12 +1,10 @@
 name: Build CMB DXF Viewer Windows 1.0 Rev19
+run-name: Rev19 Windows build - ${{ github.sha }}
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - 'desktop/CadExcelConverter/**'
-      - '.github/workflows/build-cad-excel-converter.yml'
 
 permissions:
   contents: write
