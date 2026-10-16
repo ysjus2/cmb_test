@@ -1049,7 +1049,7 @@ print("HYBRID_FORCE_RELOAD_FILLED_ARROW_OK")
 from admin_upload import payload_center
 assert hasattr(CMBServerClient, "region_centers")
 assert hasattr(CMBServerClient, "update_region_center")
-assert "centers = self.c.region_centers() or {}" in online_source
+assert "centers = {} if preserve_position else (self.c.region_centers() or {})" in online_source
 assert '"lat": (float(bounds["south"]) + float(bounds["north"])) / 2.0' not in online_source
 assert "def payload_center(payload):" in admin_upload_source
 assert 'if str(group or "").upper() == "FIBER":' in admin_upload_source
