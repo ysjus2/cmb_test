@@ -1252,7 +1252,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
   </div>
 </div>
 
-<div id='searchPanel'><div style='display:flex;gap:4px'><select id='searchType'><option value='address'>주소</option><option value='pole'>전주</option><option value='device'>기기</option><option value='coordinate'>좌표</option></select><input id='searchValue' style='flex:1;min-width:80px' placeholder='도로명주소 또는 지번'><button id='searchGo'>검색</button><button id='searchClose' title='검색표시 삭제'>×</button></div><div id='searchResults'></div></div>
+<div id='searchPanel'><div style='display:flex;gap:4px'><select id='searchType'><option value='region'>지역</option><option value='address'>주소</option><option value='pole'>전주</option><option value='device'>기기</option><option value='coordinate'>좌표</option></select><input id='searchValue' style='flex:1;min-width:80px' placeholder='도로명주소 또는 지번'><button id='searchGo'>검색</button><button id='searchClose' title='검색표시 삭제'>×</button></div><div id='searchResults'></div></div>
 <div id='detail'></div>
 
 <script>
@@ -3287,7 +3287,23 @@ async function loadRegions(){{
   setStatus('권한 지역 '+authorizedRegions.length+'개 · 지역을 선택하세요');
 }}
 
-async function activateRegion(region){{
+function regionForPosition(lng,lat){{
+  if(!Number.isFinite(lng)||!Number.isFinite(lat))return null;
+  const inside=authorizedRegions.filter(r=>{{
+    const b=r.bounds||{{}};
+    const w=Number(b.west),e=Number(b.east),s=Number(b.south),n=Number(b.north);
+    if(![w,e,s,n].every(Number.isFinite))return false;
+    return lng>=w&&lng<=e&&lat>=s&&lat<=n;
+  }});
+  if(inside.length===1)return inside[0].id;
+  if(inside.length>1){{
+    // Where multiple regional bounding boxes overlap, do not guess.
+    if(inside.some(r=>r.id===activeRegionId))return activeRegionId;
+    setStatus('지역 경계 중복 · 지역 검색으로 정확한 지역을 선택하세요');
+  }}
+  return null;
+}}
+async function activateRegion(region, preservePosition=false){{
   region=String(region||'');
   const sel=document.getElementById('region');
   if(!region)return false;
@@ -3329,8 +3345,10 @@ async function activateRegion(region){{
       setWorkStatus('지역 중심점 확인 실패 · '+region,100,false);
       return false;
     }}
-    map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));
-    map.setLevel(9);
+    if(!preservePosition){{
+      map.setCenter(new kakao.maps.LatLng(Number(center.lat),Number(center.lng)));
+      map.setLevel(9);
+    }}
     const movedCenter=map.getCenter();
     setStatus('지역 중심 이동 완료 · '+region+' · '+Number(movedCenter.getLat()).toFixed(6)+','+Number(movedCenter.getLng()).toFixed(6)+' · L'+map.getLevel());
 
@@ -3565,6 +3583,11 @@ function doViewerSearch(){{
   const kind=document.getElementById('searchType').value;
   const q=document.getElementById('searchValue').value.trim();
   if(!q)return;
+  if(kind==='region'){{
+    const entries=authorizedRegions.filter(x=>x.id.toUpperCase().includes(q.toUpperCase())||x.name.toUpperCase().includes(q.toUpperCase()));
+    searchResults(entries.map(x=>({{label:x.name+' ('+x.id+')',pick:async()=>{{clearSearchMarker();await activateRegion(x.id,false);}}}})));
+    return;
+  }}
   if(kind==='coordinate'){{
     const v=q.split(/[ ,，]+/).map(Number);
     if(v.length!==2||v.some(x=>!Number.isFinite(x))||Math.abs(v[0])>180||Math.abs(v[1])>90){{setStatus('경도, 위도 순서로 입력하세요');return;}}
@@ -3600,7 +3623,7 @@ function doViewerSearch(){{
 }}
 function bindViewerSearch(){{
   document.getElementById('searchType').addEventListener('change',e=>{{
-    const placeholders={{address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
+    const placeholders={{region:'지역명 또는 지역코드',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
     document.getElementById('searchValue').placeholder=placeholders[e.target.value];
     document.getElementById('searchResults').textContent='';
   }});
@@ -3627,8 +3650,14 @@ function initMap(){{
         if(regionResolveTimer)clearTimeout(regionResolveTimer);
         regionResolveTimer=setTimeout(async()=>{{
           regionResolveTimer=null;
-          if(generation!==regionResolveGeneration||!map||!activeRegionId)return;
-          await loadObjects(false);
+          if(generation!==regionResolveGeneration||!map||regionSwitching)return;
+          const center=map.getCenter();
+          const region=regionForPosition(Number(center.getLng()),Number(center.getLat()));
+          if(region && region!==activeRegionId){{
+            await activateRegion(region,true);
+            return;
+          }}
+          if(activeRegionId)await loadObjects(false);
         }},REGION_SETTLE_DELAY_MS);
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
@@ -3664,7 +3693,7 @@ function initMap(){{
           );
         }}
       }});
-      setStatus('지역을 선택하세요');
+      setStatus('지도 이동 또는 지역 검색으로 자동 조회');
     }});
   }}catch(err){{
     setStatus('카카오맵 초기화 오류');
