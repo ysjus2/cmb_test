@@ -45,12 +45,6 @@ jobs:
           if (-not $process.WaitForExit(120000)) { Stop-Process -Id $process.Id; throw "Packaged smoke test timed out" }
           if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed" }
           python verify_release.py dist/CMB_DXF_Viewer_Windows_1.0_Rev36.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
-      - name: Build internal-only installer
-        shell: powershell
-        run: |
-          choco install innosetup -y --no-progress
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "CMB_Windows_1_0.iss"
-          if ($LASTEXITCODE -ne 0) { throw "Windows 1.0 installer failed" }
       - name: Upload current build
         uses: actions/upload-artifact@v4
         with:
@@ -58,14 +52,12 @@ jobs:
           path: |
             desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev36.exe
             desktop/CadExcelConverter/dist/BUILD_MANIFEST.json
-            desktop/CadExcelConverter/dist/CMB_Windows_1.0_Setup.exe
           if-no-files-found: error
           retention-days: 7
 
       - name: Package direct download ZIP
         shell: powershell
         run: |
-          Compress-Archive -Path dist/CMB_DXF_Viewer_Windows_1.0_Rev36.exe, dist/BUILD_MANIFEST.json, dist/CMB_Windows_1.0_Setup.exe, RELEASE_NOTICE.txt -DestinationPath dist/CMB_DXF_Viewer_Windows_1.0_Rev36.zip -Force
 
       - name: Publish direct-download GitHub Release
         uses: softprops/action-gh-release@v2
@@ -77,6 +69,5 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: |
             desktop/CadExcelConverter/dist/CMB_DXF_Viewer_Windows_1.0_Rev36.zip
-            desktop/CadExcelConverter/dist/CMB_Windows_1.0_Setup.exe
           make_latest: true
 
