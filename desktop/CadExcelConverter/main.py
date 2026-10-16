@@ -20,7 +20,7 @@ from admin_users import UserAdminWindow
 from server_client_windows import CMBServerClient
 from session_guard import TkIdleSessionGuard
 
-APP_NAME = "CMB DXF Viewer + Excel v3.84_FINAL"
+APP_NAME = "CMB 도면추출·온라인 뷰어 1.0 · 외부반출 금지"
 SESSION_ENDED_EXIT_CODE = 41
 
 
@@ -147,6 +147,20 @@ class App(NetworkExtractionMixin, tk.Tk):
             )
         settings_menu.add_cascade(label="좌표계", menu=epsg_menu)
         menubar.add_cascade(label="설정", menu=settings_menu)
+
+        help_menu = tk.Menu(menubar, tearoff=False)
+        help_menu.add_command(
+            label="프로그램 정보 및 보안 고지",
+            command=lambda: messagebox.showinfo(
+                "CMB 프로그램 1.0",
+                "CMB 도면추출·온라인 뷰어 1.0\\n\\n"
+                "회사 내부업무 전용 · 외부반출 금지\\n"
+                "프로그램, 설치파일 및 도면·계정자료의 무단 외부 공유를 금지합니다.\\n"
+                "사용 시 회사 정보보안 및 라이선스 정책을 준수하십시오.",
+                parent=self,
+            ),
+        )
+        menubar.add_cascade(label="도움말", menu=help_menu)
 
         self.config(menu=menubar)
         self.bind_all("<Control-o>", lambda e: self._pick_input())
