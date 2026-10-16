@@ -1255,27 +1255,46 @@ class AdminUploadWindow(tk.Toplevel):
             return
         viewer = getattr(self.master, "viewer", None)
         if viewer is None or viewer.scene is not self.scene:
-            messagebox.showerror("도면 확인", "열린 도면 정보를 확인할 수 없습니다.", parent=self)
+            messagebox.showerror("도면 확인", "열린 DXF 도면을 확인할 수 없습니다.", parent=self)
             return
-        try:
-            viewer.update_idletasks()
-            x, y = viewer.screen_to_world(viewer.canvas.winfo_width() / 2, viewer.canvas.winfo_height() / 2)
-            lon, lat = Transformer.from_crs(f"EPSG:{int(self.epsg)}", "EPSG:4326", always_xy=True).transform(x, y)
-            if not (math.isfinite(lon) and math.isfinite(lat) and 33 <= lat <= 39 and 124 <= lon <= 132):
-                raise ValueError("현재 도면 중심점이 한국 좌표 범위를 벗어났습니다.")
-        except Exception as exc:
-            messagebox.showerror("좌표 확인 실패", str(exc), parent=self)
+        if not messagebox.askokcancel(
+            "도면 중심점 지정",
+            "업로드 창을 잠시 숨깁니다.\n도면에서 시작점으로 사용할 위치를 마우스로 한 번 클릭하세요.\n화면 전체 중심이나 멀리 떨어진 도면 객체는 사용하지 않습니다.",
+            parent=self,
+        ):
             return
-        if not messagebox.askyesno("도면 중심점 변경", f"지역: {self.region_var.get()}\n위도 {lat:.6f} / 경도 {lon:.6f}\n\n기존 저장위치를 바꾸시겠습니까?", parent=self):
-            return
-        try:
-            result = self.client.update_region_center(region, lat, lon)
-            if isinstance(result, dict) and (result.get("ok") is False or result.get("error")):
-                raise RuntimeError(str(result.get("error") or "서버 저장 오류"))
-            self.status.set(f"도면 중심점 저장 완료 · {region}")
-            messagebox.showinfo("저장 완료", "지역 시작점을 저장했습니다.", parent=self)
-        except Exception as exc:
-            messagebox.showerror("저장 실패", str(exc), parent=self)
+        self.withdraw()
+        self.master.lift()
+        self.master.focus_force()
+
+        def selected_point(x, y):
+            self.deiconify()
+            self.lift()
+            try:
+                lon, lat = Transformer.from_crs(
+                    f"EPSG:{int(self.epsg)}", "EPSG:4326", always_xy=True
+                ).transform(float(x), float(y))
+                if not (math.isfinite(lon) and math.isfinite(lat) and 33 <= lat <= 39 and 124 <= lon <= 132):
+                    raise ValueError("지정 위치가 한국 지도 범위를 벗어났습니다. 도면 좌표계와 선택 지점을 확인하세요.")
+            except Exception as exc:
+                messagebox.showerror("좌표 확인 실패", str(exc), parent=self)
+                return
+            if not messagebox.askyesno(
+                "도면 중심점 변경",
+                f"지역: {self.region_var.get()}\n지정한 위도: {lat:.6f}\n지정한 경도: {lon:.6f}\n\n기존 저장위치를 바꾸시겠습니까?",
+                parent=self,
+            ):
+                return
+            try:
+                result = self.client.update_region_center(region, lat, lon)
+                if isinstance(result, dict) and (result.get("ok") is False or result.get("error")):
+                    raise RuntimeError(str(result.get("error") or "서버 저장 오류"))
+                self.status.set(f"도면 시작점 저장 완료 · {region} · {lat:.6f},{lon:.6f}")
+                messagebox.showinfo("저장 완료", "선택한 도면 위치를 지역 시작점으로 저장했습니다.", parent=self)
+            except Exception as exc:
+                messagebox.showerror("저장 실패", str(exc), parent=self)
+
+        viewer.region_center_pick = selected_point
 
     def _load_server_regions(self):
         self.upload_one_btn.configure(state="disabled")
