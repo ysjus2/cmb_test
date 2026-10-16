@@ -94,7 +94,7 @@ class NetworkExtractionMixin:
             option=mode.get()
             if option=='좌표':
                 try:
-                    items=[float(v) for v in re.split(r'[,\\s]+',query) if v]
+                    items=[float(v) for v in re.split(r'[,\s]+',query) if v]
                     if len(items)!=2 or not (-180<=items[0]<=180 and -90<=items[1]<=90):
                         raise ValueError()
                     x,y=transformer.transform(*items)
