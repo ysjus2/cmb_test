@@ -803,7 +803,7 @@ print("REGION_FIBER_CACHE_SYNC_OK")
 # 지역은 지도 좌표 자동판정이 아니라 로그인 사용자의 권한 목록에서 직접 선택한다.
 assert "authorizedRegions=[]" in online_source
 assert "activeRegionId='';" in online_source
-assert "<select id='region' title='권한 지역 선택'>" in online_source
+assert "<select id='region' title='현재 도면 조회 지역 (통합 검색으로 이동)' style='display:none'" in online_source
 assert "style='display:none'" not in online_source.split("<select id='region'",1)[1].split("</select>",1)[0]
 assert "document.getElementById('region').onchange=async e=>" in online_source
 assert "async function autoRegionForMapCenter()" not in online_source
