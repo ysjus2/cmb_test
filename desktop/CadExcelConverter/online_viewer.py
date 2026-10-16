@@ -3615,6 +3615,18 @@ function searchShowFeature(f,label){{
   const pos=searchPosition(f);
   if(!pos){{setStatus('선택 객체의 좌표가 없습니다');return;}}
   clearSearchMarker();
+  // The previous office/network is never pinned to an address search result.
+  // Hide its overlays before navigating; stale network responses are invalidated.
+  if(activeRegionId||regionSwitching){{
+    regionSwitchGeneration++;
+    regionSwitching=false;
+    clearOverlays();
+    activeRegionId='';
+    document.getElementById('region').value='';
+    lastQueryLat=null;lastQueryLng=null;lastDetailMode=null;
+    searchCandidates=[];currentFiberSearchFeatures=[];
+    document.getElementById('detail').style.display='none';
+  }}
   const ll=new kakao.maps.LatLng(pos[1],pos[0]);
   map.setCenter(ll);map.setLevel(3);
   // An address/coordinate selection must resolve its region, even if idle is suppressed.
@@ -3707,6 +3719,23 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>{{
+        // Immediately hide stale drawings when moving beyond the loaded-region bbox.
+        // Coordinate verification and server fetch follow the brief debounce.
+        if(activeRegionId&&!regionSwitching){{
+          const current=authorizedRegions.find(r=>r.id===activeRegionId);
+          const bounds=(current||{{}}).bounds||{{}};
+          if(['west','east','south','north'].every(k=>bounds[k]!=null)){{
+            const c=map.getCenter(),lng=Number(c.getLng()),lat=Number(c.getLat());
+            if(lng<Number(bounds.west)||lng>Number(bounds.east)||lat<Number(bounds.south)||lat>Number(bounds.north)){{
+              regionSwitchGeneration++;
+              clearOverlays();
+              activeRegionId='';
+              document.getElementById('region').value='';
+              searchCandidates=[];currentFiberSearchFeatures=[];
+              setStatus('새 위치 지역 확인 중');
+            }}
+          }}
+        }}
         // 지역은 사용자가 권한 목록에서 직접 선택한다.
         // 지도 이동 중에는 조회하지 않고 마지막 idle 후 선택 지역의 동축/기기만 갱신한다.
         const generation=++regionResolveGeneration;
