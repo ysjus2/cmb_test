@@ -543,20 +543,20 @@ def network_export_indices(scene, scope, visible_layers, shown, entity_items):
 
 
 def _online_export_ids(handle):
-    """Convert an internal region:revision:CAD-handle:part key to stable, readable IDs."""
+    """Return CAD handle and drawing-region-prefixed handle, omitting revision UUIDs."""
     value = str(handle or '').strip()
     region, sep, remainder = value.partition(':')
     if not sep:
         return value, value
-    pieces = remainder.rsplit(':', 2)
-    # Source identity is revision UUID : original CAD handle : geometry part.
-    if len(pieces) == 3 and pieces[-1].isdigit():
-        pure = pieces[-2]
-        part = int(pieces[-1])
-        if part:
-            pure = f'{pure}:{part}'
+    pieces = remainder.split(':')
+    # Internal key: region : [revision UUID :] CAD handle : geometry part.
+    if len(pieces) >= 2 and pieces[-1].isdigit():
+        part = int(pieces.pop())
     else:
-        pure = remainder.rsplit(':', 1)[-1]
+        part = 0
+    pure = pieces[-1] if pieces else remainder
+    if part:
+        pure = f'{pure}:{part}'
     return pure, f'{region}_{pure}'
 
 
