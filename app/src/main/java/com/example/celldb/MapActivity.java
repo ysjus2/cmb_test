@@ -82,6 +82,11 @@ public class MapActivity extends Activity {
     private TextView connectionStatus;
     private long lastVerified, lastConnectionCheck;
     private final ExecutorService serverWorker=Executors.newSingleThreadExecutor();
+    private final ExecutorService fiberWorker=Executors.newSingleThreadExecutor();
+    private final Map<String,MapViewport> authorizedRegionBounds=new HashMap<>();
+    private MapPoint lastRegionCheckCenter;
+    private long lastRegionMoveAt;
+    private String lastRegionAutoTarget="";
     private java.util.concurrent.Future<?> serverTask;
     private final android.os.Handler serverHandler=new android.os.Handler(android.os.Looper.getMainLooper());
     private int serverGeneration;
@@ -105,7 +110,7 @@ public class MapActivity extends Activity {
     private String deviceId="";
     private final Runnable serverPoll=new Runnable(){public void run(){
         if(!foreground||destroyed)return;
-        checkServerConnection();pollServerViewport();serverHandler.postDelayed(this,400);
+        checkServerConnection();reconcileMobileRegion();pollServerViewport();serverHandler.postDelayed(this,400);
     }};
 
 
@@ -838,7 +843,7 @@ public class MapActivity extends Activity {
     private void chooseServerDataset(){
         cancelServerRequest();serverDataset="";allRecords.clear();renderMarkers();
         lastQueryCenter=null;lastQueryFilter="";lastQueryLevel="";
-        authorizedRegionIds.clear();authorizedRegionTitles.clear();
+        authorizedRegionIds.clear();authorizedRegionTitles.clear();authorizedRegionBounds.clear();
         if(regionButton!=null)regionButton.setEnabled(server!=null);
         if(regionQuickButton!=null)regionQuickButton.setEnabled(server!=null);
         final ServerApiClient client=server;if(client==null)return;final int generation=serverGeneration;
@@ -853,6 +858,13 @@ public class MapActivity extends Activity {
                     String name=region.optString("name",id).trim();
                     authorizedRegionIds.add(id);
                     authorizedRegionTitles.add(name.equals(id)?id:(name+" ("+id+")"));
+                    org.json.JSONObject bb=region.optJSONObject("bounds");
+                    if(bb!=null){
+                        double w=bb.optDouble("west",Double.NaN),e=bb.optDouble("east",Double.NaN);
+                        double so=bb.optDouble("south",Double.NaN),n=bb.optDouble("north",Double.NaN);
+                        if(Double.isFinite(w)&&Double.isFinite(e)&&Double.isFinite(so)&&Double.isFinite(n))
+                            authorizedRegionBounds.put(id,new MapViewport(w,so,e,n));
+                    }
                 }
                 runOnUiThread(()->{
                     if(destroyed||generation!=serverGeneration)return;
@@ -879,6 +891,32 @@ public class MapActivity extends Activity {
                 }
             });}
         });
+    }
+
+    private void reconcileMobileRegion(){
+        if(server==null||!mapReady||authorizedRegionIds.isEmpty())return;
+        MapViewport v=map.viewport();if(v==null)return;
+        MapPoint center=new MapPoint((v.south+v.north)/2.0,(v.west+v.east)/2.0);
+        long now=android.os.SystemClock.uptimeMillis();
+        if(lastRegionCheckCenter==null||lastRegionCheckCenter.distanceToAsDouble(center)>30){
+            lastRegionCheckCenter=center;
+            lastRegionMoveAt=now;
+            return;
+        }
+        if(now-lastRegionMoveAt<800)return;
+        String matched="";
+        int count=0;
+        for(String id:authorizedRegionIds){
+            MapViewport box=authorizedRegionBounds.get(id);
+            if(box!=null&&center.getLongitude()>=box.west&&center.getLongitude()<=box.east
+                &&center.getLatitude()>=box.south&&center.getLatitude()<=box.north){
+                matched=id;count++;
+            }
+        }
+        if(count!=1||matched.equals(serverDataset)||matched.equals(lastRegionAutoTarget))return;
+        lastRegionAutoTarget=matched;
+        int index=authorizedRegionIds.indexOf(matched);
+        if(index>=0)selectServerDataset(server,matched,authorizedRegionTitles.get(index));
     }
 
     private void showRegionSelection(){
@@ -974,7 +1012,7 @@ public class MapActivity extends Activity {
         if(!Double.isFinite(west)||!Double.isFinite(south)||!Double.isFinite(east)||!Double.isFinite(north)||west>=east||south>=north)return;
         final MapViewport fullRegion=new MapViewport(west,south,east,north);
         status.setText("광 전체 캐시 동기화 중…");
-        serverTask=serverWorker.submit(()->{
+        fiberWorker.submit(()->{
             try{
                 ArrayList<CadRecord> rows=client.onlineObjectsByGroups(region,fullRegion,"FIBER");
                 runOnUiThread(()->{
