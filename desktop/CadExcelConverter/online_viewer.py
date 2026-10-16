@@ -3291,18 +3291,68 @@ function regionForPosition(lng,lat){{
   if(!Number.isFinite(lng)||!Number.isFinite(lat))return null;
   const inside=authorizedRegions.filter(r=>{{
     const b=r.bounds||{{}};
-    const w=Number(b.west),e=Number(b.east),s=Number(b.south),n=Number(b.north);
     if(!['west','east','south','north'].every(k=>b[k]!==null&&b[k]!==undefined&&b[k]!==''))return false;
-    if(![w,e,s,n].every(Number.isFinite))return false;
-    return lng>=w&&lng<=e&&lat>=s&&lat<=n;
+    const v=['west','east','south','north'].map(k=>Number(b[k]));
+    return v.every(Number.isFinite)&&lng>=v[0]&&lng<=v[1]&&lat>=v[2]&&lat<=v[3];
   }});
-  if(inside.length===1)return inside[0].id;
-  if(inside.length>1){{
-    // Where multiple regional bounding boxes overlap, do not guess.
-    if(inside.some(r=>r.id===activeRegionId))return activeRegionId;
-    setStatus('지역 경계 중복 · 지역 검색으로 정확한 지역을 선택하세요');
+  // Bounding boxes are an index, not administrative boundaries. Overlaps need reverse geocoding.
+  return inside.length===1?inside[0].id:null;
+}}
+function normalizeRegionName(value){{
+  return String(value||'').replace(/\\s+/g,'').replace(/(특별자치도|특별시|광역시|도|시|군|구)$/,'').toLowerCase();
+}}
+function matchAdministrativeRegion(records){{
+  const districtNames=new Set();
+  (records||[]).forEach(x=>{{
+    for(const key of ['region_2depth_name','region_3depth_name']){{
+      const n=normalizeRegionName(x[key]);
+      if(n)districtNames.add(n);
+    }}
+  }});
+  const matches=authorizedRegions.filter(r=>{{
+    const name=normalizeRegionName(r.name);
+    if(!name)return false;
+    return [...districtNames].some(d=>name===d||name.startsWith(d+'(')||name.endsWith(' '+d));
+  }});
+  return matches.length===1?matches[0].id:null;
+}}
+async function resolveRegionAt(lng,lat){{
+  // Determine administrative region from Kakao's coordinate reverse geocoder.
+  // A previous active region must never win solely because its bounding box overlaps.
+  if(searchGeocoder&&typeof searchGeocoder.coord2RegionCode==='function'){{
+    const found=await new Promise(resolve=>{{
+      try{{
+        searchGeocoder.coord2RegionCode(lng,lat,(items,status)=>{{
+          resolve(status===kakao.maps.services.Status.OK?matchAdministrativeRegion(items):null);
+        }});
+      }}catch(e){{resolve(null);}}
+    }});
+    if(found)return found;
   }}
-  return null;
+  return regionForPosition(lng,lat);
+}}
+async function reconcileMapRegion(){{
+  if(!map||regionSwitching)return;
+  const center=map.getCenter();
+  const lng=Number(center.getLng()),lat=Number(center.getLat());
+  const expectedLng=lng,expectedLat=lat;
+  const region=await resolveRegionAt(lng,lat);
+  if(!map||regionSwitching)return;
+  const now=map.getCenter();
+  if(Math.abs(now.getLng()-expectedLng)>0.00005||Math.abs(now.getLat()-expectedLat)>0.00005)return;
+  if(region){{
+    if(region!==activeRegionId)await activateRegion(region,true);
+    else await loadObjects(false);
+  }}else{{
+    // Never serve old-region drawings at a new, unverified map location.
+    if(activeRegionId){{
+      clearOverlays();
+      activeRegionId='';
+      document.getElementById('region').value='';
+      await apiCall('select',{{region:''}});
+    }}
+    setStatus('현재 좌표의 조회 지역을 확인할 수 없습니다 · 지역 검색 또는 지역 경계정보 확인');
+  }}
 }}
 async function activateRegion(region, preservePosition=false){{
   region=String(region||'');
@@ -3566,6 +3616,8 @@ function searchShowFeature(f,label){{
   clearSearchMarker();
   const ll=new kakao.maps.LatLng(pos[1],pos[0]);
   map.setCenter(ll);map.setLevel(3);
+  // An address/coordinate selection must resolve its region, even if idle is suppressed.
+  if(!regionSwitching)reconcileMapRegion().catch(e=>setStatus('지역 자동 인식 오류: '+e.message));
   searchMarker=new kakao.maps.CustomOverlay({{
     position:ll,yAnchor:1.4,zIndex:100,
     content:'<div style="background:#fff4cc;border:2px solid #e11d48;border-radius:6px;padding:5px 9px;font-weight:bold;white-space:nowrap">'+esc(label)+'</div>'
@@ -3661,13 +3713,7 @@ function initMap(){{
         regionResolveTimer=setTimeout(async()=>{{
           regionResolveTimer=null;
           if(generation!==regionResolveGeneration||!map||regionSwitching)return;
-          const center=map.getCenter();
-          const region=regionForPosition(Number(center.getLng()),Number(center.getLat()));
-          if(region && region!==activeRegionId){{
-            await activateRegion(region,true);
-            return;
-          }}
-          if(activeRegionId)await loadObjects(false);
+          await reconcileMapRegion();
         }},REGION_SETTLE_DELAY_MS);
       }});
       kakao.maps.event.addListener(map,'click',e=>{{
