@@ -70,6 +70,10 @@ def main():
             workbook.close()
         assert len(rows) == 3, rows
         assert rows[1][12:14] == rows[2][10:12], rows
+        assert rows[1][8] == 'R1-A-B', rows[1]
+        assert rows[1][9] == 'R1_R1-A-B', rows[1]
+        assert rows[2][8] == 'R2-B-C', rows[2]
+        assert rows[2][9] == 'R2_R2-B-C', rows[2]
 
     pure, regional = _online_export_ids('CMB_GN_GS:432da6d7-bddd-410c-a48a-89128ddd4b4a:3CBAEE:0')
     assert pure == '3CBAEE', (pure, regional)
