@@ -787,7 +787,9 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
 
     # POLE: 전주 종류 + 전체번호 + 좌표만 저장. 불완전 번호의 묵시적 업로드 금지.
     if str(group or "").upper() == "POLE":
-        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9-]{1,64}$")
+        # Match the ACTIVE Ubuntu POLE validation exactly; nonconforming original IDs
+        # stay in the local exclusion report instead of aborting the transaction.
+        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9]{3,27}$")
         pole_kinds = {
             "CN_L_POLE_POLE-JOINT": "JOINT",
             "CN_L_POLE_POLE-JOINT-TRS": "TRS",
