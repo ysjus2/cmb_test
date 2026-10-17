@@ -1373,6 +1373,8 @@ let currentDevices=[];
 let searchCandidates=[];
 let searchLoadState='지역을 먼저 선택하세요';
 let searchLoadReady=false;
+let snapHint=null;
+let lastSnapMove=0;
 let searchMarker=null;
 let searchLine=null;
 let currentFiberSearchFeatures=[];
@@ -1551,6 +1553,7 @@ function clearOverlays(){{
   currentFiberPointFeatures=[];
   currentLineFeatures=[];
   currentDevices=[];
+  if(snapHint){{try{{snapHint.setMap(null)}}catch(e){{}}snapHint=null;}}
   fiberDiag={{server:0,received:0,unique:0,cache:0,lineObjects:0,renderParts:0,deviceObjects:0}};
 }}
 
@@ -2422,6 +2425,34 @@ function selectCable(overlay,props,baseColor,baseWeight=4,baseZ=5){{
   showDetail(props||{{}});
 }}
 
+function nearestDeviceSnap(ll){{
+  if(!map||!ll||!Array.isArray(currentDevices))return null;
+  const pointer=latLngToPx(ll);
+  if(!pointer||!Number.isFinite(pointer.x))return null;
+  let best=null,distBest=12;
+  // Only the devices already rendered for this viewport are candidates.
+  for(const d of currentDevices){{
+    if(!d||!d.center||!d.props)continue;
+    const g=String(d.props.group_id||'').toUpperCase();
+    if(g==='POLE'&&!groupEnabled.POLE)continue;
+    if(g==='FIBER'&&!groupEnabled.FIBER)continue;
+    if(g==='COAX'&&!groupEnabled.COAX)continue;
+    const p=latLngToPx(d.center),dist=Math.hypot(p.x-pointer.x,p.y-pointer.y);
+    const preference=g==='POLE'?2:0;
+    const ranked=dist-preference;
+    if(dist<=12&&ranked<distBest){{distBest=ranked;best=d;}}
+  }}
+  return best;
+}}
+function showSnapHint(d){{
+  if(snapHint){{try{{snapHint.setMap(null)}}catch(e){{}}snapHint=null;}}
+  if(!d||!map)return;
+  snapHint=new kakao.maps.CustomOverlay({{
+    position:d.center,yAnchor:.5,xAnchor:.5,zIndex:9900,clickable:false,
+    content:'<div style="width:23px;height:23px;border:3px solid #e11d48;border-radius:50%;background:#e11d4822;pointer-events:none;box-sizing:border-box"></div>'
+  }});
+  snapHint.setMap(map);
+}}
 function bindCableClick(overlay,props,baseColor,baseWeight=4,baseZ=5){{
   kakao.maps.event.addListener(overlay,'click',()=>{{
     selectCable(overlay,props,baseColor,baseWeight,baseZ);
@@ -3886,9 +3917,20 @@ function initMap(){{
           await reconcileMapRegion();
         }},REGION_SETTLE_DELAY_MS);
       }});
+      kakao.maps.event.addListener(map,'mousemove',e=>{{
+        if(distanceMode||!activeRegionId)return;
+        const now=Date.now();
+        if(now-lastSnapMove<90)return;
+        lastSnapMove=now;
+        const candidate=nearestDeviceSnap(e.latLng);
+        if(candidate)showSnapHint(candidate);
+        else if(snapHint){{snapHint.setMap(null);snapHint=null;}}
+      }});
       kakao.maps.event.addListener(map,'click',e=>{{
         closeDistanceDeleteMenu();
-        if(distanceMode)addDistancePoint(e.latLng);
+        if(distanceMode){{addDistancePoint(e.latLng);return;}}
+        const candidate=nearestDeviceSnap(e.latLng);
+        if(candidate)showDetail(candidate.props||{{}});
       }});
       kakao.maps.event.addListener(map,'zoom_changed',()=>{{
         const level=map.getLevel();
