@@ -819,15 +819,28 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             obj["xdata"] = {}
             obj["block_name"] = ""
             kept.append(obj)
-        if invalid:
-            preview = "; ".join(f"{layer} / HANDLE={handle} / ID={value}" for layer, handle, value in invalid[:5])
+        # Do not reject the entire upload when only some source poles have
+        # missing/ambiguous identifiers. Preserve exact original objects in a
+        # local audit report; send ONLY complete, validated poles to server.
+        if not kept:
             raise RuntimeError(
-                f"POLE 업로드 중단: 전주번호 또는 관리구역이 없는 "
-                f"전주 {len(invalid)}개가 발견되었습니다. 예: {preview}. "
-                f"원본 INSERT ID/EXMAP_POLE 검사: {pole_resolve_stats}. "
-                "원본 전주 ID 및 EXMAP_POLE 값을 확인하세요. "
-                "기존 서버 전주 데이터는 변경되지 않았습니다."
+                "POLE 정상 전주가 0개이므로 서버의 기존 데이터를 보호하기 위해 업로드를 중단합니다. "
+                + str(pole_resolve_stats)
             )
+        payload["pole_import_report"] = {
+            "source_count": len(kept) + len(invalid),
+            "accepted": len(kept),
+            "excluded": len(invalid),
+            "reason_counts": pole_resolve_stats.get("reasons", {}),
+            "samples": [
+                {"layer": layer, "handle": handle, "id": value}
+                for layer, handle, value in invalid[:50]
+            ],
+        }
+        payload["_local_pole_exclusions"] = [
+            {"layer": layer, "handle": handle, "id": value}
+            for layer, handle, value in invalid
+        ]
         payload["objects"] = kept
         payload["object_count"] = len(kept)
         payload["symbol_library"] = []
@@ -1630,6 +1643,32 @@ class AdminUploadWindow(tk.Toplevel):
                     f"{group} 그룹에 업로드 가능한 객체가 없습니다."
                 )
 
+            pole_report = payload.pop("pole_import_report", None)
+            pole_exclusions = payload.pop("_local_pole_exclusions", [])
+            pole_report_path = None
+            if pole_report is not None:
+                import tempfile
+                import datetime
+                stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                pole_report_path = Path(tempfile.gettempdir()) / (
+                    f"CMB_POLE_EXCLUDED_{region_code}_{stamp}.json"
+                )
+                pole_report_path.write_text(
+                    json.dumps({
+                        "region_code": region_code,
+                        "source_file": Path(self.source_path).name,
+                        **pole_report,
+                        "excluded_objects": pole_exclusions,
+                    }, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            # Report fields are local-only, never part of the server payload.
+            payload["package_sha256"] = hashlib.sha256(
+                json.dumps({k: v for k, v in payload.items() if k != "package_sha256"},
+                           ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+
             package_bytes = len(
                 json.dumps(
                     payload,
@@ -1681,6 +1720,22 @@ class AdminUploadWindow(tk.Toplevel):
                         "FIBER 업로드는 완료됐지만 지역 중심점 서버 저장에 실패했습니다: "
                         + str(exc)
                     ) from exc
+
+            if pole_report is not None:
+                accepted = int(pole_report.get("accepted", 0))
+                excluded = int(pole_report.get("excluded", 0))
+                self.status.set(
+                    f"POLE 업로드 완료 · 정상 {accepted:,}개 · 제외 {excluded:,}개"
+                )
+                messagebox.showinfo(
+                    "전주 업로드 결과",
+                    f"서버 저장 성공: {accepted:,}개\\n"
+                    f"원본번호 검증 제외: {excluded:,}개\\n\\n"
+                    f"제외 목록(JSON): {pole_report_path}\\n\\n"
+                    "관리구역·개별번호가 확인된 전주만 저장했습니다.",
+                    parent=self,
+                )
+                return result
 
             self.status.set(
                 f"{group} 업로드 완료 · "
