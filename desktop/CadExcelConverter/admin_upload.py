@@ -2051,18 +2051,28 @@ def _id_value(e):
     return raw
 
 def _grid_values(e):
+    """Only read management code explicitly carried by the SAME INSERT.
+
+    Some source drawings put their original Polemap value into another XDATA
+    application or a direct attribute rather than EXMAP_POLE. Never use a
+    neighboring pole, a polygon, or a copied grid from another entity.
+    """
     result = set()
     for appid, values in (getattr(e, "xdata", None) or []):
-        if str(appid).strip().upper() != "EXMAP_POLE":
-            continue
         for item in values or []:
             raw = str(item).strip()
-            # The viewer preserves XDATA as "1000: VALUE" strings.
             match = re.fullmatch(r"1000:\s*(.*)", raw, flags=re.IGNORECASE)
             if match:
                 candidate = match.group(1).strip().upper()
                 if GRID.fullmatch(candidate):
                     result.add(candidate)
+    attrs = getattr(e, "attributes", {}) or {}
+    for key, value in attrs.items():
+        k = str(key).strip().upper()
+        if any(token in k for token in ("GRID", "POLEMAP", "관리구역")):
+            candidate = str(value).strip().upper()
+            if GRID.fullmatch(candidate):
+                result.add(candidate)
     return result
 
 def resolve_pole_numbers(scene):
