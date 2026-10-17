@@ -30,7 +30,7 @@ def _grid_values(e):
         for item in values or []:
             raw = str(item).strip()
             # The viewer preserves XDATA as "1000: VALUE" strings.
-            match = re.fullmatch(r"1000:\\s*(.*)", raw, flags=re.IGNORECASE)
+            match = re.fullmatch(r"1000:\s*(.*)", raw, flags=re.IGNORECASE)
             if match:
                 candidate = match.group(1).strip().upper()
                 if GRID.fullmatch(candidate):
