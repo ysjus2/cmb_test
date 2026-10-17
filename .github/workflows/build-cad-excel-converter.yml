@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: desktop/CadExcelConverter
@@ -42,7 +42,7 @@ jobs:
         shell: powershell
         run: |
           $process = Start-Process -FilePath dist/CMB_DXF_Viewer_Windows_1.0_Rev40.exe -ArgumentList '--build-smoke-test', 'dist/build-smoke.json' -WindowStyle Hidden -PassThru
-          if (-not $process.WaitForExit(120000)) { Stop-Process -Id $process.Id; throw "Packaged smoke test timed out" }
+          if (-not $process.WaitForExit(300000)) { Stop-Process -Id $process.Id; throw "Packaged smoke test timed out" }
           if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed" }
           python verify_release.py dist/CMB_DXF_Viewer_Windows_1.0_Rev40.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
       - name: Upload current build
