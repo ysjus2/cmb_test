@@ -885,7 +885,7 @@ if __name__ == "__main__":
                 "viewer_page_sha256": hashlib.sha256(page.encode()).hexdigest()}), encoding="utf-8")
             raise SystemExit(0)
     
-        except BaseException as smoke_exc:
+        except Exception as smoke_exc:
             import traceback
             smoke_output = Path(sys.argv[sys.argv.index("--build-smoke-test") + 1]).resolve()
             smoke_output.write_text(json.dumps({"ok": False, "error":repr(smoke_exc),
