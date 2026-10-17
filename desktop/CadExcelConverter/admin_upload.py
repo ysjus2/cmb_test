@@ -820,7 +820,7 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             obj["block_name"] = ""
             kept.append(obj)
         if invalid:
-            preview = "; ".join(f"{layer}: {values}" for layer, values in invalid[:5])
+            preview = "; ".join(f"{layer} / HANDLE={handle} / ID={value}" for layer, handle, value in invalid[:5])
             raise RuntimeError(
                 f"POLE 업로드 중단: 전주번호 또는 관리구역이 없는 "
                 f"전주 {len(invalid)}개가 발견되었습니다. 예: {preview}. "
