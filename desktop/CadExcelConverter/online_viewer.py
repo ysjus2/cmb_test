@@ -806,8 +806,8 @@ class Api:
             number = str(number or "").strip().upper()
             if kind not in {"cell", "pole"}:
                 return {"ok": False, "error": "지원하지 않는 검색 유형"}
-            if kind == "cell" and (not number.isdigit() or len(number) != 4):
-                return {"ok": False, "error": "셀번호는 4자리 숫자여야 합니다."}
+            if kind == "cell" and (len(number) != 4 or not number.isascii() or not number.isalnum()):
+                return {"ok": False, "error": "셀번호는 영문/숫자 4자리여야 합니다."}
             if kind == "pole" and (len(number) != 5 or not number[:4].isdigit() or not number[4:].isalpha()):
                 return {"ok": False, "error": "전주번호는 0000X 형식이어야 합니다."}
             query = urllib.parse.urlencode({"kind": kind, "number": number})
@@ -3759,9 +3759,9 @@ function doViewerSearch(){{
     }});return;
   }}
   if(kind==='cell'){{
-    const cell=q.match(/^(?:\\[?(?:장애|복구)\\]?\\s*)?(?:[가-힣]+@?)?(\\d{{4}})$/);
-    if(!cell){{setStatus('고유 셀번호 4자리를 입력하세요 (예: 2026 또는 광주@4158)');return;}}
-    apiCall('indexed_search',{{kind:'cell',number:cell[1]}}).then(r=>{{
+    const cell=q.match(/^(?:\\[?(?:장애|복구)\\]?\\s*)?(?:[가-힣]+@?)?([A-Za-z0-9]{{4}})$/);
+    if(!cell){{setStatus('고유 셀번호 영문/숫자 4자리를 입력하세요 (예: A925 또는 광주@4158)');return;}}
+    apiCall('indexed_search',{{kind:'cell',number:cell[1].toUpperCase()}}).then(r=>{{
       if(!r.ok){{setStatus(r.error||'셀번호 검색 실패');return;}}
       searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||cell[1])+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||cell[1]))}})));
     }}).catch(e=>setStatus('셀번호 검색 오류 · '+e.message));
@@ -3795,7 +3795,7 @@ function doViewerSearch(){{
 }}
 function bindViewerSearch(){{
   document.getElementById('searchType').addEventListener('change',e=>{{
-    const placeholders={{region:'지역명 또는 지역코드',cell:'고유 셀번호 4자리 (예: 2026)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
+    const placeholders={{region:'지역명 또는 지역코드',cell:'셀번호 영문/숫자 4자리 (예: A925)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
     document.getElementById('searchValue').placeholder=placeholders[e.target.value];
     document.getElementById('searchResults').textContent='';
   }});
