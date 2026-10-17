@@ -8,7 +8,7 @@ import re
 
 GRID = re.compile(r"^[0-9]{4}[A-Z]$")
 FULL = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9]{3,27}$")
-LOCAL = re.compile(r"^[A-Z0-9]{3,27}$")
+LOCAL = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,63}$")
 POLES = {
     "CN_L_POLE_POLE-JOINT",
     "CN_L_POLE_POLE-JOINT-TRS",
@@ -19,7 +19,7 @@ POLES = {
 
 def _id_value(e):
     attrs = getattr(e, "attributes", {}) or {}
-    raw = str(attrs.get("ID") or "").strip().upper().strip("() ")
+    raw = str(attrs.get("ID") or "").strip().upper()\n    if raw.startswith("(") and raw.endswith(")"):\n        raw = raw[1:-1].strip()
     return raw
 
 def _grid_values(e):
@@ -50,7 +50,7 @@ def resolve_pole_numbers(scene):
         if FULL.fullmatch(local):
             resolved[e.handle] = local
             continue
-        if not LOCAL.fullmatch(local):
+        if not local or local == "-" or not LOCAL.fullmatch(local):
             reason="id_missing_or_invalid"
         else:
             grids = _grid_values(e)
