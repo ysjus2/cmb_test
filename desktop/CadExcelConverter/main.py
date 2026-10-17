@@ -846,7 +846,8 @@ class App(NetworkExtractionMixin, tk.Tk):
 
 
 if __name__ == "__main__":
-    if "--build-smoke-test" in sys.argv:        try:
+    if "--build-smoke-test" in sys.argv:
+        try:
             # Exercise bundled imports, Tcl/Tk and geometry conversion without a login.
             import hashlib
             import pyproj
