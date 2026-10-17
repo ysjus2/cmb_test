@@ -804,36 +804,19 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             if kind is None:
                 continue
             attrs = dict(obj.get("attributes") or {})
-            mapped = pole_no_by_handle.get(str(obj.get("source_handle") or ""))
-            if mapped:
-                attrs["_cmb_pole_no"] = mapped
-            candidates = []
-            for value in (
-                attrs.get("_cmb_pole_no"),
-                (attrs.get("_cmb_pole_position") or {}).get("pole_no")
-                if isinstance(attrs.get("_cmb_pole_position"), dict) else None,
-            ):
-                if value:
-                    candidates.append(str(value).strip().upper())
-            for ref in attrs.get("_cmb_pole_refs") or []:
-                if isinstance(ref, dict) and ref.get("pole_no"):
-                    candidates.append(str(ref["pole_no"]).strip().upper())
-            fields = attrs.get("fields") if isinstance(attrs.get("fields"), dict) else attrs
-            if isinstance(fields, dict):
-                for key in ("POLE_NO", "pole_no", "전주번호", "NO", "ID", "id"):
-                    if fields.get(key):
-                        candidates.append(str(fields[key]).strip().upper())
-            # 전체번호는 해당 INSERT의 실제 속성값에서만 취한다.
-            # 인접 전주의 관리구역 번호를 추정해 붙이지 않는다.
-            unique_full = list(dict.fromkeys(v for v in candidates if valid_pole_no.fullmatch(v)))
-            if len(unique_full) > 1:
-                invalid.append((layer, "복수의 전주번호 후보: " + str(unique_full[:3])))
+            # Trust only the SAME CAD INSERT: ATTRIB ID + XDATA EXMAP_POLE.
+            # Never infer a management code from a nearby object, cable or polygon.
+            full = pole_no_by_handle.get(str(obj.get("source_handle") or ""))
+            if not full or not valid_pole_no.fullmatch(full):
+                invalid.append((layer, str(obj.get("source_handle") or ""),
+                                str(attrs.get("ID") or "")[:48]))
                 continue
-            full = unique_full[0] if unique_full else None
-            if full is None:
-                invalid.append((layer, str(candidates[:3])))
-                continue
-            obj["attributes"] = {"_cmb_pole_no": full, "_cmb_pole_grid": full[:5], "_cmb_pole_local": full[5:], "_cmb_pole_type": kind}
+            obj["attributes"] = {
+                "_cmb_pole_no": full,
+                "_cmb_pole_grid": full[:5],
+                "_cmb_pole_local": full[5:],
+                "_cmb_pole_type": kind,
+            }
             obj["xdata"] = {}
             obj["block_name"] = ""
             kept.append(obj)
@@ -842,8 +825,8 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
             raise RuntimeError(
                 f"POLE 업로드 중단: 전주번호 또는 관리구역이 없는 "
                 f"전주 {len(invalid)}개가 발견되었습니다. 예: {preview}. "
-                f"Polemap 매칭: {pole_resolve_stats}. "
-                "전주 번호 추출/관리구역 매핑을 수정한 후 다시 업로드하세요. "
+                f"원본 INSERT ID/EXMAP_POLE 검사: {pole_resolve_stats}. "
+                "원본 전주 ID 및 EXMAP_POLE 값을 확인하세요. "
                 "기존 서버 전주 데이터는 변경되지 않았습니다."
             )
         payload["objects"] = kept
