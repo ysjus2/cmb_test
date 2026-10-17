@@ -19,7 +19,9 @@ POLES = {
 
 def _id_value(e):
     attrs = getattr(e, "attributes", {}) or {}
-    raw = str(attrs.get("ID") or "").strip().upper()\n    if raw.startswith("(") and raw.endswith(")"):\n        raw = raw[1:-1].strip()
+    raw = str(attrs.get("ID") or "").strip().upper()
+    if raw.startswith("(") and raw.endswith(")"):
+        raw = raw[1:-1].strip()
     return raw
 
 def _grid_values(e):
