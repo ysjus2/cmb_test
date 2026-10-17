@@ -43,7 +43,8 @@ jobs:
         run: |
           $process = Start-Process -FilePath dist/CMB_DXF_Viewer_Windows_1.0_Rev40.exe -ArgumentList '--build-smoke-test', 'dist/build-smoke.json' -WindowStyle Hidden -PassThru
           if (-not $process.WaitForExit(300000)) { Stop-Process -Id $process.Id; throw "Packaged smoke test timed out" }
-          if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed" }
+          if (Test-Path dist/build-smoke.json) { Get-Content dist/build-smoke.json -Raw }
+          if ($process.ExitCode -ne 0) { throw "Packaged executable smoke test failed (exit $($process.ExitCode))" }
           python verify_release.py dist/CMB_DXF_Viewer_Windows_1.0_Rev40.exe dist/build-smoke.json dist/BUILD_MANIFEST.json
       - name: Upload current build
         uses: actions/upload-artifact@v4
