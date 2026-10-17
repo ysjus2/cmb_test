@@ -852,11 +852,18 @@ if __name__ == "__main__":
         import pyproj
         from online_viewer import html
         from admin_upload import classify_entity
+        from pole_grid_resolver import resolve_pole_numbers
         from types import SimpleNamespace
         output = Path(sys.argv[sys.argv.index("--build-smoke-test") + 1]).resolve()
         smoke_root = tk.Tk()
         smoke_root.withdraw()
         assert classify_entity(SimpleNamespace(layer="CN_F_CABLE", block_name="")) == "FIBER"
+        pole = SimpleNamespace(
+            entity_type="INSERT", layer="CN_L_Pole_Pole-Joint",
+            handle="smoke-pole", attributes={"ID":"(6-1H-1)"},
+            xdata=[("EXMAP_POLE", ["1071: 4006641", "1000: 7887G"])])
+        mapped, diagnostic = resolve_pole_numbers(SimpleNamespace(entities=[pole]))
+        assert mapped["smoke-pole"] == "7887G6-1H-1", diagnostic
         page = html("smoke-key", "smoke-token")
         assert "clearGroupOverlays" in page and "snapCablePath" in page
         assert "<select id='region' title='현재 도면 조회 지역 (통합 검색으로 이동)' style='display:none'" in page
