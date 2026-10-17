@@ -3695,9 +3695,15 @@ function searchShowFeature(f,label){{
   map.setCenter(ll);map.setLevel(3);
   // An address/coordinate selection must resolve its region, even if idle is suppressed.
   if(!regionSwitching)reconcileMapRegion().catch(e=>setStatus('지역 자동 인식 오류: '+e.message));
+  // Persistent, high-contrast pinpoint for cell/pole search results.
+  // Keep this separate from drawing overlays, which are reset on region changes.
   searchMarker=new kakao.maps.CustomOverlay({{
-    position:ll,yAnchor:1.4,zIndex:100,
-    content:'<div style="background:#fff4cc;border:2px solid #e11d48;border-radius:6px;padding:5px 9px;font-weight:bold;white-space:nowrap">'+esc(label)+'</div>'
+    position:ll,yAnchor:1,zIndex:10000,clickable:false,
+    content:'<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px);pointer-events:none">'+
+      '<div style="background:#fff;color:#b91c1c;border:3px solid #dc2626;border-radius:8px;padding:7px 12px;font-size:15px;font-weight:800;white-space:nowrap;box-shadow:0 3px 12px #0008">📍 '+esc(label)+'</div>'+
+      '<div style="width:3px;height:28px;background:#dc2626;box-shadow:0 1px 3px #0008"></div>'+
+      '<div style="width:20px;height:20px;border:4px solid #dc2626;border-radius:50%;background:#fff8;box-shadow:0 0 0 7px #dc262633"></div>'+
+      '</div>'
   }});
   searchMarker.setMap(map);
   const geo=(f||{{}}).geometry||{{}};
