@@ -808,8 +808,8 @@ class Api:
                 return {"ok": False, "error": "지원하지 않는 검색 유형"}
             if kind == "cell" and (len(number) != 4 or not number.isascii() or not number.isalnum()):
                 return {"ok": False, "error": "셀번호는 영문/숫자 4자리여야 합니다."}
-            if kind == "pole" and (len(number) != 5 or not number[:4].isdigit() or not number[4:].isalpha()):
-                return {"ok": False, "error": "전주번호는 0000X 형식이어야 합니다."}
+            if kind == "pole" and (len(number) < 5 or len(number) > 17 or not number.isascii() or not number[:4].isdigit() or not number[4].isalpha() or not number[5:].isalnum()):
+                return {"ok": False, "error": "전주번호는 0000X 또는 전체 전주번호여야 합니다."}
             query = urllib.parse.urlencode({"kind": kind, "number": number})
             response = self.c._request("GET", "/online/coordinate-search?" + query, timeout=20)
             if not isinstance(response, dict):
@@ -3715,7 +3715,8 @@ function searchResults(items){{
     const messages={{
       region:'검색결과가 없습니다. 지역명 2글자로 입력하세요(예 나주)',
       address:'검색된 주소나 장소가 없습니다. 주소 또는 장소명을 확인하세요.',
-      pole:'현재 불러온 범위에서 일치하는 전주가 없습니다. 다른 지역의 전주는 검색되지 않을 수 있습니다.',
+      cell:'해당 셀번호가 없거나 지역 접근 권한이 없습니다.',
+      pole:'해당 전주번호가 없거나 지역 접근 권한이 없습니다.',
       device:'현재 불러온 데이터에서 일치하는 기기나 케이블이 없습니다.',
       coordinate:'좌표 검색 결과가 없습니다. 경도, 위도 입력값을 확인하세요.'
     }};
@@ -3770,11 +3771,11 @@ function doViewerSearch(){{
   const up=q.toUpperCase();
   if(kind==='pole'&&q.length<5){{setStatus('전주번호 앞 5자리(예: 1234X) 이상 입력하세요');return;}}
   if(kind==='pole'){{
-    const prefix=q.slice(0,5).toUpperCase();
-    if(!/^\\d{{4}}[A-Z]$/.test(prefix)){{setStatus('전주번호 앞 5자리 형식은 0000X입니다 (예: 1234X)');return;}}
-    apiCall('indexed_search',{{kind:'pole',number:prefix}}).then(r=>{{
+    const poleNo=q.toUpperCase();
+    if(!/^\\d{{4}}[A-Z][A-Z0-9]{{0,12}}$/.test(poleNo)){{setStatus('전주번호는 0000X 또는 전체번호를 입력하세요');return;}}
+    apiCall('indexed_search',{{kind:'pole',number:poleNo}}).then(r=>{{
       if(!r.ok){{setStatus(r.error||'전주 좌표 검색 실패');return;}}
-      searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||prefix)+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||prefix))}})));
+      searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||poleNo)+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||poleNo))}})));
     }}).catch(e=>setStatus('전주 좌표 검색 오류 · '+e.message));
     return;
   }}
@@ -3795,7 +3796,7 @@ function doViewerSearch(){{
 }}
 function bindViewerSearch(){{
   document.getElementById('searchType').addEventListener('change',e=>{{
-    const placeholders={{region:'지역명 또는 지역코드',cell:'셀번호 영문/숫자 4자리 (예: A925)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
+    const placeholders={{region:'지역명 또는 지역코드',cell:'셀번호 영문/숫자 4자리 (예: A925)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 또는 전체번호',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
     document.getElementById('searchValue').placeholder=placeholders[e.target.value];
     document.getElementById('searchResults').textContent='';
   }});
