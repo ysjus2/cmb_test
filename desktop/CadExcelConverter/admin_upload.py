@@ -788,7 +788,7 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
 
     # POLE: 전주 종류 + 전체번호 + 좌표만 저장. 불완전 번호의 묵시적 업로드 금지.
     if str(group or "").upper() == "POLE":
-        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9]{3,27}$")
+        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9-]{1,64}$")
         pole_kinds = {
             "CN_L_POLE_POLE-JOINT": "JOINT",
             "CN_L_POLE_POLE-JOINT-TRS": "TRS",
@@ -840,7 +840,7 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         if invalid:
             preview = "; ".join(f"{layer}: {values}" for layer, values in invalid[:5])
             raise RuntimeError(
-                f"POLE 업로드 중단: 전체 전주번호(0000X + 개별번호)가 없는 "
+                f"POLE 업로드 중단: 전주번호 또는 관리구역이 없는 "
                 f"전주 {len(invalid)}개가 발견되었습니다. 예: {preview}. "
                 f"Polemap 매칭: {pole_resolve_stats}. "
                 "전주 번호 추출/관리구역 매핑을 수정한 후 다시 업로드하세요. "
