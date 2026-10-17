@@ -780,7 +780,7 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
 
     # POLE: 전주 종류 + 전체번호 + 좌표만 저장. 불완전 번호의 묵시적 업로드 금지.
     if str(group or "").upper() == "POLE":
-        valid_pole_no = re.compile(r"^\\d{4}[A-Z][A-Z0-9]{3,27}$")
+        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9]{3,27}$")
         pole_kinds = {
             "CN_L_POLE_POLE-JOINT": "JOINT",
             "CN_L_POLE_POLE-JOINT-TRS": "TRS",
@@ -812,11 +812,17 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
                 for key in ("POLE_NO", "pole_no", "전주번호", "NO", "ID", "id"):
                     if fields.get(key):
                         candidates.append(str(fields[key]).strip().upper())
-            full = next((v for v in candidates if valid_pole_no.fullmatch(v)), None)
+            # 전체번호는 해당 INSERT의 실제 속성값에서만 취한다.
+            # 인접 전주의 관리구역 번호를 추정해 붙이지 않는다.
+            unique_full = list(dict.fromkeys(v for v in candidates if valid_pole_no.fullmatch(v)))
+            if len(unique_full) > 1:
+                invalid.append((layer, "복수의 전주번호 후보: " + str(unique_full[:3])))
+                continue
+            full = unique_full[0] if unique_full else None
             if full is None:
                 invalid.append((layer, str(candidates[:3])))
                 continue
-            obj["attributes"] = {"_cmb_pole_no": full, "_cmb_pole_type": kind}
+            obj["attributes"] = {"_cmb_pole_no": full, "_cmb_pole_grid": full[:5], "_cmb_pole_local": full[5:], "_cmb_pole_type": kind}
             obj["xdata"] = {}
             obj["block_name"] = ""
             kept.append(obj)
