@@ -1026,7 +1026,8 @@ assert "if(kind==='fiber_rn')" in online_source
 assert "block.startsWith('RN-8')" in online_source and "return '8RN'" in online_source
 assert "block.startsWith('RN-4')" in online_source and "return '4RN'" in online_source
 assert "shape:'text_only'" in online_source
-assert "translate(-50%,-180%)" in online_source
+assert "translateY(-130%)" in online_source
+assert "isRotatingLabel ? " in online_source
 assert "if not is_default_hidden(layer.name):" in main_source
 assert "self.viewer.set_visible_layers(self.visible_layers)" in main_source
 assert "_ID_SEGMENT_RE" in layer_defaults_source
