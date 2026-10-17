@@ -265,7 +265,7 @@ def _geometry_parts(e):
     parts = []
     for kind, data in e.primitives:
         if kind in {"line", "polyline", "polygon"} and len(data) >= 2:
-            path = [(float(x), float(y)) for x, y in data]
+            path = [(float(p[0]), float(p[1])) for p in data if len(p) >= 2]
             if len(path) >= 2:
                 parts.append(path)
 
@@ -1756,9 +1756,17 @@ class AdminUploadWindow(tk.Toplevel):
         try:
             self._upload(item)
         except Exception as exc:
+            import traceback
+            import tempfile
+            detail = traceback.format_exc()
+            log_path = Path(tempfile.gettempdir()) / "CMB_POLE_UPLOAD_ERROR.log"
+            try:
+                log_path.write_text(detail, encoding="utf-8")
+            except OSError:
+                pass
             messagebox.showerror(
                 "업로드 오류",
-                str(exc),
+                str(exc) + "\\n\\n오류 위치:\\n" + detail[-1500:] + "\\n\\n진단 로그: " + str(log_path),
                 parent=self,
             )
 
