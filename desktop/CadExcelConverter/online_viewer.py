@@ -808,8 +808,8 @@ class Api:
                 return {"ok": False, "error": "지원하지 않는 검색 유형"}
             if kind == "cell" and (len(number) != 4 or not number.isascii() or not number.isalnum()):
                 return {"ok": False, "error": "셀번호는 영문/숫자 4자리여야 합니다."}
-            if kind == "pole" and (len(number) < 5 or len(number) > 17 or not number.isascii() or not number[:4].isdigit() or not number[4].isalpha() or (len(number) > 5 and not number[5:].isalnum())):
-                return {"ok": False, "error": "전주번호는 0000X 또는 전체 전주번호여야 합니다."}
+            if kind == "pole" and (len(number) < 5 or len(number) > 32 or not number.isascii() or not number.isalnum()):
+                return {"ok": False, "error": "전주번호는 영문·숫자 5자리 이상 입력하세요."}
             query = urllib.parse.urlencode({"kind": kind, "number": number})
             response = self.c._request("GET", "/online/coordinate-search?" + query, timeout=20)
             if not isinstance(response, dict):
@@ -1263,6 +1263,8 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
 #searchResults{{max-height:230px;overflow:auto;margin-top:6px}}
 #searchResults button{{display:block;width:100%;height:auto;text-align:left;background:#fff;border:0;border-bottom:1px solid #eee;padding:8px;cursor:pointer}}
 #searchResults button:hover{{background:#e8f3ff}}
+#map, #map *{{cursor:default}}
+#searchPanel input:disabled{{background:#e2e8f0;color:#64748b}}
 </style>
 <script src='https://dapi.kakao.com/v2/maps/sdk.js?appkey={k}&autoload=false&libraries=services'></script>
 </head>
@@ -1369,6 +1371,8 @@ let currentFiberPointFeatures=[];
 let currentLineFeatures=[];
 let currentDevices=[];
 let searchCandidates=[];
+let searchLoadState='지역을 먼저 선택하세요';
+let searchLoadReady=false;
 let searchMarker=null;
 let searchLine=null;
 let currentFiberSearchFeatures=[];
@@ -3088,10 +3092,11 @@ async function loadObjects(force=false){{
   viewDiag.stage='OBJECT 조회';
   viewDiag.progress='COAX/CONDUIT/POLE';
   setWorkStatus('L'+mapLevelNow+' · '+viewDiagText(),85,true);
+  searchLoadState='동축·기기 로딩 중 (85%)';searchLoadReady=false;updateDeviceSearchState();
   const r=await apiCall('objects',{{west:west,south:south,east:east,north:north}});
   if(myGeneration!==loadGeneration)return;
   if(region!==document.getElementById('region').value)return;
-  if(r.error){{setStatus(r.error);return}}
+  if(r.error){{searchLoadState='도면 로딩 실패: '+r.error;updateDeviceSearchState();setStatus(r.error);return}}
   lastQueryLat=queryLat;
   lastQueryLng=queryLng;
   lastDetailMode=detailMode;
@@ -3100,6 +3105,7 @@ async function loadObjects(force=false){{
   selectedOverlay=null;
   const allFeatures=r.features||[];
   searchCandidates=allFeatures.filter(f=>String(((f.properties||{{}}).group_id)||'').toUpperCase()!=='FIBER');
+  searchLoadReady=true;searchLoadState='현재 화면 동축·기기 조회 완료';updateDeviceSearchState();
   const mapLevel=map.getLevel();
   const isMaxDetail=mapLevel<=3;
   const features=allFeatures.filter(f=>{{
@@ -3688,7 +3694,7 @@ function searchShowFeature(f,label){{
     activeRegionId='';
     document.getElementById('region').value='';
     lastQueryLat=null;lastQueryLng=null;lastDetailMode=null;
-    searchCandidates=[];currentFiberSearchFeatures=[];
+    searchCandidates=[];currentFiberSearchFeatures=[];searchLoadReady=false;searchLoadState='지역 도면 로딩 중';updateDeviceSearchState();
     document.getElementById('detail').style.display='none';
   }}
   const ll=new kakao.maps.LatLng(pos[1],pos[0]);
@@ -3779,7 +3785,7 @@ function doViewerSearch(){{
   if(kind==='pole'&&q.length<5){{setStatus('전주번호 앞 5자리(예: 1234X) 이상 입력하세요');return;}}
   if(kind==='pole'){{
     const poleNo=q.toUpperCase();
-    if(!/^\\d{{4}}[A-Z][A-Z0-9]{{0,12}}$/.test(poleNo)){{setStatus('전주번호는 0000X 또는 전체번호를 입력하세요');return;}}
+    if(!/^[A-Z0-9]{{5,32}}$/.test(poleNo)){{setStatus('전주번호는 영문·숫자 5자리 이상 입력하세요');return;}}
     apiCall('indexed_search',{{kind:'pole',number:poleNo}}).then(r=>{{
       if(!r.ok){{setStatus(r.error||'전주 좌표 검색 실패');return;}}
       const results=(r.items||[]).filter(x=>Number.isFinite(Number(x.lon))&&Number.isFinite(Number(x.lat))).map(x=>({{label:String(x.label||x.number||poleNo)+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||poleNo))}}));
@@ -3787,14 +3793,19 @@ function doViewerSearch(){{
     }}).catch(e=>setStatus('전주 좌표 검색 오류 · '+e.message));
     return;
   }}
+  if(kind==='device' && (!activeRegionId||regionSwitching||!searchLoadReady)){{
+    setStatus('기기·케이블 검색 대기 · '+searchLoadState);return;
+  }}
   const pool=kind==='device'?[...searchCandidates,...currentFiberSearchFeatures]:searchCandidates;
   const items=pool.filter(f=>{{
     const p=f.properties||{{}};const group=String(p.group_id||'').toUpperCase();
     if(kind==='pole')return group==='POLE'&&searchPoleNumber(f).toUpperCase().startsWith(up);
     if(group==='POLE')return false;
     const a=p.attributes||{{}};const fields=a.fields||a;
-    return [p.regional_object_id,p.source_handle,p.entity_id,p.object_id,p.block_name,p.text,fields.ESSEN_302,fields.NAME,fields.ID]
-      .some(x=>String(x||'').toUpperCase().includes(up));
+    const base=[p.regional_object_id,p.source_handle,p.entity_id,p.object_id,p.block_name,p.text,fields.ESSEN_302,fields.NAME,fields.ID];
+    const extra=Object.entries(fields||{{}}).filter(([key,value])=>/CABLE|NAME|NUMBER|CODE|ID|번호|명칭|케이블|선번/i.test(key)
+       && (typeof value==='string'||typeof value==='number')).map(([key,value])=>value);
+    return [...base,...extra].some(x=>String(x||'').toUpperCase().includes(up));
   }}).map(f=>{{
     const p=f.properties||{{}};
     const label=kind==='pole'?searchPoleNumber(f):String(p.regional_object_id||p.source_handle||p.entity_id||p.block_name||'기기');
@@ -3802,11 +3813,24 @@ function doViewerSearch(){{
   }});
   searchResults(items);
 }}
+function updateDeviceSearchState(){{
+  const type=document.getElementById('searchType'),input=document.getElementById('searchValue');
+  if(!type||!input)return;
+  const waiting=type.value==='device'&&(!activeRegionId||regionSwitching||!searchLoadReady);
+  input.disabled=waiting;
+  const button=document.getElementById('searchGo');
+  if(button)button.disabled=waiting;
+  if(waiting){{
+    input.placeholder=searchLoadState;
+    const box=document.getElementById('searchResults');
+    if(box)box.textContent='검색 대기 · '+searchLoadState;
+  }}
+}}
 function bindViewerSearch(){{
   document.getElementById('searchType').addEventListener('change',e=>{{
-    const placeholders={{region:'지역명 또는 지역코드',cell:'셀번호 영문/숫자 4자리 (예: A925)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 또는 전체번호',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
+    const placeholders={{region:'지역명 또는 지역코드',cell:'셀번호 영문/숫자 4자리 (예: A925)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 또는 전체번호',device:'기기·객체ID·케이블번호',coordinate:'예: 127.00000 35.00000'}};
     document.getElementById('searchValue').placeholder=placeholders[e.target.value];
-    document.getElementById('searchResults').textContent='';
+    document.getElementById('searchResults').textContent='';updateDeviceSearchState();
   }});
   document.getElementById('searchGo').addEventListener('click',doViewerSearch);
   document.getElementById('searchValue').addEventListener('keydown',e=>{{if(e.key==='Enter')doViewerSearch();}});
@@ -3839,7 +3863,7 @@ function initMap(){{
               clearOverlays();
               activeRegionId='';
               document.getElementById('region').value='';
-              searchCandidates=[];currentFiberSearchFeatures=[];
+              searchCandidates=[];currentFiberSearchFeatures=[];searchLoadReady=false;searchLoadState='지역 도면 로딩 중';updateDeviceSearchState();
               setStatus('새 위치 지역 확인 중');
             }}
           }}
