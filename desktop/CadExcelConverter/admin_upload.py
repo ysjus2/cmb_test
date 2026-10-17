@@ -75,20 +75,16 @@ def classify_entity(e):
     ):
         return "CONDUIT"
 
-    # 실제 전주 INSERT를 POLE 그룹으로 분류한다.
-    # 이 도면에서 Pole-Joint / TRS / Steel / CATV / Drop / TEL / Concrete는
-    # 모두 실제 전주 심벌로 사용되므로 전주번호 유무와 무관하게 유지한다.
+    # 실제 전주 위치만 저장한다. Drop은 가상점이고 TEL 등은 이번 전주 표시에 제외한다.
     entity_type = str(e.entity_type or "").strip().upper()
-    actual_pole_layer = (
-        layer == "CN_L_POLE"
-        or layer.startswith("CN_L_POLE_POLE")
-    )
-    actual_pole_block = (
-        block.startswith("POLE")
-        or "POLE_CATV" in block
-        or "POLE-CATV" in block
-    )
-    if entity_type == "INSERT" and (actual_pole_layer or actual_pole_block):
+    actual_pole_layers = {
+        "CN_L_POLE_POLE-JOINT",
+        "CN_L_POLE_POLE-JOINT-TRS",
+        "CN_L_POLE_POLE-CATV",
+        "CN_L_POLE_POLE-STEEL",
+        "CN_L_POLE_POLE-CONCRETE",
+    }
+    if entity_type == "INSERT" and layer in actual_pole_layers:
         return "POLE"
 
     # 동축선로 / 동축장비
@@ -288,7 +284,7 @@ def _geometry_parts(e):
 
 
 _UPLOAD_POLE_CODE_RE = re.compile(
-    r"(?<![0-9A-Za-z])(\d{4}[A-Za-z]\d{3})(?![0-9A-Za-z])"
+    r"(?<![0-9A-Za-z])(\d{4}[A-Za-z][A-Za-z0-9]{3,27})(?![0-9A-Za-z])"
 )
 
 
@@ -782,45 +778,61 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
         payload["symbol_count"] = 0
         payload["user_storage_schema"] = "memo-point-v1"
 
-    # POLE 그룹은 지도 표시 좌표 + 전주번호만 서버에 최소 저장한다.
-    # GRID/pole_refs/DXF/style/xdata/symbol 정보는 온라인 Viewer에서 사용하지 않는다.
+    # POLE: 전주 종류 + 전체번호 + 좌표만 저장. 불완전 번호의 묵시적 업로드 금지.
     if str(group or "").upper() == "POLE":
+        valid_pole_no = re.compile(r"^\\d{4}[A-Z][A-Z0-9]{3,27}$")
+        pole_kinds = {
+            "CN_L_POLE_POLE-JOINT": "JOINT",
+            "CN_L_POLE_POLE-JOINT-TRS": "TRS",
+            "CN_L_POLE_POLE-CATV": "CATV",
+            "CN_L_POLE_POLE-STEEL": "STEEL",
+            "CN_L_POLE_POLE-CONCRETE": "CONCRETE",
+        }
+        invalid = []
+        kept = []
         for obj in payload.get("objects") or []:
+            layer = str(obj.get("layer") or "").strip().upper()
+            kind = pole_kinds.get(layer)
+            if kind is None:
+                continue
             attrs = dict(obj.get("attributes") or {})
-
-            pole_no = str(attrs.get("_cmb_pole_no") or "").strip().upper()
-            if not pole_no:
-                pos = attrs.get("_cmb_pole_position") or {}
-                if isinstance(pos, dict):
-                    pole_no = str(pos.get("pole_no") or "").strip().upper()
-            if not pole_no:
-                refs = attrs.get("_cmb_pole_refs") or []
-                if isinstance(refs, list):
-                    for ref in refs:
-                        if isinstance(ref, dict) and ref.get("pole_no"):
-                            pole_no = str(ref.get("pole_no") or "").strip().upper()
-                            if pole_no:
-                                break
-
-            source_fields = attrs.get("fields") if isinstance(attrs.get("fields"), dict) else attrs
-            source_id = ""
-            if isinstance(source_fields, dict):
-                source_id = str(source_fields.get("ID") or source_fields.get("id") or "").strip()
-            source_id = source_id.strip("() ").upper()
-
-            display_no = pole_no or source_id
-
-            obj["attributes"] = (
-                {"_cmb_pole_no": display_no}
-                if display_no else {}
-            )
+            candidates = []
+            for value in (
+                attrs.get("_cmb_pole_no"),
+                (attrs.get("_cmb_pole_position") or {}).get("pole_no")
+                if isinstance(attrs.get("_cmb_pole_position"), dict) else None,
+            ):
+                if value:
+                    candidates.append(str(value).strip().upper())
+            for ref in attrs.get("_cmb_pole_refs") or []:
+                if isinstance(ref, dict) and ref.get("pole_no"):
+                    candidates.append(str(ref["pole_no"]).strip().upper())
+            fields = attrs.get("fields") if isinstance(attrs.get("fields"), dict) else attrs
+            if isinstance(fields, dict):
+                for key in ("POLE_NO", "pole_no", "전주번호", "NO", "ID", "id"):
+                    if fields.get(key):
+                        candidates.append(str(fields[key]).strip().upper())
+            full = next((v for v in candidates if valid_pole_no.fullmatch(v)), None)
+            if full is None:
+                invalid.append((layer, str(candidates[:3])))
+                continue
+            obj["attributes"] = {"_cmb_pole_no": full, "_cmb_pole_type": kind}
             obj["xdata"] = {}
-            # POLE 렌더링은 group/Point geometry 기준이므로 블록 상세는 저장하지 않는다.
             obj["block_name"] = ""
-
+            kept.append(obj)
+        if invalid:
+            preview = "; ".join(f"{layer}: {values}" for layer, values in invalid[:5])
+            raise RuntimeError(
+                f"POLE 업로드 중단: 전체 전주번호(0000X + 개별번호)가 없는 "
+                f"전주 {len(invalid)}개가 발견되었습니다. 예: {preview}. "
+                "전주 번호 추출/관리구역 매핑을 수정한 후 다시 업로드하세요. "
+                "기존 서버 전주 데이터는 변경되지 않았습니다."
+            )
+        payload["objects"] = kept
+        payload["object_count"] = len(kept)
         payload["symbol_library"] = []
         payload["symbol_count"] = 0
-        payload["pole_storage_schema"] = "minimal-v1"
+        payload["pole_storage_schema"] = "typed-full-number-v2"
 
     canonical_v2 = json.dumps(
         payload,
