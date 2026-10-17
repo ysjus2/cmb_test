@@ -853,7 +853,7 @@ if __name__ == "__main__":
             import pyproj
             from online_viewer import html
             from admin_upload import classify_entity
-            from pole_grid_resolver import resolve_pole_numbers
+            from admin_upload import resolve_pole_numbers
             from types import SimpleNamespace
             output = Path(sys.argv[sys.argv.index("--build-smoke-test") + 1]).resolve()
             smoke_root = tk.Tk()
