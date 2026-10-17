@@ -789,7 +789,7 @@ def build_payload(scene, source_path, group, epsg, region_code, memo=""):
     if str(group or "").upper() == "POLE":
         # Match the ACTIVE Ubuntu POLE validation exactly; nonconforming original IDs
         # stay in the local exclusion report instead of aborting the transaction.
-        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9]{3,27}$")
+        valid_pole_no = re.compile(r"^[0-9]{4}[A-Z].+$", re.DOTALL)
         pole_kinds = {
             "CN_L_POLE_POLE-JOINT": "JOINT",
             "CN_L_POLE_POLE-JOINT-TRS": "TRS",
@@ -2090,8 +2090,8 @@ No geometry-based guess, nearby poles, or Polemap polygon inference is used.
 """
 
 GRID = re.compile(r"^[0-9]{4}[A-Z]$")
-FULL = re.compile(r"^[0-9]{4}[A-Z][A-Z0-9]{3,27}$")
-LOCAL = re.compile(r"^[A-Z0-9][A-Z0-9-]{0,63}$")
+FULL = re.compile(r"^[0-9]{4}[A-Z].+$", re.DOTALL)
+LOCAL = re.compile(r"^.+$", re.DOTALL)
 POLES = {
     "CN_L_POLE_POLE-JOINT",
     "CN_L_POLE_POLE-JOINT-TRS",
@@ -2145,7 +2145,7 @@ def resolve_pole_numbers(scene):
         if FULL.fullmatch(local):
             resolved[e.handle] = local
             continue
-        if not local or local == "-" or not LOCAL.fullmatch(local):
+        if not local or not LOCAL.fullmatch(local):
             reason="id_missing_or_invalid"
         else:
             grids = _grid_values(e)
