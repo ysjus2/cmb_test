@@ -40,7 +40,10 @@ assert classify_entity(_e("CN_C_CABLE")) == "COAX"
 assert classify_entity(_e("CN_C_AMP")) == "COAX"
 assert classify_entity(_e("CN_F_CABLE")) == "FIBER"
 assert classify_entity(_e("CONDUIT_MAIN")) == "CONDUIT"
-assert classify_entity(_e("CN_L_POLE")) == "POLE"
+assert classify_entity(_e("CN_L_POLE_POLE-JOINT")) == "POLE"
+assert classify_entity(_e("CN_L_POLE_POLE-JOINT-TRS")) == "POLE"
+assert classify_entity(_e("CN_L_POLE_POLE-CATV")) == "POLE"
+assert classify_entity(_e("CN_L_POLE_POLE-DROP")) is None
 assert classify_entity(_e("CN_L_POLEMAP_BOUND", entity_type="LWPOLYLINE")) is None
 assert classify_entity(_e("CN_L_POLE_ID", entity_type="ATTRIB")) is None
 assert classify_entity(_e("CN_M_USER_TEST")) is None
@@ -859,7 +862,7 @@ assert 'GROUPS = ("FIBER", "COAX", "CONDUIT", "POLE", "USER")' in admin_upload_s
 assert 'MANAGED_ITEMS = GROUPS' in admin_upload_source
 assert 'text="광 + 동축 + 관로 업로드"' in admin_upload_source
 assert 'or layer.startswith("CN_L_POLEMAP_")' in admin_upload_source
-assert 'entity_type == "INSERT" and (actual_pole_layer or actual_pole_block)' in admin_upload_source
+assert 'entity_type == "INSERT" and layer in actual_pole_layers' in admin_upload_source
 assert "def build_polemap_payload(" in admin_upload_source
 assert '"CN_L_POLEMAP_BOUND"' in admin_upload_source
 assert '"CN_L_POLEMAP_IDXMAIN"' in admin_upload_source
