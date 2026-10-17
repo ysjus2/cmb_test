@@ -788,17 +788,20 @@ assert 'feature_id = str(feature.get("id") or "").strip()' in online_source
 assert "if feature_id:" in online_source
 assert "ident = feature_id" in online_source
 upload_source = (root / "admin_upload.py").read_text(encoding="utf-8")
-assert 'payload["pole_storage_schema"] = "minimal-v1"' in upload_source
-assert 'obj["attributes"] = (' in upload_source
-assert '{"_cmb_pole_no": display_no}' in upload_source
+assert 'payload["pole_storage_schema"] = "typed-full-number-v2"' in upload_source
+assert '"_cmb_pole_no": full' in upload_source
+assert '"_cmb_pole_grid": full[:5]' in upload_source
+assert '"_cmb_pole_local": full[5:]' in upload_source
+assert '"_cmb_pole_type": kind' in upload_source
 assert 'obj["xdata"] = {}' in upload_source
 assert 'payload["symbol_library"] = []' in upload_source
 assert "if(String(p.group_id||'').toUpperCase()==='POLE')" in online_source
 assert "add('전주번호',poleNo);" in online_source
 assert "if(polePos.grid_id)add('전주 격자정보(상세)',polePos.grid_id);" not in online_source
-assert 'layer.startswith("CN_L_POLE_POLE")' in upload_source
-assert 'block.startswith("POLE")' in upload_source
-assert 'display_no = pole_no or source_id' in upload_source
+assert '"CN_L_POLE_POLE-JOINT"' in upload_source
+assert '"CN_L_POLE_POLE-JOINT-TRS"' in upload_source
+assert '"CN_L_POLE_POLE-CATV"' in upload_source
+assert 'layer in actual_pole_layers' in upload_source
 print("ALL_POLE_SYMBOLS_WITH_DISPLAY_NUMBER_OK")
 print("MINIMAL_POLE_STORAGE_AND_DETAIL_OK")
 print("SERVER_FEATURE_ID_DEDUPE_OK")
