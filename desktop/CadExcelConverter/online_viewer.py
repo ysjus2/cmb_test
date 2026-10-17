@@ -2168,8 +2168,8 @@ function drawDevice(center,props){{
     const baseFont=(kind==='fiber_net')?6.6:(isRn?9:10);
     const fontPx=Math.max(kind==='fiber_net'?5:8,Math.round(baseFont*(d._scale||1)));
     const transform=isRn
-      ? 'translate(-50%,-180%)'
-      : ('translate(-50%,-50%)'+(isRotatingLabel?' rotate('+deg+'deg)':''));
+      ? 'translateY(-130%)'
+      : (isRotatingLabel ? 'rotate('+deg+'deg)' : 'none');
     const label=new kakao.maps.CustomOverlay({{
       position:center,
       content:'<div style="white-space:nowrap;font:700 '+fontPx+'px Malgun Gothic;color:'+esc(d.labelColor||'#00363a')+';transform:'+transform+';transform-origin:center center;pointer-events:none">'+esc(labelText)+'</div>',
