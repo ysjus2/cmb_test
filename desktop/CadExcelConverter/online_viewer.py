@@ -3764,7 +3764,8 @@ function doViewerSearch(){{
     if(!cell){{setStatus('고유 셀번호 영문/숫자 4자리를 입력하세요 (예: A925 또는 광주@4158)');return;}}
     apiCall('indexed_search',{{kind:'cell',number:cell[1].toUpperCase()}}).then(r=>{{
       if(!r.ok){{setStatus(r.error||'셀번호 검색 실패');return;}}
-      searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||cell[1])+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||cell[1]))}})));
+      const results=(r.items||[]).filter(x=>Number.isFinite(Number(x.lon))&&Number.isFinite(Number(x.lat))).map(x=>({{label:String(x.label||x.number||cell[1])+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||cell[1]))}}));
+      if(results.length===1)results[0].pick();else searchResults(results);
     }}).catch(e=>setStatus('셀번호 검색 오류 · '+e.message));
     return;
   }}
@@ -3775,7 +3776,8 @@ function doViewerSearch(){{
     if(!/^\\d{{4}}[A-Z][A-Z0-9]{{0,12}}$/.test(poleNo)){{setStatus('전주번호는 0000X 또는 전체번호를 입력하세요');return;}}
     apiCall('indexed_search',{{kind:'pole',number:poleNo}}).then(r=>{{
       if(!r.ok){{setStatus(r.error||'전주 좌표 검색 실패');return;}}
-      searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||poleNo)+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||poleNo))}})));
+      const results=(r.items||[]).filter(x=>Number.isFinite(Number(x.lon))&&Number.isFinite(Number(x.lat))).map(x=>({{label:String(x.label||x.number||poleNo)+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||poleNo))}}));
+      if(results.length===1)results[0].pick();else searchResults(results);
     }}).catch(e=>setStatus('전주 좌표 검색 오류 · '+e.message));
     return;
   }}
