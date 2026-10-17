@@ -879,7 +879,7 @@ print("POLEMAP_LIGHTWEIGHT_UPLOAD_OK")
 
 # 모든 업로드 객체는 원본 CAD의 한전주 위치코드를 직접 보존해야 한다.
 assert '_UPLOAD_POLE_CODE_RE = re.compile(' in admin_upload_source
-assert r'\d{4}[A-Za-z]\d{3}' in admin_upload_source
+assert r'\d{4}[A-Za-z][A-Za-z0-9]{3,27}' in admin_upload_source
 assert 'def _upload_pole_refs(e):' in admin_upload_source
 assert 'attrs["_cmb_pole_refs"] = pole_refs' in admin_upload_source
 assert 'attrs["_cmb_pole_no"] = pole_refs[0]["pole_no"]' in admin_upload_source
