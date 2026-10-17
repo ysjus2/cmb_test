@@ -87,18 +87,32 @@ def resolve_pole_numbers(scene):
             ambiguities+=1
     valid=[z for z in polygons if len(z["labels"])==1]
     resolved={}; failed=0; already=0
+    reasons={"local_missing":0,"anchor_missing":0,"outside_grid":0,"multiple_grids":0}
+    samples={k:[] for k in reasons}
     for e in scene.entities:
         if str(e.layer or "").upper() not in POLES or str(e.entity_type).upper()!="INSERT":continue
         token=_local(e)
-        if token is None: failed+=1;continue
+        if token is None:
+            failed+=1; reasons["local_missing"]+=1
+            if len(samples["local_missing"])<3:
+                samples["local_missing"].append({"handle":e.handle,"attrs":str(getattr(e,"attributes",{}))[:350],"text":str(getattr(e,"text",""))[:100]})
+            continue
         if FULL.fullmatch(token): resolved[e.handle]=token;already+=1;continue
         p=_anchor(e)
-        if p is None:failed+=1;continue
+        if p is None:
+            failed+=1; reasons["anchor_missing"]+=1
+            if len(samples["anchor_missing"])<3:samples["anchor_missing"].append({"handle":e.handle})
+            continue
         matches=[z for z in valid if _in_box(p,z["box"]) and _inside(p,z["pts"])]
-        if len(matches)!=1: failed+=1;continue
+        if len(matches)!=1:
+            failed+=1; why="outside_grid" if not matches else "multiple_grids"
+            reasons[why]+=1
+            if len(samples[why])<3:samples[why].append({"handle":e.handle,"local":token,"point":p,"grids":[list(z["labels"]) for z in matches[:3]]})
+            continue
         grid=next(iter(matches[0]["labels"]))
         resolved[e.handle]=grid+token
     stats={"boundaries":len(polygons),"labeled_boundaries":len(valid),
            "labels_mapped":labels,"labels_ambiguous":ambiguities,
-           "resolved":len(resolved),"already_full":already,"unresolved":failed}
+           "resolved":len(resolved),"already_full":already,"unresolved":failed,
+           "reasons":reasons,"samples":samples}
     return resolved,stats
