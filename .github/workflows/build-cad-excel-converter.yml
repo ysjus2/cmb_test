@@ -34,7 +34,7 @@ jobs:
         shell: powershell
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
-            --name CMB_DXF_Viewer_Windows_1.0_Rev40 --collect-all pyproj --collect-all ezdxf --collect-all webview `
+            --name CMB_DXF_Viewer_Windows_1.0_Rev40 --hidden-import pole_grid_resolver --collect-all pyproj --collect-all ezdxf --collect-all webview `
             --add-data "cmb_dev_ca.crt;." `
             --exclude-module numpy --exclude-module fontTools main.py
           Get-FileHash dist/CMB_DXF_Viewer_Windows_1.0_Rev40.exe -Algorithm SHA256
