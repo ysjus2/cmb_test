@@ -808,7 +808,7 @@ class Api:
                 return {"ok": False, "error": "지원하지 않는 검색 유형"}
             if kind == "cell" and (len(number) != 4 or not number.isascii() or not number.isalnum()):
                 return {"ok": False, "error": "셀번호는 영문/숫자 4자리여야 합니다."}
-            if kind == "pole" and (len(number) < 5 or len(number) > 17 or not number.isascii() or not number[:4].isdigit() or not number[4].isalpha() or not number[5:].isalnum()):
+            if kind == "pole" and (len(number) < 5 or len(number) > 17 or not number.isascii() or not number[:4].isdigit() or not number[4].isalpha() or (len(number) > 5 and not number[5:].isalnum())):
                 return {"ok": False, "error": "전주번호는 0000X 또는 전체 전주번호여야 합니다."}
             query = urllib.parse.urlencode({"kind": kind, "number": number})
             response = self.c._request("GET", "/online/coordinate-search?" + query, timeout=20)
