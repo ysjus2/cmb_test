@@ -798,6 +798,30 @@ class Api:
         except Exception as exc:
             return self._handle_error(exc)
 
+    def indexed_search(self, kind, number):
+        """Authorized coordinate index lookup; requires server-side API deployment."""
+        try:
+            import urllib.parse
+            kind = str(kind or "").lower().strip()
+            number = str(number or "").strip().upper()
+            if kind not in {"cell", "pole"}:
+                return {"ok": False, "error": "지원하지 않는 검색 유형"}
+            if kind == "cell" and (not number.isdigit() or len(number) != 4):
+                return {"ok": False, "error": "셀번호는 4자리 숫자여야 합니다."}
+            if kind == "pole" and (len(number) != 5 or not number[:4].isdigit() or not number[4:].isalpha()):
+                return {"ok": False, "error": "전주번호는 0000X 형식이어야 합니다."}
+            query = urllib.parse.urlencode({"kind": kind, "number": number})
+            response = self.c._request("GET", "/online/coordinate-search?" + query, timeout=20)
+            if not isinstance(response, dict):
+                return {"ok": False, "error": "서버 검색 응답 형식 오류"}
+            return {"ok": True, "items": response.get("items") or []}
+        except ServerError as exc:
+            if exc.status == 404:
+                return {"ok": False, "error": "서버 셀·전주 좌표 검색 API 미설치: 서버 검색 인덱스 적용이 필요합니다."}
+            return self._handle_error(exc)
+        except Exception as exc:
+            return self._handle_error(exc)
+
     def regions(self):
         try:
             raw = self.c.regions() or []
@@ -1275,7 +1299,7 @@ html,body,#map,#roadview{{width:100%;height:100%;margin:0;font-family:'Malgun Go
   </div>
 </div>
 
-<div id='searchPanel'><div style='display:flex;gap:4px'><select id='searchType'><option value='region'>지역</option><option value='address'>주소</option><option value='pole'>전주</option><option value='device'>기기</option><option value='coordinate'>좌표</option></select><input id='searchValue' style='flex:1;min-width:80px' placeholder='도로명주소 또는 지번'><button id='searchGo'>검색</button><button id='searchClose' title='검색표시 삭제'>×</button></div><div id='searchResults'></div></div>
+<div id='searchPanel'><div style='display:flex;gap:4px'><select id='searchType'><option value='region'>지역</option><option value='cell'>셀</option><option value='address'>주소</option><option value='pole'>전주</option><option value='device'>기기</option><option value='coordinate'>좌표</option></select><input id='searchValue' style='flex:1;min-width:80px' placeholder='도로명주소 또는 지번'><button id='searchGo'>검색</button><button id='searchClose' title='검색표시 삭제'>×</button></div><div id='searchResults'></div></div>
 <div id='detail'></div>
 
 <script>
@@ -3734,8 +3758,26 @@ function doViewerSearch(){{
       }});
     }});return;
   }}
+  if(kind==='cell'){{
+    const cell=q.match(/^(?:\\[?(?:장애|복구)\\]?\\s*)?(?:[가-힣]+@?)?(\\d{{4}})$/);
+    if(!cell){{setStatus('고유 셀번호 4자리를 입력하세요 (예: 2026 또는 광주@4158)');return;}}
+    apiCall('indexed_search',{{kind:'cell',number:cell[1]}}).then(r=>{{
+      if(!r.ok){{setStatus(r.error||'셀번호 검색 실패');return;}}
+      searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||cell[1])+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||cell[1]))}})));
+    }}).catch(e=>setStatus('셀번호 검색 오류 · '+e.message));
+    return;
+  }}
   const up=q.toUpperCase();
   if(kind==='pole'&&q.length<5){{setStatus('전주번호 앞 5자리(예: 1234X) 이상 입력하세요');return;}}
+  if(kind==='pole'){{
+    const prefix=q.slice(0,5).toUpperCase();
+    if(!/^\\d{{4}}[A-Z]$/.test(prefix)){{setStatus('전주번호 앞 5자리 형식은 0000X입니다 (예: 1234X)');return;}}
+    apiCall('indexed_search',{{kind:'pole',number:prefix}}).then(r=>{{
+      if(!r.ok){{setStatus(r.error||'전주 좌표 검색 실패');return;}}
+      searchResults((r.items||[]).map(x=>({{label:String(x.label||x.number||prefix)+' · '+String(x.region||''),pick:()=>searchShowFeature({{geometry:{{type:'Point',coordinates:[Number(x.lon),Number(x.lat)]}}}},String(x.label||prefix))}})));
+    }}).catch(e=>setStatus('전주 좌표 검색 오류 · '+e.message));
+    return;
+  }}
   const pool=kind==='device'?[...searchCandidates,...currentFiberSearchFeatures]:searchCandidates;
   const items=pool.filter(f=>{{
     const p=f.properties||{{}};const group=String(p.group_id||'').toUpperCase();
@@ -3753,7 +3795,7 @@ function doViewerSearch(){{
 }}
 function bindViewerSearch(){{
   document.getElementById('searchType').addEventListener('change',e=>{{
-    const placeholders={{region:'지역명 또는 지역코드',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
+    const placeholders={{region:'지역명 또는 지역코드',cell:'고유 셀번호 4자리 (예: 2026)',address:'도로명주소 또는 지번',pole:'전주 앞 5자리 1234X',device:'기기·객체ID·케이블번호',coordinate:'경도, 위도'}};
     document.getElementById('searchValue').placeholder=placeholders[e.target.value];
     document.getElementById('searchResults').textContent='';
   }});
@@ -3964,6 +4006,8 @@ def run_online_viewer():
                     result = {"ok": True, "level": int((api.user or {}).get("level") or 0)}
                 elif name == "save_region_center":
                     result = api.save_region_center(data.get("region"), data.get("lat"), data.get("lng"))
+                elif name == "indexed_search":
+                    result = api.indexed_search(data.get("kind"), data.get("number"))
                 elif name == "select":
                     result = api.select(data.get("region"), preserve_position=bool(data.get("preserve_position")))
                 elif name == "fiber_cached":
