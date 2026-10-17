@@ -3712,13 +3712,13 @@ function searchPoleNumber(f){{
   const a=p.attributes||{{}};const fields=a.fields||a;
   return String(f._cmb_pole_no||(f._cmb_pole_position||{{}}).pole_no||p._cmb_pole_no||(p._cmb_pole_position||{{}}).pole_no||fields.POLE_NO||fields.POLE_CODE||fields['전주번호']||'').trim();
 }}
-function searchShowFeature(f,label){{
+function searchShowFeature(f,label,keepRegion=false){{
   const pos=searchPosition(f);
   if(!pos){{setStatus('선택 객체의 좌표가 없습니다');return;}}
   clearSearchUi();
   // The previous office/network is never pinned to an address search result.
   // Hide its overlays before navigating; stale network responses are invalidated.
-  if(activeRegionId||regionSwitching){{
+  if(!keepRegion&&(activeRegionId||regionSwitching)){{
     regionSwitchGeneration++;
     regionSwitching=false;
     clearOverlays();
@@ -3840,7 +3840,7 @@ function doViewerSearch(){{
   }}).map(f=>{{
     const p=f.properties||{{}};
     const label=kind==='pole'?searchPoleNumber(f):String(p.regional_object_id||p.source_handle||p.entity_id||p.block_name||'기기');
-    return {{label:label||'번호 미등록',pick:()=>searchShowFeature(f,label)}};
+    return {{label:label||'번호 미등록',pick:()=>searchShowFeature(f,label,true)}};
   }});
   searchResults(items);
 }}
@@ -3849,6 +3849,7 @@ function updateDeviceSearchState(){{
   if(!type||!input)return;
   const waiting=type.value==='device'&&(!activeRegionId||regionSwitching||!searchLoadReady);
   input.disabled=waiting;
+  if(!waiting&&type.value==='device')input.placeholder='기기명·케이블명·객체ID';
   const button=document.getElementById('searchGo');
   if(button)button.disabled=waiting;
   if(waiting){{
@@ -3880,8 +3881,8 @@ function initMap(){{
         level:3
       }});
       kakao.maps.event.addListener(map,'idle',()=>{{
-        // Do not retain stale address/region search results after a map move.
-        clearSearchUi();
+        // Keep the pinpoint visible after a programmatic search/map move.
+        document.getElementById('searchResults').textContent='';
         // Immediately hide stale drawings when moving beyond the loaded-region bbox.
         // Coordinate verification and server fetch follow the brief debounce.
         if(activeRegionId&&!regionSwitching){{
